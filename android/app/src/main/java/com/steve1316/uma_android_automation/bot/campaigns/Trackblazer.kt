@@ -1199,6 +1199,7 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
 
             bIsIrregularTraining = false
+            training.firstTrainingCheck = false
             return
         }
 
@@ -1256,6 +1257,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         // Final Training Execution.
         if (trainingSelected != null) {
             training.executeTraining(trainingSelected)
+            training.firstTrainingCheck = false
         } else {
             MessageLog.i(TAG, "[TRACKBLAZER] Still no suitable training found. Backing out to rest/recollect.")
             ButtonBack.click(game.imageUtils)
