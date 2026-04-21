@@ -59,6 +59,7 @@ import com.steve1316.uma_android_automation.types.BoundingBox
 import com.steve1316.uma_android_automation.types.DateMonth
 import com.steve1316.uma_android_automation.types.DatePhase
 import com.steve1316.uma_android_automation.types.DateYear
+import com.steve1316.uma_android_automation.types.RaceGrade
 import com.steve1316.uma_android_automation.types.FanCountClass
 import com.steve1316.uma_android_automation.types.GameDate
 import com.steve1316.uma_android_automation.types.Mood
@@ -626,9 +627,9 @@ abstract class Campaign(game: Game) : Task(game) {
     /**
      * Returns the list of race grades that are eligible for retries.
      *
-     * @return The list of eligible [Racing.RaceGrade] values, or empty if no retries are allowed.
+     * @return The list of eligible [RaceGrade] values, or empty if no retries are allowed.
      */
-    open fun getRetryEligibleGrades(): List<Racing.RaceGrade> = emptyList()
+    open fun getRetryEligibleGrades(): List<RaceGrade> = emptyList()
 
     /**
      * Executes logic at the very beginning of [handleMainScreen].

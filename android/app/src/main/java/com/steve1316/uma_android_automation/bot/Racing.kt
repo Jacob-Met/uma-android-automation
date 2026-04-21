@@ -2817,18 +2817,16 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                 campaign.updateDate(isOnMainScreen = false)
             }
 
-            // For scheduled races, we still want to detect the grade to determine when to check the Shop during Trackblazer.
-            if (game.scenario == "Trackblazer") {
-                val doublePredictionLocations = IconRaceListPredictionDoubleStar.findAll(game.imageUtils)
-                if (doublePredictionLocations.isNotEmpty()) {
-                    val raceName = game.imageUtils.extractRaceName(doublePredictionLocations[0])
-                    val raceDataList = lookupRaceInDatabase(campaign.date.day, raceName)
-                    if (raceDataList.isNotEmpty()) {
-                        lastRaceGrade = raceDataList[0].grade
-                        lastRaceFans = raceDataList[0].fans
-                        lastRaceDistance = raceDataList[0].trackDistance
-                        MessageLog.i(TAG, "[RACE] Detected scheduled race grade: $lastRaceGrade for Trackblazer Shop logic.")
-                    }
+            // Detect the grade of the scheduled race from double predictions on the race list.
+            val doublePredictionLocations = IconRaceListPredictionDoubleStar.findAll(game.imageUtils)
+            if (doublePredictionLocations.isNotEmpty()) {
+                val raceName = game.imageUtils.extractRaceName(doublePredictionLocations[0])
+                val raceDataList = lookupRaceInDatabase(campaign.date.day, raceName)
+                if (raceDataList.isNotEmpty()) {
+                    lastRaceGrade = raceDataList[0].grade
+                    lastRaceFans = raceDataList[0].fans
+                    lastRaceDistance = raceDataList[0].trackDistance
+                    MessageLog.i(TAG, "[RACE] Detected scheduled race grade: $lastRaceGrade.")
                 }
             }
 

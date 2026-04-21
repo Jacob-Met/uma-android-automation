@@ -457,13 +457,13 @@ class Trackblazer(game: Game) : Campaign(game) {
 
     override fun getMaxRaceRetries(): Int = 5
 
-    override fun getRetryEligibleGrades(): List<Racing.RaceGrade> =
+    override fun getRetryEligibleGrades(): List<RaceGrade> =
         try {
             val gradesString = SettingsHelper.getStringSetting("scenarioOverrides", "trackblazerRetryRacesBeforeFinalGrades", "[\"G1\",\"G2\",\"G3\"]")
             val jsonArray = JSONArray(gradesString)
-            (0 until jsonArray.length()).mapNotNull { Racing.RaceGrade.fromName(jsonArray.getString(it)) }
+            (0 until jsonArray.length()).mapNotNull { RaceGrade.fromName(jsonArray.getString(it)) }
         } catch (e: Exception) {
-            listOf(Racing.RaceGrade.G1, Racing.RaceGrade.G2, Racing.RaceGrade.G3)
+            listOf(RaceGrade.G1, RaceGrade.G2, RaceGrade.G3)
         }
 
     override fun onConsecutiveRaceWarningDetected(dialog: DialogInterface, args: Map<String, Any>) {
