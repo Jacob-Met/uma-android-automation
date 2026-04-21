@@ -301,7 +301,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
     companion object {
         /** The logging tag for this class. */
-        private val TAG: String = "[${MainActivity.loggerTag}]Training"
+        internal val TAG: String = "[${MainActivity.loggerTag}]Training"
 
         /**
          * Retrieve the scenario-specific cap for a given stat.
@@ -1177,9 +1177,8 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
                 // Unified approach: always use result object and start threads the same way.
                 // Use CountDownLatch to run the operations in parallel to cut down on processing time.
-                // Note: For parallel processing, Spirit Explosion Gauge is handled synchronously for Unity Cup, so latch count is 4.
-                // For singleTraining, Spirit Explosion Gauge runs in a thread for Unity Cup, so latch count is 5.
-                val latch = CountDownLatch(if (singleTraining && game.scenario == "Unity Cup") 5 else 4)
+                // The 5th slot is for scenario-specific extra analysis via runExtraTrainingAnalysis().
+                val latch = CountDownLatch(5)
 
                 // Create result object to store analysis state.
                 val result =
@@ -1189,21 +1188,9 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                         startTime = startTime,
                     )
 
-                // For Unity Cup in parallel mode, run Spirit Explosion Gauge analysis synchronously before moving to next training.
-                // This ensures if retry is needed, it can take a new screenshot while still on the correct training.
-                // For singleTraining mode, handle it in a thread like the other analyses.
-                if (game.scenario == "Unity Cup" && BotService.isRunning && !singleTraining) {
-                    val startTimeSpiritGauge = System.currentTimeMillis()
-                    val gaugeResult = game.imageUtils.analyzeSpiritExplosionGauges(sourceBitmap)
-                    if (gaugeResult != null) {
-                        result.numSpiritGaugesCanFill = gaugeResult.numGaugesCanFill
-                        result.numSpiritGaugesReadyToBurst = gaugeResult.numGaugesReadyToBurst
-                    } else {
-                        result.numSpiritGaugesCanFill = 0
-                        result.numSpiritGaugesReadyToBurst = 0
-                    }
-                    Log.d(TAG, "[DEBUG] analyzeTrainings:: Total time to analyze Spirit Explosion Gauge for $statName: ${System.currentTimeMillis() - startTimeSpiritGauge}ms")
-                }
+                // Run scenario-specific extra analysis (e.g. Unity Cup spirit gauge analysis).
+                // In parallel mode, this runs synchronously. In singleTraining mode, the scenario may start a thread.
+                runExtraTrainingAnalysis(result, sourceBitmap, singleTraining)
 
                 // Check if bot is still running before starting parallel threads.
                 if (!BotService.isRunning) {
@@ -1293,27 +1280,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                         Log.d(TAG, "[DEBUG] analyzeTrainings:: Total time to detect skill hints for $statName: ${elapsedTime}ms")
                     }
                 }.start()
-
-                // Thread 5: Analyze Spirit Explosion Gauges (Unity Cup only, singleTraining mode only).
-                if (game.scenario == "Unity Cup" && singleTraining) {
-                    Thread {
-                        val startTimeSpiritGauge = System.currentTimeMillis()
-                        try {
-                            val gaugeResult = game.imageUtils.analyzeSpiritExplosionGauges(sourceBitmap)
-                            if (gaugeResult != null) {
-                                result.numSpiritGaugesCanFill = gaugeResult.numGaugesCanFill
-                                result.numSpiritGaugesReadyToBurst = gaugeResult.numGaugesReadyToBurst
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "[ERROR] analyzeTrainings:: Error in Spirit Explosion Gauge analysis: ${e.stackTraceToString()}")
-                            result.numSpiritGaugesCanFill = 0
-                            result.numSpiritGaugesReadyToBurst = 0
-                        } finally {
-                            latch.countDown()
-                            Log.d(TAG, "[DEBUG] analyzeTrainings:: Total time to analyze Spirit Explosion Gauge for $statName: ${System.currentTimeMillis() - startTimeSpiritGauge}ms")
-                        }
-                    }.start()
-                }
 
                 // Branch on singleTraining vs parallel processing.
                 if (singleTraining) {
@@ -1853,6 +1819,19 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         } else {
             calculateRawTrainingScore(config, option)
         }
+    }
+
+    /**
+     * Runs any scenario-specific extra analysis during training analysis.
+     * Called once per training stat during [analyzeTrainings]. The implementation must call
+     * `result.latch.countDown()` when finished, either synchronously or from a spawned thread.
+     *
+     * @param result The analysis result object to populate with extra data.
+     * @param sourceBitmap The current screenshot bitmap.
+     * @param singleTraining Whether only a single training is being analyzed.
+     */
+    open fun runExtraTrainingAnalysis(result: TrainingAnalysisResult, sourceBitmap: Bitmap, singleTraining: Boolean) {
+        result.latch.countDown()
     }
 
     /**
