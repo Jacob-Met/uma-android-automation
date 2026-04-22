@@ -5,6 +5,7 @@ import android.util.Log
 import com.steve1316.automation_library.utils.MessageLog
 import com.steve1316.automation_library.utils.SettingsHelper
 import com.steve1316.uma_android_automation.bot.Campaign
+import com.steve1316.uma_android_automation.bot.Racing
 import com.steve1316.uma_android_automation.bot.DialogHandlerResult
 import com.steve1316.uma_android_automation.bot.Game
 import com.steve1316.uma_android_automation.bot.MainScreenAction
@@ -43,6 +44,9 @@ import com.steve1316.uma_android_automation.types.TrackDistance
 import com.steve1316.uma_android_automation.types.TrackSurface
 import com.steve1316.uma_android_automation.types.TrackblazerShopList
 import com.steve1316.uma_android_automation.types.Trainee
+import com.steve1316.uma_android_automation.components.IconRaceListPredictionDoubleStar
+import com.steve1316.uma_android_automation.components.LabelRivalRacer
+import com.steve1316.uma_android_automation.utils.ScrollList
 import com.steve1316.uma_android_automation.utils.ScrollListEntry
 import org.json.JSONArray
 import org.opencv.core.Point
@@ -272,7 +276,7 @@ class Trackblazer(game: Game) : Campaign(game) {
             updateDate(isOnMainScreen = false)
 
             MessageLog.i(TAG, "[TEST] Currently on Race List screen. Calling findSuitableRace($consecutiveRaceCount)...")
-            val result = racing.findSuitableRace(consecutiveRaceCount, preferredDistances, preferredSurfaces)
+            val result = racing.findSuitableRace(mapOf("consecutiveRaceCount" to consecutiveRaceCount, "preferredDistances" to preferredDistances, "preferredSurfaces" to preferredSurfaces))
 
             if (result != null) {
                 val (point, raceData) = result
@@ -466,6 +470,210 @@ class Trackblazer(game: Game) : Campaign(game) {
             listOf(RaceGrade.G1, RaceGrade.G2, RaceGrade.G3)
         }
 
+    @Suppress("UNCHECKED_CAST")
+    override fun findSuitableRace(racing: Racing, args: Map<String, Any?>): Pair<Point, Racing.RaceData>? {
+        val consecutiveRaceCount = args["consecutiveRaceCount"] as? Int ?: 0
+        val preferredDistances = args["preferredDistances"] as? List<TrackDistance> ?: emptyList()
+        val preferredSurfaces = args["preferredSurfaces"] as? List<TrackSurface> ?: emptyList()
+
+        val sb = StringBuilder()
+        sb.appendLine("\n========== Trackblazer Race Selection Analysis ==========")
+        sb.appendLine("Current Date: ${date}")
+        sb.appendLine("Consecutive Race Count: $consecutiveRaceCount")
+
+        data class Candidate(val point: Point, val race: Racing.RaceData, val detectedName: String, val isRival: Boolean)
+
+        val allSuitableRaces = mutableListOf<Candidate>()
+
+        val scrollList = ScrollList.create(game)
+        if (scrollList != null) {
+            MessageLog.i(TAG, "[RACE] Scanning the whole race list for suitable races...")
+            val entryRaceNamesMap = mutableMapOf<Int, List<String>>()
+            scrollList.process(
+                keyExtractor = { entry ->
+                    val doubleStarPredictions = IconRaceListPredictionDoubleStar.findAll(game.imageUtils, sourceBitmap = entry.bitmap, region = intArrayOf(0, 0, 0, 0))
+                    val names =
+                        doubleStarPredictions.map { predictionLocation ->
+                            val screenPoint = Point(entry.bbox.x + predictionLocation.x, entry.bbox.y + predictionLocation.y)
+                            game.imageUtils.extractRaceName(screenPoint)
+                        }
+                    if (names.isNotEmpty()) entryRaceNamesMap[entry.index] = names
+                    if (names.isEmpty()) null else names.joinToString("|")
+                },
+            ) { _, entry ->
+                val doubleStarPredictions = IconRaceListPredictionDoubleStar.findAll(game.imageUtils, sourceBitmap = entry.bitmap, region = intArrayOf(0, 0, 0, 0))
+                val cachedNames = entryRaceNamesMap[entry.index] ?: emptyList()
+                for ((idx, predictionLocation) in doubleStarPredictions.withIndex()) {
+                    val rivalBitmap =
+                        game.imageUtils.createSafeBitmap(
+                            entry.bitmap,
+                            game.imageUtils.relX(predictionLocation.x, -165),
+                            game.imageUtils.relY(predictionLocation.y, -165),
+                            game.imageUtils.relWidth(340),
+                            game.imageUtils.relHeight(80),
+                            "findSuitableRace rival scan",
+                        )
+                    val rivalFound =
+                        rivalBitmap != null &&
+                            LabelRivalRacer.check(game.imageUtils, region = intArrayOf(0, 0, 0, 0), sourceBitmap = rivalBitmap)
+
+                    if (game.debugMode) {
+                        game.imageUtils.saveBitmap(rivalBitmap, "rival_scan_${predictionLocation.x}_${predictionLocation.y}")
+                    }
+
+                    val screenPoint = Point(entry.bbox.x + predictionLocation.x, entry.bbox.y + predictionLocation.y)
+                    val detectedName = if (idx < cachedNames.size) cachedNames[idx] else game.imageUtils.extractRaceName(screenPoint)
+                    val matches = racing.lookupRaceInDatabase(date.day, detectedName)
+
+                    for (race in matches) {
+                        var isSuitable = false
+                        val reasons = mutableListOf<String>()
+                        race.isRival = rivalFound
+
+                        if (date.year == DateYear.JUNIOR) {
+                            if (listOf(RaceGrade.G1, RaceGrade.G2, RaceGrade.G3).contains(race.grade)) {
+                                isSuitable = true
+                            } else {
+                                reasons.add("Junior Year: Grade ${race.grade} is not G1, G2, or G3")
+                            }
+                        } else {
+                            if (consecutiveRaceCount >= 3) {
+                                if (listOf(RaceGrade.G1, RaceGrade.G2, RaceGrade.G3).contains(race.grade)) {
+                                    isSuitable = true
+                                } else {
+                                    reasons.add("Consecutive races >= 3: Grade ${race.grade} is not G1, G2, or G3")
+                                }
+                            } else {
+                                isSuitable = true
+                            }
+                        }
+
+                        if (isSuitable) {
+                            allSuitableRaces.add(Candidate(screenPoint, race, detectedName, rivalFound))
+                            sb.appendLine("\n- Found Suitable Race: \"${race.name}\" (${race.grade}) Rival: $rivalFound")
+                        } else {
+                            sb.appendLine("\n- Ignored Race: \"${race.name}\" (${race.grade}). Reason: ${reasons.joinToString(", ")}")
+                        }
+                    }
+                }
+                false
+            }
+        } else {
+            MessageLog.w(TAG, "[WARN] findSuitableRace:: Failed to create ScrollList. Falling back to single-page detection.")
+            val doubleStarPredictions = IconRaceListPredictionDoubleStar.findAll(game.imageUtils)
+            val sourceBitmap = game.imageUtils.getSourceBitmap()
+            for (location in doubleStarPredictions) {
+                val rivalBitmap =
+                    game.imageUtils.createSafeBitmap(
+                        sourceBitmap,
+                        game.imageUtils.relX(location.x, -165),
+                        game.imageUtils.relY(location.y, -165),
+                        game.imageUtils.relWidth(320),
+                        game.imageUtils.relHeight(80),
+                        "findSuitableRace rival fallback",
+                    )
+                val rivalFound =
+                    rivalBitmap != null &&
+                        LabelRivalRacer.check(game.imageUtils, region = intArrayOf(0, 0, 0, 0), sourceBitmap = rivalBitmap)
+
+                if (game.debugMode) {
+                    game.imageUtils.saveBitmap(rivalBitmap, "rival_fallback_${location.x}_${location.y}")
+                }
+
+                val detectedName = game.imageUtils.extractRaceName(location)
+                val matches = racing.lookupRaceInDatabase(date.day, detectedName)
+
+                for (race in matches) {
+                    var isSuitable = false
+                    val reasons = mutableListOf<String>()
+                    race.isRival = rivalFound
+
+                    if (date.year == DateYear.JUNIOR) {
+                        if (listOf(RaceGrade.G1, RaceGrade.G2, RaceGrade.G3).contains(race.grade)) {
+                            isSuitable = true
+                        } else {
+                            reasons.add("Junior Year: Grade ${race.grade} is not G1, G2, or G3")
+                        }
+                    } else {
+                        if (consecutiveRaceCount >= 3) {
+                            if (listOf(RaceGrade.G1, RaceGrade.G2, RaceGrade.G3).contains(race.grade)) {
+                                isSuitable = true
+                            } else {
+                                reasons.add("Consecutive races >= 3: Grade ${race.grade} is not G1, G2, or G3")
+                            }
+                        } else {
+                            isSuitable = true
+                        }
+                    }
+
+                    if (isSuitable) {
+                        allSuitableRaces.add(Candidate(location, race, detectedName, rivalFound))
+                    }
+                }
+            }
+        }
+
+        if (allSuitableRaces.isEmpty()) {
+            sb.appendLine("\nSummary: No suitable races found after analysis.")
+            sb.appendLine("================================================")
+            MessageLog.v(TAG, sb.toString())
+            return null
+        }
+
+        val gradePriority =
+            mapOf(
+                RaceGrade.G1 to 1,
+                RaceGrade.G2 to 2,
+                RaceGrade.G3 to 3,
+                RaceGrade.OP to 4,
+                RaceGrade.PRE_OP to 5,
+            )
+
+        val sortedRaces =
+            allSuitableRaces.sortedWith(
+                compareByDescending<Candidate> { it.isRival }
+                    .thenByDescending {
+                        val distanceMatch = preferredDistances.isEmpty() || it.race.trackDistance in preferredDistances
+                        val surfaceMatch = preferredSurfaces.isEmpty() || it.race.trackSurface in preferredSurfaces
+                        distanceMatch && surfaceMatch
+                    }
+                    .thenBy { gradePriority[it.race.grade] ?: 99 },
+            )
+        val winner = sortedRaces.first()
+
+        val winnerDistanceMatch = preferredDistances.isEmpty() || winner.race.trackDistance in preferredDistances
+        val winnerSurfaceMatch = preferredSurfaces.isEmpty() || winner.race.trackSurface in preferredSurfaces
+        sb.appendLine("\nSelected Race: ${winner.race.name} (${winner.race.grade}) Rival: ${winner.isRival}")
+        sb.appendLine("Distance: ${winner.race.trackDistance}, Surface: ${winner.race.trackSurface}, Preference Match: ${winnerDistanceMatch && winnerSurfaceMatch}")
+        sb.appendLine("================================================")
+        MessageLog.v(TAG, sb.toString())
+
+        return if (scrollList != null) {
+            MessageLog.i(TAG, "[RACE] Scrolling to selected race: \"${winner.race.name}\"...")
+            var finalWinnerPoint: Point? = null
+            scrollList.process { _, entry ->
+                val stars = IconRaceListPredictionDoubleStar.findAll(game.imageUtils, sourceBitmap = entry.bitmap, region = intArrayOf(0, 0, 0, 0))
+                for (starLoc in stars) {
+                    val screenPoint = Point(entry.bbox.x + starLoc.x, entry.bbox.y + starLoc.y)
+                    val name = game.imageUtils.extractRaceName(screenPoint)
+                    val matches = racing.lookupRaceInDatabase(date.day, name)
+
+                    if (matches.any { it.name == winner.race.name }) {
+                        if (game.debugMode) {
+                            MessageLog.d(TAG, "[DEBUG] Found winner \"${winner.race.name}\" (Detected: \"$name\", Target: \"${winner.detectedName}\")")
+                        }
+                        finalWinnerPoint = screenPoint
+                        return@process true
+                    }
+                }
+                false
+            }
+            if (finalWinnerPoint != null) finalWinnerPoint to winner.race else null
+        } else {
+            winner.point to winner.race
+        }
+    }
+
     override fun onConsecutiveRaceWarningDetected(dialog: DialogInterface, args: Map<String, Any>) {
         val okButtonLocation: Point? = ButtonOk.find(game.imageUtils).first
 
@@ -649,7 +857,7 @@ class Trackblazer(game: Game) : Campaign(game) {
                 return false
             }
 
-            val suitableRaceResult = racing.findSuitableRace(consecutiveRaceCount, preferredDistances, preferredSurfaces)
+            val suitableRaceResult = racing.findSuitableRace(mapOf("consecutiveRaceCount" to consecutiveRaceCount, "preferredDistances" to preferredDistances, "preferredSurfaces" to preferredSurfaces))
             if (suitableRaceResult != null) {
                 val suitableRaceLocation = suitableRaceResult.first
                 val raceData = suitableRaceResult.second
