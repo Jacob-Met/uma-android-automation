@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { View, ScrollView, StyleSheet, TextInput, Text, NativeModules, Pressable } from "react-native"
-import Markdown from "react-native-markdown-display"
+import Markdown, { RenderRules } from "react-native-markdown-display"
 import { useTheme } from "../../context/ThemeContext"
 import CustomButton from "../../components/CustomButton"
 import PageHeader from "../../components/PageHeader"
@@ -161,6 +161,44 @@ const Chat = () => {
         [colors]
     )
 
+    // Custom render rules for markdown elements whose default renderers in `react-native-markdown-display` don't
+    // propagate a `key` to child rows/cells — React warns about missing keys on every table render without this.
+    const markdownRules: RenderRules = useMemo(
+        () => ({
+            table: (node, children, _parent, styles) => (
+                <View key={node.key} style={styles._VIEW_SAFE_table}>
+                    {children}
+                </View>
+            ),
+            thead: (node, children, _parent, styles) => (
+                <View key={node.key} style={styles._VIEW_SAFE_thead}>
+                    {children}
+                </View>
+            ),
+            tbody: (node, children, _parent, styles) => (
+                <View key={node.key} style={styles._VIEW_SAFE_tbody}>
+                    {children}
+                </View>
+            ),
+            tr: (node, children, _parent, styles) => (
+                <View key={node.key} style={styles._VIEW_SAFE_tr}>
+                    {children}
+                </View>
+            ),
+            th: (node, children, _parent, styles) => (
+                <View key={node.key} style={styles._VIEW_SAFE_th}>
+                    {children}
+                </View>
+            ),
+            td: (node, children, _parent, styles) => (
+                <View key={node.key} style={styles._VIEW_SAFE_td}>
+                    {children}
+                </View>
+            ),
+        }),
+        []
+    )
+
     // Shared Markdown rule styles. `react-native-markdown-display` colors elements via this `rules`-like map; we
     // map each tag to a themed RN style so light/dark mode stay consistent with the rest of the app.
     const markdownStyles = useMemo(
@@ -260,7 +298,7 @@ const Chat = () => {
                 {result && (
                     <>
                         <View style={styles.answerCard}>
-                            <Markdown style={markdownStyles as any}>{result.answer}</Markdown>
+                            <Markdown style={markdownStyles as any} rules={markdownRules}>{result.answer}</Markdown>
                             {modeLabel && <Text style={styles.modeLabel}>{modeLabel}</Text>}
                         </View>
                         {result.citations.length > 0 && <Text style={styles.sectionLabel}>Sources</Text>}
@@ -270,7 +308,7 @@ const Chat = () => {
                                 <Text style={styles.resultMeta}>
                                     {r.source} · similarity {(r.score * 100).toFixed(0)}%
                                 </Text>
-                                <Markdown style={markdownStyles as any}>{r.text}</Markdown>
+                                <Markdown style={markdownStyles as any} rules={markdownRules}>{r.text}</Markdown>
                             </View>
                         ))}
                     </>
