@@ -404,11 +404,6 @@ const LLMSettings = () => {
                     </View>
                 )}
 
-                <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>Active Path</Text>
-                    <Text style={styles.statusRow}>{status?.activeService ?? "loading..."}</Text>
-                </View>
-
                 <WarningContainer>Generated answers may occasionally be wrong or phrased imprecisely. A verifier guards against clear hallucinations by falling back to showing the source text verbatim, but always cross-check important answers against the full docs.</WarningContainer>
             </ScrollView>
         </View>
