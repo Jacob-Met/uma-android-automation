@@ -209,7 +209,8 @@ const LLMSettings = () => {
                 sectionLabel: { fontSize: 13, fontWeight: "600", color: colors.foreground, marginBottom: 6 },
                 statusRow: { color: colors.foreground, marginBottom: 4 },
                 hint: { fontSize: 11, color: colors.mutedForeground, marginTop: 4 },
-                link: { fontSize: 11, color: colors.primary, marginTop: 4, textDecorationLine: "underline" },
+                linkRow: { paddingVertical: 10, marginTop: 4 },
+                link: { fontSize: 14, color: colors.primary, textDecorationLine: "underline" as const },
                 tokenInput: {
                     borderWidth: 1,
                     borderColor: colors.border,
@@ -269,12 +270,12 @@ const LLMSettings = () => {
                                     </Pressable>
                                 )
                             })}
-                            <Text style={styles.link} onPress={() => Linking.openURL(modelUrl.replace(/\/resolve\/main\/.*$/, ""))}>
-                                Open selected model page
-                            </Text>
-                            <Text style={styles.link} onPress={() => Linking.openURL("https://huggingface.co/settings/tokens")}>
-                                Create token
-                            </Text>
+                            <Pressable style={styles.linkRow} onPress={() => Linking.openURL(modelUrl.replace(/\/resolve\/main\/.*$/, ""))}>
+                                <Text style={styles.link}>Open selected model page</Text>
+                            </Pressable>
+                            <Pressable style={styles.linkRow} onPress={() => Linking.openURL("https://huggingface.co/settings/tokens")}>
+                                <Text style={styles.link}>Create token</Text>
+                            </Pressable>
                             <TextInput
                                 style={styles.tokenInput}
                                 value={hfToken}
