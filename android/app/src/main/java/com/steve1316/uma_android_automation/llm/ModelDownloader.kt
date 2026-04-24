@@ -16,8 +16,8 @@ import java.io.File
  * using Android [DownloadManager], so the APK stays lean and the download shows up in the system notification
  * shade with cancel and pause support.
  *
- * Downloads land at [modelFile] under `context.filesDir/llm/`, which is app-private — no storage permission
- * required. Delete via [delete] when the user wants to reclaim space.
+ * Downloads land at [modelFile] under `context.getExternalFilesDir("llm")`, which is app-private — no storage
+ * permission required. Delete via [delete] when the user wants to reclaim space.
  *
  * @property context Application context.
  */
@@ -31,9 +31,16 @@ class ModelDownloader(private val context: Context) {
         private const val POLL_INTERVAL_MS = 500L
     }
 
-    /** Absolute on-device path where [DEFAULT_MODEL_FILENAME] will land after a successful download. */
+    /**
+     * Absolute on-device path where [DEFAULT_MODEL_FILENAME] will land after a successful download.
+     *
+     * Uses app-private external storage (`getExternalFilesDir`) rather than `filesDir` because DownloadManager
+     * cannot write to app-private internal storage ("Unsupported path" error). External-files dir is still
+     * app-scoped — no permission required and auto-deleted on uninstall — just a different filesystem.
+     */
     val modelFile: File by lazy {
-        File(context.filesDir, "$LLM_DIR/$DEFAULT_MODEL_FILENAME").also { it.parentFile?.mkdirs() }
+        val base = context.getExternalFilesDir(LLM_DIR) ?: File(context.filesDir, LLM_DIR).also { it.mkdirs() }
+        File(base, DEFAULT_MODEL_FILENAME)
     }
 
     /** @return true if a model file is already present on-device and non-empty. */
