@@ -29,11 +29,34 @@ class ChatOrchestrator(private val context: Context) {
      *  `.task` file in the model directory. Set from LLM Settings when the user has multiple models downloaded. */
     @Volatile var activeModelFilename: String? = null
 
+    /** Runtime-tunable max output tokens. Default mirrors [DEFAULT_MAX_OUTPUT_TOKENS]; persisted by the JS layer
+     *  under `("chat", "maxOutputTokens")` and pushed in via the bridge on settings load and change. */
+    @Volatile var maxOutputTokens: Int = DEFAULT_MAX_OUTPUT_TOKENS
+
+    /** Runtime-tunable per-citation char cap fed to the LLM prompt. Default [DEFAULT_LLM_CITATION_CHAR_CAP]. */
+    @Volatile var llmCitationCharCap: Int = DEFAULT_LLM_CITATION_CHAR_CAP
+
+    /** Runtime-tunable LLM engine KV-cache size. Default [DEFAULT_MODEL_CONTEXT_WINDOW]. Changing this releases
+     *  the loaded MediaPipe engine so the next call rebuilds with the new value. */
+    @Volatile private var _modelContextWindow: Int = DEFAULT_MODEL_CONTEXT_WINDOW
+    var modelContextWindow: Int
+        get() = _modelContextWindow
+        set(value) {
+            if (value != _modelContextWindow) {
+                _modelContextWindow = value
+                synchronized(this) {
+                    mediapipe?.close()
+                    mediapipe = null
+                }
+            }
+        }
+
     companion object {
         private const val TAG = "${SharedData.loggerTag}ChatOrchestrator"
         private const val INDEX_PATH = "llm/doc_index.bin"
         private const val MAX_CONTEXT_CHUNKS = 4
-        private const val MAX_OUTPUT_TOKENS = 768
+        const val DEFAULT_MAX_OUTPUT_TOKENS = 768
+        const val DEFAULT_MODEL_CONTEXT_WINDOW = 4096
         private const val TEMPERATURE = 0.35f
 
         /** Lowered from the verifier's default 0.4 because summary-style answers paraphrase and naturally have less exact token overlap with the source chunks. */
@@ -45,9 +68,9 @@ class ChatOrchestrator(private val context: Context) {
         /** Cap on the expanded section text handed to the user in retrieve-only mode. Prevents a "full How It Works chapter" from flooding the UI. */
         private const val SECTION_EXPANSION_CHAR_CAP = 6000
 
-        /** Per-citation cap when expanding sections for the LLM prompt. Sized for the new 4096-token KV cache:
+        /** Per-citation cap when expanding sections for the LLM prompt. Default sized for the 4096-token KV cache:
          *  4 citations × 2200 chars ≈ 2200 tokens of context + ~200 token scaffold + 768 output tokens ≈ 3200. */
-        private const val LLM_CITATION_CHAR_CAP = 2200
+        const val DEFAULT_LLM_CITATION_CHAR_CAP = 2200
     }
 
     /**
@@ -107,7 +130,7 @@ class ChatOrchestrator(private val context: Context) {
         }
 
         val prompt = buildPrompt(query, citations)
-        val answer = service.second.generate(prompt, MAX_OUTPUT_TOKENS, TEMPERATURE)?.trim()
+        val answer = service.second.generate(prompt, maxOutputTokens, TEMPERATURE)?.trim()
         if (answer.isNullOrEmpty() || answer.equals("NOT_IN_DOCS", ignoreCase = true)) {
             return ChatResult(citations.first().chunk.text, citations, ChatMode.RetrieveOnly)
         }
@@ -220,7 +243,7 @@ class ChatOrchestrator(private val context: Context) {
         // echo structured prompt templates back as output. Plain prose between separators gives them less to imitate.
         // Each citation is expanded to its enclosing section so the LLM sees full context, not just a 200-word
         // sliding-window slice. Per-citation cap keeps four expanded sections within Gemma's 2048-token window.
-        val contextBlock = citations.joinToString("\n\n---\n\n") { r -> expandSection(r.chunk, LLM_CITATION_CHAR_CAP) }
+        val contextBlock = citations.joinToString("\n\n---\n\n") { r -> expandSection(r.chunk, llmCitationCharCap) }
         return """
             You are a friendly documentation guide for an Android automation app.
 
@@ -282,7 +305,7 @@ class ChatOrchestrator(private val context: Context) {
             val existing = mediapipe
             if (existing != null && existing.modelPath == file.absolutePath) return existing
             existing?.close()
-            val created = MediaPipeLLMService(context, file.absolutePath)
+            val created = MediaPipeLLMService(context, file.absolutePath, _modelContextWindow)
             mediapipe = created
             return created
         }

@@ -198,6 +198,43 @@ class LLMChatModule(private val reactContext: ReactApplicationContext) : ReactCo
         orchestrator.activeModelFilename = filename.trim().ifEmpty { null }
     }
 
+    /** Update the LLM's max output token budget at runtime. JS persists this under `("chat", "maxOutputTokens")`. */
+    @ReactMethod
+    fun setMaxOutputTokens(n: Int) {
+        if (n > 0) orchestrator.maxOutputTokens = n
+    }
+
+    /** Update the per-citation context char cap at runtime. JS persists this under `("chat", "llmCitationCharCap")`. */
+    @ReactMethod
+    fun setLlmCitationCharCap(n: Int) {
+        if (n > 0) orchestrator.llmCitationCharCap = n
+    }
+
+    /**
+     * Update the LLM engine's KV-cache size at runtime. Triggers a MediaPipe engine reload on the next chat call;
+     * JS persists this under `("chat", "modelContextWindow")`.
+     */
+    @ReactMethod
+    fun setModelContextWindow(n: Int) {
+        if (n > 0) orchestrator.modelContextWindow = n
+    }
+
+    /**
+     * Resolves with the current generation tuning values so the UI can populate its inputs:
+     * `{ maxOutputTokens, llmCitationCharCap, modelContextWindow, defaultMaxOutputTokens, defaultLlmCitationCharCap, defaultModelContextWindow }`.
+     */
+    @ReactMethod
+    fun getGenerationTuning(promise: Promise) {
+        val map = Arguments.createMap()
+        map.putInt("maxOutputTokens", orchestrator.maxOutputTokens)
+        map.putInt("llmCitationCharCap", orchestrator.llmCitationCharCap)
+        map.putInt("modelContextWindow", orchestrator.modelContextWindow)
+        map.putInt("defaultMaxOutputTokens", ChatOrchestrator.DEFAULT_MAX_OUTPUT_TOKENS)
+        map.putInt("defaultLlmCitationCharCap", ChatOrchestrator.DEFAULT_LLM_CITATION_CHAR_CAP)
+        map.putInt("defaultModelContextWindow", ChatOrchestrator.DEFAULT_MODEL_CONTEXT_WINDOW)
+        promise.resolve(map)
+    }
+
     // --------------------------------------------------------------------------------------------------
 
     /** Derive a local filename from the model URL's last path segment, stripping query strings and falling back
