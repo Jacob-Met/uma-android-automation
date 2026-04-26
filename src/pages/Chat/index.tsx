@@ -15,6 +15,7 @@ const HISTORY_MAX = 20
 const ACTIVE_MODEL_KEY = { category: "chat", key: "activeModelFilename" } as const
 const TOP_K = 4
 
+type CitationKind = "doc" | "code"
 interface DocResult {
     id: string
     source: string
@@ -22,6 +23,7 @@ interface DocResult {
     text: string
     score: number
     expandedText: string
+    kind: CitationKind
 }
 
 interface DownloadedModel {
@@ -43,7 +45,7 @@ interface ChatResult {
 }
 
 const SYSTEM_INSTRUCTIONS =
-    "You are a friendly documentation guide for an Android automation app. Using only the excerpts provided in this conversation, write a detailed, well-structured explanation that answers the user's question.\n\n" +
+    "You are a friendly documentation guide for an Android automation app. The excerpts may include user-facing documentation (markdown) or Kotlin source code from the implementation; explain functionality drawn from the code in plain language rather than echoing the code back. Using only the excerpts provided in this conversation, write a detailed, well-structured explanation that answers the user's question.\n\n" +
     "Rules:\n" +
     "- Paraphrase in your own words. Do NOT copy sentences verbatim from the excerpts.\n" +
     "- Aim for 4–10 sentences depending on how much the excerpts cover. Use multiple short paragraphs and bullet lists where they aid clarity.\n" +
@@ -396,12 +398,12 @@ const Chat = () => {
                         {result.citations.length > 0 && <Text style={styles.sectionLabel}>Sources</Text>}
                         {result.citations.map((r) => (
                             <View key={r.id} style={styles.resultCard}>
-                                <Text style={styles.resultHeading}>{r.heading}</Text>
+                                <Text style={styles.resultHeading}>{citationHeading(r)}</Text>
                                 <Text style={styles.resultMeta}>
                                     {r.source} · similarity {(r.score * 100).toFixed(0)}%
                                 </Text>
                                 <Markdown style={markdownStyles as any} rules={markdownRules}>
-                                    {r.text}
+                                    {r.kind === "code" ? `\`\`\`kotlin\n${r.text}\n\`\`\`` : r.text}
                                 </Markdown>
                             </View>
                         ))}
@@ -417,6 +419,14 @@ const Chat = () => {
  * Resolve which downloaded GGUF model to feed to llama.rn. Honors the user's "Active" selection from LLM Settings;
  * falls back to the most recently modified model if no explicit selection is set.
  */
+/** Code citations show as `Racing.kt::findSuitableRace`; doc citations keep their hierarchical heading. */
+function citationHeading(r: DocResult): string {
+    if (r.kind !== "code") return r.heading
+    const lastSep = r.heading.lastIndexOf(" › ")
+    const member = lastSep >= 0 ? r.heading.slice(lastSep + 3) : r.heading
+    return `${r.source}::${member}`
+}
+
 async function pickModelPath(): Promise<string | null> {
     try {
         const models: DownloadedModel[] = await NativeModules.LLMChatModule.listModels()
