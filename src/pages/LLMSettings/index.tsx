@@ -355,11 +355,7 @@ const LLMSettings = () => {
 
                 <View style={styles.section}>
                     <Text style={styles.sectionLabel}>Chat Model (llama.cpp / GGUF)</Text>
-                    <Text style={styles.statusRow}>
-                        {downloadedModels.length > 0
-                            ? `${downloadedModels.length} model${downloadedModels.length === 1 ? "" : "s"} downloaded · active: ${activeModelFilename ?? downloadedModels[0].filename}`
-                            : "Not downloaded"}
-                    </Text>
+                    <Text style={styles.statusRow}>{downloadedModels.length > 0 ? `${downloadedModels.length} model${downloadedModels.length === 1 ? "" : "s"} downloaded` : "Not downloaded"}</Text>
                     <>
                         <Text style={styles.hint}>
                             The Qwen presets are public — you don't need a Hugging Face token. Bigger models summarize better but need more RAM and download time. The token field below is only
