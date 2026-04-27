@@ -21,6 +21,10 @@ const MAX_OUTPUT_TOKENS_SETTING = { category: "chat", key: "maxOutputTokens" } a
 const CITATION_CHAR_CAP_SETTING = { category: "chat", key: "llmCitationCharCap" } as const
 const MODEL_CONTEXT_WINDOW_SETTING = { category: "chat", key: "modelContextWindow" } as const
 
+/** Sentinel `url` for the Custom preset card. Persisted as the user's `modelUrl` when they pick "Custom" but
+ *  haven't yet pasted a real URL — the URL/token TextInputs become visible so they can fill them in. */
+const CUSTOM_URL_SENTINEL = "__custom__"
+
 /** Known Qwen 2.5 Instruct GGUF models for llama.rn. All Q4_K_M quants — the size/quality sweet spot. Sizes
  *  verified against the official Qwen Hugging Face repos. These repos are public (no HF token required). */
 const MODEL_PRESETS: Array<{ label: string; detail: string; url: string }> = [
@@ -38,6 +42,11 @@ const MODEL_PRESETS: Array<{ label: string; detail: string; url: string }> = [
         label: "Qwen 2.5 3B Instruct (2.1 GB, highest quality)",
         detail: "Best summarization quality at this size tier. Needs ~4 GB free RAM and a recent phone for acceptable speed.",
         url: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
+    },
+    {
+        label: "Custom",
+        detail: "Paste your own .gguf URL (Hugging Face or any HTTPS host).",
+        url: CUSTOM_URL_SENTINEL,
     },
 ]
 
@@ -218,7 +227,11 @@ const LLMSettings = () => {
     }, [refreshModels])
 
     const handleDownload = useCallback(() => {
-        const preset = MODEL_PRESETS.find((p) => p.url === modelUrl)
+        if (modelUrl === CUSTOM_URL_SENTINEL || modelUrl.trim().length === 0) {
+            Alert.alert("No URL specified", "Paste a .gguf URL into the Custom field before downloading.")
+            return
+        }
+        const preset = MODEL_PRESETS.find((p) => p.url === modelUrl && p.url !== CUSTOM_URL_SENTINEL)
         const title = preset ? `Download ${preset.label.split(" (")[0]}?` : "Download custom model?"
         const body = preset
             ? `${preset.label}\n\n${preset.detail}\n\nGated on Hugging Face — accept the license on the model page and paste a read-access token below before downloading. Prefer Wi-Fi.`
@@ -264,7 +277,17 @@ const LLMSettings = () => {
 
     const isDownloading = downloadState?.status === "running" || downloadState?.status === "pending" || downloadState?.status === "paused"
 
-    const selectedFilename = useMemo(() => filenameFromUrl(modelUrl), [modelUrl])
+    /** Custom is selected when the user explicitly chose it (sentinel persisted) or when the persisted URL
+     *  doesn't match any Qwen preset. The latter case keeps existing custom-URL setups visible after upgrade. */
+    const isCustomSelected = useMemo(
+        () => modelUrl === CUSTOM_URL_SENTINEL || !MODEL_PRESETS.some((p) => p.url === modelUrl),
+        [modelUrl]
+    )
+
+    const selectedFilename = useMemo(
+        () => (modelUrl === CUSTOM_URL_SENTINEL ? "" : filenameFromUrl(modelUrl)),
+        [modelUrl]
+    )
     const selectedAlreadyDownloaded = useMemo(() => downloadedModels.some((m) => m.filename === selectedFilename), [downloadedModels, selectedFilename])
 
     const progressText = useMemo(() => {
@@ -358,44 +381,58 @@ const LLMSettings = () => {
                     {downloadedModels.length === 0 && <Text style={styles.statusRow}>Not downloaded</Text>}
                     <>
                         <Text style={styles.hint}>
-                            The Qwen presets are public — you don't need a Hugging Face token. Bigger models summarize better but need more RAM and download time. The token field below is only
-                            needed if you paste a custom URL pointing to a gated repo (e.g. Llama or Gemma).
+                            The Qwen presets are public, no token required. Bigger models summarize better but need more RAM and download time. Pick Custom to paste a different .gguf URL; the
+                            token field will appear if the source is gated.
                         </Text>
                             {MODEL_PRESETS.map((p) => {
-                                const selected = modelUrl === p.url
+                                const selected = p.url === CUSTOM_URL_SENTINEL ? isCustomSelected : modelUrl === p.url
+                                const onPress =
+                                    p.url === CUSTOM_URL_SENTINEL
+                                        ? () => {
+                                              if (MODEL_PRESETS.some((q) => q.url !== CUSTOM_URL_SENTINEL && q.url === modelUrl)) {
+                                                  persistModelUrl(CUSTOM_URL_SENTINEL)
+                                              }
+                                          }
+                                        : () => persistModelUrl(p.url)
                                 return (
-                                    <Pressable key={p.url} style={[styles.presetCard, selected && styles.presetCardSelected]} onPress={() => persistModelUrl(p.url)}>
+                                    <Pressable key={p.url} style={[styles.presetCard, selected && styles.presetCardSelected]} onPress={onPress}>
                                         <Text style={styles.presetLabel}>{p.label}</Text>
                                         <Text style={styles.presetDetail}>{p.detail}</Text>
                                     </Pressable>
                                 )
                             })}
-                            <View style={styles.linkRowContainer}>
-                                <Pressable style={styles.linkRow} onPress={() => Linking.openURL(modelUrl.replace(/\/resolve\/main\/.*$/, ""))}>
-                                    <Text style={styles.link}>Open selected model page</Text>
-                                </Pressable>
-                                <Pressable style={styles.linkRow} onPress={() => Linking.openURL("https://huggingface.co/settings/tokens")}>
-                                    <Text style={styles.link}>Create token</Text>
-                                </Pressable>
-                            </View>
-                            <TextInput
-                                style={styles.tokenInput}
-                                value={hfToken}
-                                onChangeText={persistHfToken}
-                                placeholder="hf_... (only for gated custom URLs)"
-                                placeholderTextColor={colors.mutedForeground}
-                                autoCapitalize="none"
-                                autoCorrect={false}
-                            />
-                            <TextInput
-                                style={styles.tokenInput}
-                                value={modelUrl}
-                                onChangeText={persistModelUrl}
-                                placeholder="Model .gguf URL"
-                                placeholderTextColor={colors.mutedForeground}
-                                autoCapitalize="none"
-                                autoCorrect={false}
-                            />
+                            {isCustomSelected && (
+                                <>
+                                    <View style={styles.linkRowContainer}>
+                                        {modelUrl !== CUSTOM_URL_SENTINEL && modelUrl.trim().length > 0 && (
+                                            <Pressable style={styles.linkRow} onPress={() => Linking.openURL(modelUrl.replace(/\/resolve\/main\/.*$/, ""))}>
+                                                <Text style={styles.link}>Open selected model page</Text>
+                                            </Pressable>
+                                        )}
+                                        <Pressable style={styles.linkRow} onPress={() => Linking.openURL("https://huggingface.co/settings/tokens")}>
+                                            <Text style={styles.link}>Create token</Text>
+                                        </Pressable>
+                                    </View>
+                                    <TextInput
+                                        style={styles.tokenInput}
+                                        value={hfToken}
+                                        onChangeText={persistHfToken}
+                                        placeholder="hf_... (only for gated repos)"
+                                        placeholderTextColor={colors.mutedForeground}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                    />
+                                    <TextInput
+                                        style={styles.tokenInput}
+                                        value={modelUrl === CUSTOM_URL_SENTINEL ? "" : modelUrl}
+                                        onChangeText={persistModelUrl}
+                                        placeholder="Model .gguf URL"
+                                        placeholderTextColor={colors.mutedForeground}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                    />
+                                </>
+                            )}
                     </>
                     {progressText && <Text style={styles.hint}>{progressText}</Text>}
                     <View style={styles.buttonRow}>
