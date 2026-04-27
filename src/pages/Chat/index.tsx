@@ -443,18 +443,36 @@ const Chat = () => {
  *  hard-break (two spaces) so consecutive items become separate visual lines inside one paragraph instead of
  *  being collapsed by markdown's whitespace folding. Avoids the entire RN flex-marker layout class of bugs at
  *  the cost of nested-block-content inside list items, which the chatbot rarely produces. */
-/** Fold GitHub-flavored HTML tags found in source-doc markdown into plain markdown equivalents that
- *  react-native-marked can render. <details>/<summary> become a bold summary line followed by the body
- *  (no collapse affordance — a non-goal for the chatbot UI). <strong>/<b> become bold markdown and <em>/<i>
- *  become italic markdown so the marked tokenizer styles them instead of dumping raw text. */
+/** Fold inline GitHub-flavored HTML tags into markdown equivalents the marked tokenizer can style.
+ *  <details>/<summary> are NOT folded here — they're handled separately by splitDetails so we can render
+ *  them as collapsible sections instead of static text. */
 function foldHtmlTags(md: string): string {
     return md
-        .replace(/<details[^>]*>\s*<summary[^>]*>([\s\S]*?)<\/summary>([\s\S]*?)<\/details>/gi, (_, summary: string, body: string) => `**${summary.trim()}**\n\n${body.trim()}`)
-        .replace(/<\/?summary[^>]*>/gi, "")
-        .replace(/<\/?details[^>]*>/gi, "")
         .replace(/<(?:strong|b)[^>]*>([\s\S]*?)<\/(?:strong|b)>/gi, "**$1**")
         .replace(/<(?:em|i)[^>]*>([\s\S]*?)<\/(?:em|i)>/gi, "*$1*")
         .replace(/<br\s*\/?>/gi, "  \n")
+}
+
+const DETAILS_RE = /<details[^>]*>\s*<summary[^>]*>([\s\S]*?)<\/summary>([\s\S]*?)<\/details>/gi
+
+type MdSegment = { kind: "md"; text: string } | { kind: "details"; summary: string; body: string }
+
+/** Split markdown into a stream of plain-markdown and details-block segments. Each details segment is
+ *  rendered as a Pressable collapsible by MarkdownView; everything else falls through to the marked
+ *  pipeline. Stray `<details>`/`</details>`/`<summary>` tags that don't form a complete block are left
+ *  as-is and stripped by the marked html-token renderer downstream. */
+function splitDetails(md: string): MdSegment[] {
+    const segments: MdSegment[] = []
+    let lastIndex = 0
+    let m: RegExpExecArray | null
+    DETAILS_RE.lastIndex = 0
+    while ((m = DETAILS_RE.exec(md)) !== null) {
+        if (m.index > lastIndex) segments.push({ kind: "md", text: md.slice(lastIndex, m.index) })
+        segments.push({ kind: "details", summary: m[1].trim(), body: m[2].trim() })
+        lastIndex = m.index + m[0].length
+    }
+    if (lastIndex < md.length) segments.push({ kind: "md", text: md.slice(lastIndex) })
+    return segments
 }
 
 function flattenLists(md: string): string {
@@ -470,7 +488,7 @@ function flattenLists(md: string): string {
         .join("\n")
 }
 
-function MarkdownView({ children, theme, mdStyles }: { children: string; theme: UserTheme; mdStyles: MarkedStyles }) {
+function MarkdownText({ children, theme, mdStyles }: { children: string; theme: UserTheme; mdStyles: MarkedStyles }) {
     const flattened = useMemo(() => flattenLists(children), [children])
     const elements = useMarkdown(flattened, { theme, styles: mdStyles })
     return (
@@ -478,6 +496,73 @@ function MarkdownView({ children, theme, mdStyles }: { children: string; theme: 
             {elements.map((el, i) => (
                 <Fragment key={i}>{el}</Fragment>
             ))}
+        </View>
+    )
+}
+
+function CollapsibleDetails({
+    summary,
+    body,
+    theme,
+    mdStyles,
+    chevronColor,
+    borderColor,
+    headerBg,
+}: {
+    summary: string
+    body: string
+    theme: UserTheme
+    mdStyles: MarkedStyles
+    chevronColor: string
+    borderColor: string
+    headerBg: string
+}) {
+    const [open, setOpen] = useState(false)
+    return (
+        <View style={{ borderWidth: 1, borderColor, borderRadius: 4, marginVertical: 4, overflow: "hidden" }}>
+            <Pressable onPress={() => setOpen((o) => !o)} style={{ flexDirection: "row", alignItems: "flex-start", padding: 6, backgroundColor: headerBg }}>
+                <Text style={{ color: chevronColor, marginRight: 6, marginTop: 2 }}>{open ? "▼" : "▶"}</Text>
+                <View style={{ flex: 1 }}>
+                    <MarkdownText theme={theme} mdStyles={mdStyles}>
+                        {summary}
+                    </MarkdownText>
+                </View>
+            </Pressable>
+            {open && (
+                <View style={{ paddingHorizontal: 8, paddingTop: 4, paddingBottom: 6, borderTopWidth: 1, borderTopColor: borderColor }}>
+                    <MarkdownText theme={theme} mdStyles={mdStyles}>
+                        {body}
+                    </MarkdownText>
+                </View>
+            )}
+        </View>
+    )
+}
+
+function MarkdownView({ children, theme, mdStyles }: { children: string; theme: UserTheme; mdStyles: MarkedStyles }) {
+    const { colors } = useTheme()
+    const folded = useMemo(() => foldHtmlTags(children), [children])
+    const segments = useMemo(() => splitDetails(folded), [folded])
+    return (
+        <View>
+            {segments.map((s, i) =>
+                s.kind === "md" ? (
+                    <MarkdownText key={i} theme={theme} mdStyles={mdStyles}>
+                        {s.text}
+                    </MarkdownText>
+                ) : (
+                    <CollapsibleDetails
+                        key={i}
+                        summary={s.summary}
+                        body={s.body}
+                        theme={theme}
+                        mdStyles={mdStyles}
+                        chevronColor={colors.foreground}
+                        borderColor={colors.border}
+                        headerBg={colors.muted}
+                    />
+                )
+            )}
         </View>
     )
 }
