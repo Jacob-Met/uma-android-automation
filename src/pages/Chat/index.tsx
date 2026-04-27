@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import { View, ScrollView, StyleSheet, TextInput, Text, NativeModules, Pressable } from "react-native"
 import { useMarkdown, type MarkedStyles } from "react-native-marked"
 import type { UserTheme } from "react-native-marked/dist/typescript/theme/types"
+import { KotlinCode, DARK_PALETTE, LIGHT_PALETTE } from "../../lib/llm/kotlinHighlight"
 import { useTheme } from "../../context/ThemeContext"
 import CustomButton from "../../components/CustomButton"
 import PageHeader from "../../components/PageHeader"
@@ -55,7 +56,7 @@ const SYSTEM_INSTRUCTIONS =
     '- If the excerpts do not answer the question, reply with exactly: NOT_IN_DOCS'
 
 const Chat = () => {
-    const { colors } = useTheme()
+    const { colors, isDark } = useTheme()
     const [query, setQuery] = useState("")
     const [result, setResult] = useState<ChatResult | null>(null)
     const [partialAnswer, setPartialAnswer] = useState("")
@@ -386,7 +387,9 @@ const Chat = () => {
                                     {`${r.source} · similarity ${(r.score * 100).toFixed(0)}%`}
                                 </Text>
                                 {r.kind === "code" ? (
-                                    <Text style={styles.codeBlock}>{r.text}</Text>
+                                    <View style={styles.codeBlock}>
+                                        <KotlinCode text={r.text} palette={isDark ? DARK_PALETTE : LIGHT_PALETTE} style={{ fontSize: 13, lineHeight: 18 }} />
+                                    </View>
                                 ) : (
                                     <MarkdownView theme={markedTheme} mdStyles={markedStyles}>
                                         {r.text}
