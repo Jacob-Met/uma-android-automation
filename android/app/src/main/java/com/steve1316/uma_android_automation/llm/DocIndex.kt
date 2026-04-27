@@ -17,7 +17,7 @@ import java.nio.ByteOrder
  * Binary format (little-endian):
  * ```
  * magic   : "UMADOCIX" (8 bytes)
- * version : u32        (currently 1)
+ * version : u32        (currently 2)
  * count   : u32        number of chunks
  * dim     : u32        embedding dimensionality
  * chunks  : count × { idLen u16, id utf-8; sourceLen u16, source utf-8; headingLen u16, heading utf-8;
