@@ -83,9 +83,15 @@ object Heuristic {
         state: SolverState,
     ): Beam = when (decision) {
         is Decision.RaceDecision -> applyRace(beam, turn, decision, state)
-        Decision.Train, Decision.Rest -> beam.copy(
+        Decision.Train -> beam.copy(
             decisions = beam.decisions + (turn to decision),
             consecutiveRaces = 0,
+            score = beam.score + ScoringFunctions.trainValue(state.weights),
+        )
+        Decision.Rest -> beam.copy(
+            decisions = beam.decisions + (turn to decision),
+            consecutiveRaces = 0,
+            score = beam.score + ScoringFunctions.restValue(state.weights),
         )
     }
 

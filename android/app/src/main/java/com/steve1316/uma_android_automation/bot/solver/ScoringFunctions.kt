@@ -52,6 +52,24 @@ object ScoringFunctions {
     }
 
     /**
+     * Approximate per-turn value of a single-facility training session. Calibrated so Train
+     * comfortably beats Pre-OP / OP races and only G3+ (or epithet-completing) races win — without
+     * this baseline, Race scores positively while Train scores zero and the solver picks "race
+     * every turn".
+     */
+    fun trainValue(weights: Weights): Double {
+        val stat = TRAIN_BASE_STAT * weights.statWeight
+        val sp = TRAIN_BASE_SP * weights.spWeight
+        return stat + sp
+    }
+
+    /** Resting yields no scoring contribution; energy is not modelled in the static preview. */
+    fun restValue(@Suppress("UNUSED_PARAMETER") weights: Weights): Double = 0.0
+
+    private const val TRAIN_BASE_STAT: Double = 30.0
+    private const val TRAIN_BASE_SP: Double = 5.0
+
+    /**
      * Reward magnitude of completing [epithet]. Stat rewards return [Epithet.amount]; hint
      * rewards return [Weights.hintWeight]; unknown rewards return zero.
      */

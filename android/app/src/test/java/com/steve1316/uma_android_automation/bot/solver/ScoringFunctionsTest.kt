@@ -49,6 +49,23 @@ class ScoringFunctionsTest {
     }
 
     @Test
+    fun trainValueIsPositiveUnderDefaultWeights() {
+        assertTrue(ScoringFunctions.trainValue(w) > 0.0)
+    }
+
+    @Test
+    fun trainValueScalesWithStatWeight() {
+        val low = ScoringFunctions.trainValue(Weights(statWeight = 1.0))
+        val high = ScoringFunctions.trainValue(Weights(statWeight = 5.0))
+        assertTrue(high > low)
+    }
+
+    @Test
+    fun restValueIsZero() {
+        assertEquals(0.0, ScoringFunctions.restValue(w), 1e-9)
+    }
+
+    @Test
     fun consecutivePenaltyAppliesAtThirdRace() {
         assertEquals(0.0, ScoringFunctions.consecutiveRacePenalty(2, w), 1e-9)
         assertEquals(w.consecutiveRacePenalty, ScoringFunctions.consecutiveRacePenalty(3, w), 1e-9)

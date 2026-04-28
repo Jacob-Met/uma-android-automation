@@ -78,6 +78,26 @@ class HeuristicTest {
     }
 
     @Test
+    fun trainBeatsLowGradeRaceUnderDefaultWeights() {
+        // Pre-OP races score ~21 (5 stat + 15 SP + small fans) while Train scores ~35 under
+        // defaults, so the solver should not pick the race here.
+        val weak = race("Weak Pre-OP", 30, grade = RaceGrade.PRE_OP, fans = 500)
+        val st = state(currentTurn = 30, races = listOf(weak), epithets = emptyList())
+        val schedule = Heuristic.search(st)
+        assertEquals(Decision.Train, schedule.decisions[30])
+    }
+
+    @Test
+    fun highGradeRaceBeatsTrainUnderDefaultWeights() {
+        // A G1 with reasonable fans scores ~70 — well above Train's ~35 baseline.
+        val g1 = race("Big G1", 30, grade = RaceGrade.G1, fans = 50000)
+        val st = state(currentTurn = 30, races = listOf(g1), epithets = emptyList())
+        val schedule = Heuristic.search(st)
+        val pick = schedule.decisions[30]
+        assertTrue(pick is Decision.RaceDecision && pick.raceKey == g1.key)
+    }
+
+    @Test
     fun searchIsDeterministic() {
         val r1 = race("R1", 50, fans = 8000)
         val r2 = race("R2", 50, fans = 12000)
