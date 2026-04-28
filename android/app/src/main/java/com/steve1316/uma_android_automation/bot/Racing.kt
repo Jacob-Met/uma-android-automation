@@ -8,6 +8,7 @@ import com.steve1316.automation_library.utils.SettingsHelper
 import com.steve1316.uma_android_automation.MainActivity
 import com.steve1316.uma_android_automation.bot.Campaign
 import com.steve1316.uma_android_automation.bot.DialogHandlerResult
+import com.steve1316.uma_android_automation.bot.solver.SmartRaceSolverIntegration
 import com.steve1316.uma_android_automation.components.ButtonAgenda
 import com.steve1316.uma_android_automation.components.ButtonBack
 import com.steve1316.uma_android_automation.components.ButtonChangeRunningStyle
@@ -86,6 +87,9 @@ class Racing(private val game: Game, private val campaign: Campaign) {
 
     /** Whether to enable the custom racing plan. */
     private val enableRacingPlan = SettingsHelper.getBooleanSetting("racing", "enableRacingPlan")
+    private val enableSmartRaceSolver = SettingsHelper.getBooleanSetting("racing", "enableSmartRaceSolver").also {
+        if (it) SmartRaceSolverIntegration.reset()
+    }
 
     /** The number of days to look ahead for better racing opportunities. */
     private val lookAheadDays = SettingsHelper.getIntSetting("racing", "lookAheadDays")
@@ -2543,7 +2547,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                     // Trophy requirement can use smart racing as it filters to G1 races internally.
                     // Use smart racing for all years except Year 1 (Junior Year).
                     campaign.date.year != DateYear.JUNIOR
-                } else if (enableRacingPlan && campaign.date.year != DateYear.JUNIOR) {
+                } else if ((enableRacingPlan || enableSmartRaceSolver) && campaign.date.year != DateYear.JUNIOR) {
                     // Year 2 and 3: Use smart racing if conditions are met.
                     enableFarmingFans && !enableForceRacing
                 } else {
@@ -2745,6 +2749,33 @@ class Racing(private val game: Game, private val campaign: Campaign) {
 
             MessageLog.v(TAG, "[RACE] Mandatory extra race \"${mandatoryExtraRaceData.name}\" not found on screen after $maxScrollAttempts scroll(s). Canceling racing process.")
             return false
+        }
+
+        // Smart Race Solver hook: when enabled, ask the solver to pick from the on-screen races.
+        // If it returns a candidate that matches a detected location, click it and short-circuit
+        // the existing opportunity-cost analysis. Otherwise fall through.
+        if (enableSmartRaceSolver) {
+            val solverPick = SmartRaceSolverIntegration.pickRace(
+                currentTurn = campaign.date.day,
+                scenario = SettingsHelper.getStringSetting("general", "scenario"),
+                candidates = currentRaces,
+            )
+            if (solverPick != null) {
+                val pickLocation = findRaceLocationByName(doublePredictionLocations, solverPick.name)
+                if (pickLocation != null) {
+                    MessageLog.v(TAG, "[RACE] Smart Race Solver selected \"${solverPick.name}\". Selecting it.")
+                    SmartRaceSolverIntegration.recordRaceWon(
+                        raceKey = solverPick.name,
+                        raceName = solverPick.name,
+                        classYear = campaign.date.year.name,
+                        turnNumber = campaign.date.day,
+                    )
+                    game.tap(pickLocation.x, pickLocation.y, IconRaceListPredictionDoubleStar.template.path, ignoreWaiting = true)
+                    return true
+                } else {
+                    MessageLog.i(TAG, "[RACE] Smart Race Solver picked \"${solverPick.name}\" but no on-screen location was found. Falling through.")
+                }
+            }
         }
 
         if (currentRaces.isEmpty()) {
