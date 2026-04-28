@@ -110,6 +110,7 @@ export class DatabaseManager {
         "discordUserID",
         "epithetsData",
         "characterPresetsData",
+        "racesData",
         "smartRaceSolverAptitudes",
         "smartRaceSolverTargetEpithets",
         "smartRaceSolverForcedEpithets",

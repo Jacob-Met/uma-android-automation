@@ -1,5 +1,6 @@
 import { createContext, useState, useMemo, useCallback } from "react"
 import { startTiming } from "../lib/performanceLogger"
+import racesData from "../data/races.json"
 import epithetsData from "../data/epithets.json"
 import characterPresetsData from "../data/characterPresets.json"
 import { skillPlanSettingsPages } from "../pages/SkillPlanSettings/config"
@@ -61,6 +62,7 @@ export interface Settings {
         originalPerDistanceStrategies: Record<string, string>
         // Smart Race Solver — beam-search-based race scheduler driven by epithet completions.
         enableSmartRaceSolver: boolean
+        racesData: string
         smartRaceSolverCharacterPreset: string
         smartRaceSolverAptitudes: string
         smartRaceSolverTargetEpithets: string
@@ -266,6 +268,7 @@ export const defaultSettings: Settings = {
         }),
         epithetsData: JSON.stringify(epithetsData),
         characterPresetsData: JSON.stringify(characterPresetsData),
+        racesData: JSON.stringify(racesData),
     },
     skills: {
         enableSkillPointCheck: false,
