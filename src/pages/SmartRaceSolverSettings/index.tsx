@@ -1,7 +1,8 @@
 import { useMemo, useContext, useState, useEffect, useRef } from "react"
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native"
 import { Divider } from "react-native-paper"
-import { previewSchedule, SchedulePreview, SolverConfigSnapshot } from "../../lib/solver/preview"
+import { previewSchedule, SchedulePreview, ScheduleEntry, SolverConfigSnapshot } from "../../lib/solver/preview"
+import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
 import { useTheme } from "../../context/ThemeContext"
 import { BotStateContext, defaultSettings } from "../../context/BotStateContext"
 import { SearchPageProvider } from "../../context/SearchPageContext"
@@ -190,7 +191,6 @@ const SmartRaceSolverSettings = () => {
     const [preview, setPreview] = useState<SchedulePreview | null>(null)
     const [previewLoading, setPreviewLoading] = useState(false)
     const [previewError, setPreviewError] = useState<string | null>(null)
-    const [selectedTurn, setSelectedTurn] = useState<number | null>(null)
 
     // -------- Derived filters --------
 
@@ -437,26 +437,14 @@ const SmartRaceSolverSettings = () => {
                 calendarCellRace: {
                     backgroundColor: colors.card,
                 },
-                calendarCellSelected: {
-                    borderWidth: 2,
-                    borderColor: colors.primary,
-                },
                 calendarDot: { width: 14, height: 14, borderRadius: 7, marginRight: 6 },
                 calendarGradeLabel: { fontSize: 13, color: colors.foreground, fontWeight: "700" },
                 calendarCellEmpty: { fontSize: 12, color: colors.mutedForeground },
-                tooltip: {
-                    marginTop: 10,
-                    padding: 12,
-                    borderWidth: 1,
-                    borderColor: colors.primary,
-                    borderRadius: 8,
-                    backgroundColor: colors.card,
-                },
-                tooltipTitle: { fontSize: 15, fontWeight: "700", color: colors.foreground },
-                tooltipMeta: { fontSize: 12, color: colors.mutedForeground, marginTop: 2 },
-                tooltipSection: { fontSize: 12, fontWeight: "700", color: colors.foreground, marginTop: 8 },
-                tooltipEpithet: { fontSize: 12, color: colors.foreground, marginTop: 2 },
-                tooltipEmpty: { fontSize: 12, color: colors.mutedForeground, marginTop: 2, fontStyle: "italic" },
+                popoverTitle: { fontSize: 15, fontWeight: "700", color: colors.foreground },
+                popoverMeta: { fontSize: 12, color: colors.mutedForeground, marginTop: 4 },
+                popoverSection: { fontSize: 13, fontWeight: "700", color: colors.foreground, marginTop: 8 },
+                popoverEpithet: { fontSize: 12, color: colors.foreground, marginTop: 2 },
+                popoverEmpty: { fontSize: 12, color: colors.mutedForeground, marginTop: 2, fontStyle: "italic" },
                 previewStatus: { fontSize: 12, color: colors.mutedForeground, paddingVertical: 4 },
                 previewError: { fontSize: 12, color: "#dc2626", paddingVertical: 4 },
             }),
@@ -505,31 +493,65 @@ const SmartRaceSolverSettings = () => {
         </TouchableOpacity>
     )
 
-    const renderCalendarCell = (turn: number) => {
-        const entry = preview?.decisions[String(turn)]
-        const isSelected = selectedTurn === turn
-        const togglePress = () => setSelectedTurn(isSelected ? null : turn)
+    const renderPopoverBody = (turn: number, entry: ScheduleEntry | undefined) => {
+        const turnLabel = `Turn ${turn}`
         if (!entry || entry.type !== "Race") {
             return (
-                <TouchableOpacity
-                    key={turn}
-                    style={[styles.calendarCell, isSelected && styles.calendarCellSelected]}
-                    onPress={togglePress}
-                >
-                    <Text style={styles.calendarCellEmpty}>{entry?.type === "Rest" ? "Rest" : "Train"}</Text>
-                </TouchableOpacity>
+                <View>
+                    <Text style={styles.popoverTitle}>
+                        {turnLabel} — {entry?.type === "Rest" ? "Rest" : "Training"}
+                    </Text>
+                    <Text style={styles.popoverMeta}>No race scheduled this turn.</Text>
+                </View>
             )
         }
-        const color = GRADE_COLORS[entry.grade ?? ""] ?? colors.primary
+        const race = entry.raceKey ? racesByKey[entry.raceKey] : undefined
+        const matched = race ? epithetsForRace(race) : []
         return (
-            <TouchableOpacity
-                key={turn}
-                style={[styles.calendarCell, styles.calendarCellRace, isSelected && styles.calendarCellSelected]}
-                onPress={togglePress}
-            >
-                <View style={[styles.calendarDot, { backgroundColor: color }]} />
-                <Text style={styles.calendarGradeLabel}>{(entry.grade ?? "").replace("PRE_OP", "Pre")}</Text>
-            </TouchableOpacity>
+            <View>
+                <Text style={styles.popoverTitle}>
+                    {turnLabel} — {entry.name ?? race?.name ?? "Race"}
+                </Text>
+                <Text style={styles.popoverMeta}>
+                    {(entry.grade ?? race?.grade ?? "").replace("PRE_OP", "Pre-OP")}
+                    {race ? ` · ${race.raceTrack} · ${race.terrain} · ${race.distanceType} (${race.distanceMeters}m) · ${race.fans.toLocaleString()} fans` : ""}
+                </Text>
+                <Text style={styles.popoverSection}>Progresses these epithets</Text>
+                {matched.length === 0 ? (
+                    <Text style={styles.popoverEmpty}>None — this race does not match any tracked epithet matcher.</Text>
+                ) : (
+                    matched.map((ep) => (
+                        <Text key={ep.name} style={styles.popoverEpithet}>
+                            • {ep.name} — {ep.reward_text}
+                        </Text>
+                    ))
+                )}
+            </View>
+        )
+    }
+
+    const renderCalendarCell = (turn: number) => {
+        const entry = preview?.decisions[String(turn)]
+        const isRace = entry?.type === "Race"
+        const color = isRace ? GRADE_COLORS[entry.grade ?? ""] ?? colors.primary : null
+        return (
+            <Popover key={turn}>
+                <PopoverTrigger asChild>
+                    <TouchableOpacity style={[styles.calendarCell, isRace && styles.calendarCellRace]}>
+                        {isRace ? (
+                            <>
+                                <View style={[styles.calendarDot, { backgroundColor: color! }]} />
+                                <Text style={styles.calendarGradeLabel}>{(entry.grade ?? "").replace("PRE_OP", "Pre")}</Text>
+                            </>
+                        ) : (
+                            <Text style={styles.calendarCellEmpty}>{entry?.type === "Rest" ? "Rest" : "Train"}</Text>
+                        )}
+                    </TouchableOpacity>
+                </PopoverTrigger>
+                <PopoverContent side="top" align="center" className="w-80 p-3">
+                    {renderPopoverBody(turn, entry)}
+                </PopoverContent>
+            </Popover>
         )
     }
 
@@ -574,45 +596,6 @@ const SmartRaceSolverSettings = () => {
             if (matched) out.push(ep)
         }
         return out
-    }
-
-    const renderTooltip = () => {
-        if (selectedTurn == null) return null
-        const entry = preview?.decisions[String(selectedTurn)]
-        const turnLabel = `Turn ${selectedTurn}`
-        if (!entry || entry.type !== "Race") {
-            return (
-                <View style={styles.tooltip}>
-                    <Text style={styles.tooltipTitle}>
-                        {turnLabel} — {entry?.type === "Rest" ? "Rest" : "Training"}
-                    </Text>
-                    <Text style={styles.tooltipMeta}>No race scheduled this turn under the current configuration.</Text>
-                </View>
-            )
-        }
-        const race = entry.raceKey ? racesByKey[entry.raceKey] : undefined
-        const matched = race ? epithetsForRace(race) : []
-        return (
-            <View style={styles.tooltip}>
-                <Text style={styles.tooltipTitle}>
-                    {turnLabel} — {entry.name ?? race?.name ?? "Race"}
-                </Text>
-                <Text style={styles.tooltipMeta}>
-                    {(entry.grade ?? race?.grade ?? "").replace("PRE_OP", "Pre-OP")}
-                    {race ? ` · ${race.raceTrack} · ${race.terrain} · ${race.distanceType} (${race.distanceMeters}m) · ${race.fans.toLocaleString()} fans` : ""}
-                </Text>
-                <Text style={styles.tooltipSection}>Progresses these epithets</Text>
-                {matched.length === 0 ? (
-                    <Text style={styles.tooltipEmpty}>None — this race does not match any tracked epithet matcher.</Text>
-                ) : (
-                    matched.map((ep) => (
-                        <Text key={ep.name} style={styles.tooltipEpithet}>
-                            • {ep.name} — {ep.reward_text}
-                        </Text>
-                    ))
-                )}
-            </View>
-        )
     }
 
     const renderYearCard = (year: { name: string; startTurn: number }) => (
@@ -964,7 +947,7 @@ const SmartRaceSolverSettings = () => {
                             <View style={sectionsDisabledStyle}>
                                 <Text style={styles.sectionTitle}>Schedule Preview</Text>
                                 <Text style={styles.description}>
-                                    Preview of the schedule the solver would start with. Tap a cell to inspect the race, its grade and track, and which epithets it progresses. Does not reflect mid-run dynamic re-planning.
+                                    Preview of the schedule the solver would start with. Tap a cell — a popover floats above it with the race details (grade, track) and which epithets it progresses. Does not reflect mid-run dynamic re-planning.
                                 </Text>
                                 {previewLoading && (
                                     <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -979,7 +962,6 @@ const SmartRaceSolverSettings = () => {
                                     </Text>
                                 )}
                                 {YEAR_LABELS.map(renderYearCard)}
-                                {renderTooltip()}
                             </View>
                         </SearchableItem>
 
