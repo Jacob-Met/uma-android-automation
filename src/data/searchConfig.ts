@@ -512,6 +512,72 @@ const searchConfig: SearchOption[] = [
     },
 
     // ============================================================
+    // Smart Race Solver Settings
+    // ============================================================
+    {
+        id: "enable-smart-race-solver",
+        title: "Enable Smart Race Solver",
+        description: "Beam-search-based race scheduler that targets epithet completions and re-plans dynamically across the 72-turn career.",
+        page: "SmartRaceSolverSettings",
+    },
+    {
+        id: "smart-solver-character-preset",
+        title: "Character Preset",
+        description: "Pick a character to seed aptitude defaults. You can still override individual aptitudes below.",
+        page: "SmartRaceSolverSettings",
+        parentId: "enable-smart-race-solver",
+    },
+    {
+        id: "smart-solver-aptitudes",
+        title: "Aptitudes",
+        description: "Distance and surface aptitude grades. Races below the threshold are excluded from the candidate pool.",
+        page: "SmartRaceSolverSettings",
+        parentId: "enable-smart-race-solver",
+    },
+    {
+        id: "smart-solver-aptitude-threshold",
+        title: "Aptitude Threshold",
+        description: "Minimum aptitude (distance AND surface) required for a race to be eligible.",
+        page: "SmartRaceSolverSettings",
+        parentId: "enable-smart-race-solver",
+    },
+    {
+        id: "smart-solver-target-epithets",
+        title: "Target Epithets",
+        description: "Epithets the solver actively pursues. Selecting one biases the schedule toward completing it.",
+        page: "SmartRaceSolverSettings",
+        parentId: "enable-smart-race-solver",
+    },
+    {
+        id: "smart-solver-forced-epithets",
+        title: "Forced Epithets",
+        description: "Epithets the solver MUST complete. Beams that lose feasibility for any forced epithet are pruned.",
+        page: "SmartRaceSolverSettings",
+        parentId: "enable-smart-race-solver",
+    },
+    {
+        id: "smart-solver-manual-locks",
+        title: "Manual Turn Locks",
+        description: "Force a specific race choice on a specific turn. Overrides the solver's pick for that turn.",
+        page: "SmartRaceSolverSettings",
+        parentId: "enable-smart-race-solver",
+    },
+    {
+        id: "smart-solver-weights",
+        title: "Scoring Weights",
+        description: "Tune how the solver balances race value, epithet completion, and penalties.",
+        page: "SmartRaceSolverSettings",
+        parentId: "enable-smart-race-solver",
+    },
+    {
+        id: "smart-solver-diagnostic",
+        title: "Configuration Summary",
+        description: "Read-only summary of the current solver configuration.",
+        page: "SmartRaceSolverSettings",
+        parentId: "enable-smart-race-solver",
+    },
+
+    // ============================================================
     // Skill Settings
     // ============================================================
     {

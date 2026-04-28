@@ -250,6 +250,19 @@ const MessageLog = () => {
                 ? `${JSON.parse(settings.racing.racingPlan).length} Race(s) Selected`
                 : "None Selected"
 
+        // Smart Race Solver settings — counts derived from JSON-string fields.
+        const safeJsonLength = (json: string): number => {
+            try {
+                const parsed = JSON.parse(json || "[]")
+                return Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length
+            } catch {
+                return 0
+            }
+        }
+        const smartRaceSolverTargetCount = safeJsonLength(settings.racing.smartRaceSolverTargetEpithets)
+        const smartRaceSolverForcedCount = safeJsonLength(settings.racing.smartRaceSolverForcedEpithets)
+        const smartRaceSolverLockCount = safeJsonLength(settings.racing.smartRaceSolverManualLocks)
+
         return `🏁 Campaign Selected: ${settings.general.scenario !== "" ? `${settings.general.scenario}` : "Please select one in the Select Campaign option"}
 👤 Profile Selected: ${settings.misc.currentProfileName ? `${settings.misc.currentProfileName}` : "Default Profile"}
 
@@ -335,6 +348,11 @@ ${longTargetsString}
 📊 Minimum Quality Threshold: ${settings.racing.minimumQualityThreshold}
 ⏱️ Time Decay Factor: ${settings.racing.timeDecayFactor}
 📈 Improvement Threshold: ${settings.racing.improvementThreshold}
+🤖 Enable Smart Race Solver: ${settings.racing.enableSmartRaceSolver ? "✅" : "❌"}
+🎭 Solver Character Preset: ${settings.racing.smartRaceSolverCharacterPreset || "(none)"}
+🎯 Solver Target Epithets: ${smartRaceSolverTargetCount} selected
+🚨 Solver Forced Epithets: ${smartRaceSolverForcedCount} selected
+🔒 Solver Manual Turn Locks: ${smartRaceSolverLockCount} locked turn(s)
 
 ---------- Skill Options ----------
 🔍 Skill Point Check: ${settings.skills.enableSkillPointCheck ? `Stop on ${settings.skills.skillPointCheck} Skill Points or more` : "❌"}
