@@ -230,10 +230,10 @@ const SmartRaceSolverSettings = () => {
      * @param value The new value.
      */
     const updateRacingSetting = (key: string, value: any) => {
-        setSettings({
-            ...bsc.settings,
-            racing: { ...bsc.settings.racing, [key]: value },
-        })
+        setSettings((prev) => ({
+            ...prev,
+            racing: { ...prev.racing, [key]: value },
+        }))
     }
 
     const setAptitude = (slot: keyof AptitudeMap, rank: string) => {
