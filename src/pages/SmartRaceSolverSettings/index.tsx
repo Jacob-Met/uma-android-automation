@@ -67,6 +67,12 @@ interface WeightsMap {
 const RACES_DATA_JSON = JSON.stringify(racesData)
 const EPITHETS_DATA_JSON = JSON.stringify(epithetsData)
 
+// Module-scoped cache of the last computed preview so navigating away and back to this page shows
+// the previous calendar instantly while a fresh re-solve runs in the background. Cleared on app
+// reload, not by navigation. Pair: snapshotKey (JSON.stringify of solver-relevant settings) and
+// the preview result it produced.
+let lastPreviewCache: { key: string; preview: SchedulePreview } | null = null
+
 const APTITUDE_RANKS = ["S", "A", "B", "C", "D", "E", "F", "G"]
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 const YEAR_LABELS: Array<{ name: string; startTurn: number }> = [
@@ -188,7 +194,7 @@ const SmartRaceSolverSettings = () => {
     const [lockRaceSearch, setLockRaceSearch] = useState("")
 
     // Schedule preview — computed by the Kotlin solver via the React Native bridge.
-    const [preview, setPreview] = useState<SchedulePreview | null>(null)
+    const [preview, setPreview] = useState<SchedulePreview | null>(lastPreviewCache?.preview ?? null)
     const [previewLoading, setPreviewLoading] = useState(false)
     const [previewError, setPreviewError] = useState<string | null>(null)
 
@@ -309,15 +315,32 @@ const SmartRaceSolverSettings = () => {
             setPreviewError(null)
             return
         }
+        const snapshot = buildSnapshot()
+        // Skip the bridge round-trip entirely when the cached preview matches the current
+        // settings — common when the user navigates away and back without changing anything.
+        const key = JSON.stringify({
+            scenario: snapshot.scenario,
+            characterPreset: snapshot.characterPreset,
+            aptitudes: snapshot.aptitudes,
+            targetEpithets: snapshot.targetEpithets,
+            forcedEpithets: snapshot.forcedEpithets,
+            manualLocks: snapshot.manualLocks,
+            weights: snapshot.weights,
+        })
+        if (lastPreviewCache && lastPreviewCache.key === key) {
+            setPreview(lastPreviewCache.preview)
+            setPreviewError(lastPreviewCache.preview.error ?? null)
+            return
+        }
         const handle = setTimeout(async () => {
             setPreviewLoading(true)
             const startedAt = Date.now()
             console.log("[SmartRaceSolver] previewSchedule:start")
             try {
-                const snapshot = buildSnapshot()
                 const result = await previewSchedule(snapshot)
                 setPreview(result)
                 setPreviewError(result.error ?? null)
+                lastPreviewCache = { key, preview: result }
             } catch (e: any) {
                 setPreview(null)
                 setPreviewError(String(e?.message ?? e))

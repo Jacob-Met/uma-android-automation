@@ -102,7 +102,9 @@ object SmartRaceSolverIntegration {
      *   either `{type:"Train"}`, `{type:"Rest"}`, or `{type:"Race", raceKey, name, grade}`.
      */
     fun previewSchedule(configJson: String): String {
+        val tStart = System.nanoTime()
         val config = runCatching { JSONObject(configJson) }.getOrElse { JSONObject() }
+        val tConfigParsed = System.nanoTime()
         // Prefer the JS-provided races/epithets payload (always present from the bundled JSON
         // imports) and fall back to SettingsHelper. This avoids depending on persistence timing
         // for users whose profiles predate these settings.
@@ -119,6 +121,7 @@ object SmartRaceSolverIntegration {
         val epithets = parseEpithetsJsonField(config.optStringOrNull("epithetsDataJson"))
             ?: loadEpithets()
             ?: emptyList()
+        val tDataParsed = System.nanoTime()
 
         val state = SolverState(
             currentTurn = 1,
@@ -133,8 +136,22 @@ object SmartRaceSolverIntegration {
             weights = parseWeightsObj(config.optJSONObject("weights")),
         )
 
+        val tStateBuilt = System.nanoTime()
         val schedule = SmartRaceSolver.solve(state)
-        return serializeSchedule(schedule, racesByTurn)
+        val tSolved = System.nanoTime()
+        val out = serializeSchedule(schedule, racesByTurn)
+        val tSerialized = System.nanoTime()
+        MessageLog.i(
+            TAG,
+            "previewSchedule timings (ms): " +
+                "configParse=${(tConfigParsed - tStart) / 1_000_000}, " +
+                "dataParse=${(tDataParsed - tConfigParsed) / 1_000_000}, " +
+                "stateBuild=${(tStateBuilt - tDataParsed) / 1_000_000}, " +
+                "solve=${(tSolved - tStateBuilt) / 1_000_000}, " +
+                "serialize=${(tSerialized - tSolved) / 1_000_000}, " +
+                "total=${(tSerialized - tStart) / 1_000_000}"
+        )
+        return out
     }
 
     /**
