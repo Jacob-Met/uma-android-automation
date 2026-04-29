@@ -68,12 +68,12 @@ object ScoringFunctions {
     fun restValue(@Suppress("UNUSED_PARAMETER") weights: Weights): Double = 0.0
 
     /**
-     * Flat per-race penalty subtracted from gross race reward. Calibrated so Pre-OP / OP / Maiden
-     * / Debut races score negative under default weights (and thus Train wins), while G2 / G1 /
-     * Finale clear the bar. G3 lands close to zero — raced when fans or epithets push it past
-     * [RACE_COST].
+     * Flat per-race penalty subtracted from gross race reward. Calibrated so under default weights
+     * G3 / OP / Pre-OP / Maiden / Debut score negative (Train wins) and only G1 / Finale clear the
+     * bar comfortably; G2 lands a hair below zero so it's only raced when fans or an epithet push
+     * it positive. Targets the reference Trackblazer site's ~50% race density (≈33 of 72 turns).
      */
-    private const val RACE_COST: Double = 40.0
+    private const val RACE_COST: Double = 48.0
 
     /**
      * Reward magnitude of completing [epithet]. Stat rewards return [Epithet.amount]; hint
