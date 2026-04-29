@@ -75,11 +75,11 @@ const YEAR_LABELS: Array<{ name: string; startTurn: number }> = [
     { name: "Senior", startTurn: 49 },
 ]
 const GRADE_COLORS: Record<string, string> = {
-    G1: "#dc2626",
-    G2: "#ea580c",
-    G3: "#ca8a04",
-    OP: "#2563eb",
-    PRE_OP: "#3b82f6",
+    G1: "#2563eb",
+    G2: "#ec4899",
+    G3: "#16a34a",
+    OP: "#ca8a04",
+    PRE_OP: "#a16207",
     MAIDEN: "#6b7280",
     DEBUT: "#6b7280",
     FINALE: "#7c3aed",
@@ -440,7 +440,16 @@ const SmartRaceSolverSettings = () => {
                 calendarCellRace: {
                     backgroundColor: colors.card,
                 },
-                calendarDot: { width: 12, height: 12, borderRadius: 6, marginRight: 6 },
+                calendarBadge: {
+                    minWidth: 30,
+                    height: 18,
+                    borderRadius: 3,
+                    paddingHorizontal: 4,
+                    marginRight: 6,
+                    alignItems: "center",
+                    justifyContent: "center",
+                },
+                calendarBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
                 calendarRaceName: { flex: 1, fontSize: 11, color: colors.foreground, fontWeight: "600" },
                 calendarCellEmpty: { flex: 1, fontSize: 12, color: colors.mutedForeground, textAlign: "center" },
                 popoverTitle: { fontSize: 15, fontWeight: "700", color: colors.foreground },
@@ -563,7 +572,11 @@ const SmartRaceSolverSettings = () => {
                     <TouchableOpacity style={[styles.calendarCell, isRace && styles.calendarCellRace]}>
                         {isRace ? (
                             <>
-                                <View style={[styles.calendarDot, { backgroundColor: color! }]} />
+                                <View style={[styles.calendarBadge, { backgroundColor: color! }]}>
+                                    <Text style={styles.calendarBadgeText}>
+                                        {(entry.grade ?? "").replace("PRE_OP", "Pre").replace("FINALE", "Fin").replace("MAIDEN", "Mdn").replace("DEBUT", "Dbt")}
+                                    </Text>
+                                </View>
                                 <Text style={styles.calendarRaceName} numberOfLines={1} ellipsizeMode="tail">
                                     {shortRaceName}
                                 </Text>
