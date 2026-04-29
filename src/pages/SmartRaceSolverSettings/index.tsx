@@ -428,18 +428,21 @@ const SmartRaceSolverSettings = () => {
                     flex: 1,
                     flexDirection: "row",
                     alignItems: "center",
-                    justifyContent: "center",
-                    paddingVertical: 10,
+                    justifyContent: "flex-start",
+                    paddingVertical: 8,
+                    paddingHorizontal: 8,
                     borderRadius: 6,
+                    borderWidth: 1,
+                    borderColor: colors.border,
                     backgroundColor: colors.card,
                     minHeight: 44,
                 },
                 calendarCellRace: {
                     backgroundColor: colors.card,
                 },
-                calendarDot: { width: 14, height: 14, borderRadius: 7, marginRight: 6 },
-                calendarGradeLabel: { fontSize: 13, color: colors.foreground, fontWeight: "700" },
-                calendarCellEmpty: { fontSize: 12, color: colors.mutedForeground },
+                calendarDot: { width: 12, height: 12, borderRadius: 6, marginRight: 6 },
+                calendarRaceName: { flex: 1, fontSize: 11, color: colors.foreground, fontWeight: "600" },
+                calendarCellEmpty: { flex: 1, fontSize: 12, color: colors.mutedForeground, textAlign: "center" },
                 popoverTitle: { fontSize: 15, fontWeight: "700", color: colors.foreground },
                 popoverMeta: { fontSize: 12, color: colors.mutedForeground, marginTop: 4 },
                 popoverSection: { fontSize: 13, fontWeight: "700", color: colors.foreground, marginTop: 8 },
@@ -493,6 +496,25 @@ const SmartRaceSolverSettings = () => {
         </TouchableOpacity>
     )
 
+    const shortenRaceName = (name: string): string => {
+        // Strip the trailing parenthetical "(Junior Class December, Second Half)" if present so we
+        // only show the race name itself; the date already comes from the cell's row.
+        const stripped = name.replace(/\s*\(.*\)\s*$/, "").trim()
+        // A few common races whose canonical name is too long for the cell.
+        const ABBR: Record<string, string> = {
+            "Hanshin Juvenile Fillies": "Hanshin Juv. F.",
+            "Mile Championship": "Mile Champ.",
+            "Takarazuka Kinen": "Takarazuka K.",
+            "Saudi Arabia Royal Cup": "Saudi Arabia P.",
+            "Tokyo Sports Hai Niko Sai Sho": "Tokyo Sports",
+            "Niigata Junior Stakes": "Niigata Jr. S.",
+            "Kokura Junior Stakes": "Kokura Jr. S.",
+            "Sprinters Stakes": "Sprinters S.",
+            "Asahi Hai Futurity Stakes": "Asahi Hai F. S.",
+        }
+        return ABBR[stripped] ?? stripped
+    }
+
     const renderPopoverBody = (turn: number, entry: ScheduleEntry | undefined) => {
         const turnLabel = `Turn ${turn}`
         if (!entry || entry.type !== "Race") {
@@ -534,6 +556,7 @@ const SmartRaceSolverSettings = () => {
         const entry = preview?.decisions[String(turn)]
         const isRace = entry?.type === "Race"
         const color = isRace ? GRADE_COLORS[entry.grade ?? ""] ?? colors.primary : null
+        const shortRaceName = isRace ? shortenRaceName(entry.name ?? entry.raceKey ?? "") : ""
         return (
             <Popover key={turn} style={styles.calendarCellWrapper}>
                 <PopoverTrigger asChild>
@@ -541,7 +564,9 @@ const SmartRaceSolverSettings = () => {
                         {isRace ? (
                             <>
                                 <View style={[styles.calendarDot, { backgroundColor: color! }]} />
-                                <Text style={styles.calendarGradeLabel}>{(entry.grade ?? "").replace("PRE_OP", "Pre")}</Text>
+                                <Text style={styles.calendarRaceName} numberOfLines={1} ellipsizeMode="tail">
+                                    {shortRaceName}
+                                </Text>
                             </>
                         ) : (
                             <Text style={styles.calendarCellEmpty}>{entry?.type === "Rest" ? "Rest" : "Train"}</Text>
