@@ -9,7 +9,7 @@ import re
 import time
 import logging
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from difflib import SequenceMatcher
 import bisect
 import requests
@@ -1256,6 +1256,122 @@ class EpithetScraper(BaseScraper):
         return ("unknown", 0, 0)
 
 
+class CharacterPresetScraper(BaseScraper):
+    """Scrapes per-character distance and surface aptitudes for the Smart Race Solver.
+
+    Each character page on gametora has a "Track aptitude" panel with six grade letters
+    (Sprint, Mile, Medium, Long, Turf, Dirt). The Smart Race Solver feeds these into its
+    aptitude eligibility filter, so they need to stay in sync with what's in the game.
+
+    Output schema (one entry per character) matches `src/data/characterPresets.json`:
+
+        {
+            "<character name>": {
+                "name": "<character name>",
+                "distanceAptitudes": { "Sprint": "F", "Mile": "C", "Medium": "A", "Long": "C" },
+                "surfaceAptitudes": { "Turf": "A", "Dirt": "G" }
+            }
+        }
+    """
+
+    DISTANCE_KEYS = ("Sprint", "Mile", "Medium", "Long")
+    SURFACE_KEYS = ("Turf", "Dirt")
+    VALID_GRADES = ("S", "A", "B", "C", "D", "E", "F", "G")
+
+    def __init__(self):
+        super().__init__("https://gametora.com/umamusume/characters", "characterPresets.json")
+
+    def start(self):
+        """Walks every character page and extracts the aptitude grades."""
+        driver = create_chromedriver()
+        driver.get(self.url)
+        time.sleep(5)
+
+        self.handle_cookie_consent(driver)
+        self._sort_by_value(driver, "implemented")
+
+        try:
+            character_grid = driver.find_element(By.XPATH, "//div[contains(@class, 'characters_page_character_list')]")
+        except NoSuchElementException:
+            character_grid = driver.find_element(By.XPATH, "//div[contains(@class, 'sc-dc9ce0a6-0')]")
+
+        all_links = character_grid.find_elements(By.CSS_SELECTOR, "a[href^='/umamusume/characters/']")
+        character_links = [item.get_attribute("href") for item in all_links if item.is_displayed()]
+
+        if IS_DELTA:
+            character_links = character_links[:DELTA_BACKLOG_COUNT]
+            logging.info(f"Delta scrape: limiting to first {DELTA_BACKLOG_COUNT} characters.")
+
+        logging.info(f"Found {len(character_links)} character pages to scan for aptitudes.")
+
+        for i, link in enumerate(character_links):
+            logging.info(f"[{i + 1}/{len(character_links)}] Scraping aptitudes from {link}")
+            try:
+                driver.get(link)
+                time.sleep(2)
+
+                name = driver.find_element(By.XPATH, "//main//h1").text
+                name = name.replace("(Original)", "").strip()
+                name = re.sub(r"\s*\(.*?\)", "", name).strip()
+                if not name:
+                    continue
+
+                aptitudes = self._extract_aptitudes(driver)
+                if aptitudes is None:
+                    logging.warning(f"Skipping {name}: aptitude panel not found.")
+                    continue
+
+                self.data[name] = {
+                    "name": name,
+                    "distanceAptitudes": {k: aptitudes.get(k, "G") for k in self.DISTANCE_KEYS},
+                    "surfaceAptitudes": {k: aptitudes.get(k, "G") for k in self.SURFACE_KEYS},
+                }
+            except NoSuchElementException as e:
+                logging.warning(f"Skipping character at {link}: {e}")
+                continue
+
+        self.save_data()
+        driver.quit()
+
+    def _extract_aptitudes(self, driver: webdriver.Chrome) -> Optional[Dict[str, str]]:
+        """Pulls the six grade letters from the character's aptitude panel.
+
+        Gametora renders aptitudes as a grid of label/value pairs; the labels are the
+        keys in [DISTANCE_KEYS] and [SURFACE_KEYS]. We tolerate selector drift by trying
+        a couple of class fragments before giving up.
+
+        Returns:
+            Dict mapping each label to a one-letter grade. Returns `None` when the panel
+            isn't found at all so the caller can skip cleanly.
+        """
+        candidates = (
+            "//div[contains(@class, 'character_aptitude') or contains(@class, 'aptitude_grid')]",
+            "//section[.//*[contains(text(),'Track aptitude')]]",
+        )
+        panel = None
+        for xpath in candidates:
+            els = driver.find_elements(By.XPATH, xpath)
+            if els:
+                panel = els[0]
+                break
+        if panel is None:
+            return None
+
+        out: Dict[str, str] = {}
+        for label in self.DISTANCE_KEYS + self.SURFACE_KEYS:
+            try:
+                cell = panel.find_element(
+                    By.XPATH,
+                    f".//*[normalize-space(text())='{label}']/following::*[contains(@class,'aptitude') or contains(@class,'grade')][1]",
+                )
+                grade = (cell.text or "").strip().upper()
+                if grade in self.VALID_GRADES:
+                    out[label] = grade
+            except NoSuchElementException:
+                continue
+        return out if out else None
+
+
 if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
     start_time = time.time()
@@ -1275,6 +1391,9 @@ if __name__ == "__main__":
 
     epithet_scraper = EpithetScraper()
     epithet_scraper.start()
+
+    character_preset_scraper = CharacterPresetScraper()
+    character_preset_scraper.start()
 
     end_time = round(time.time() - start_time, 2)
     logging.info(f"Total time for processing all applications: {end_time} seconds or {round(end_time / 60, 2)} minutes.")

@@ -18,7 +18,7 @@ pip install -r requirements.txt
 
 ## Updating Game Data
 
-To update all game data files (`skills.json`, `characters.json`, `supports.json`, and `races.json`), run the following command:
+To update all game data files (`skills.json`, `characters.json`, `supports.json`, `races.json`, `epithets.json`, and `characterPresets.json`), run the following command:
 
 ```bash
 python main.py
@@ -30,6 +30,8 @@ python main.py
 2.  **Characters**: Scrapes character-specific training events and "After a Race" events.
 3.  **Support Cards**: Scrapes support card training events and effects.
 4.  **Races**: Scrapes race information and calculates turn numbers for the in-game calendar.
+5.  **Epithets**: Scrapes nickname rewards and conditions; preserves the curated `dependsOn` and `matchers` fields used by the Smart Race Solver.
+6.  **Character Presets**: Scrapes per-character distance and surface aptitudes used by the Smart Race Solver as starting aptitude defaults (`characterPresets.json`). Selectors are best-effort and may need updating if gametora reshuffles its CSS modules.
 
 > [!NOTE]
 > The script uses **Delta Scraping** by default (defined by `IS_DELTA = True` in `main.py`). This means it will only fetch new or updated items to save time. If you need a full refresh, set `IS_DELTA = False` in `main.py`.
@@ -50,3 +52,5 @@ This script is used to help find screen coordinates for new UI elements. It prov
 - `skills.json`: Skill IDs, names, costs, and tier rankings.
 - `supports.json`: Support card event data.
 - `scenarios.json`: Scenario-specific event data (e.g., URA, Unity Cup, Trackblazer). This is updated manually to include special event overrides and logic for each scenario.
+- `epithets.json`: Smart Race Solver nickname / epithet definitions. Scraper-owned fields are refreshed; `dependsOn` and `matchers` are hand-curated and preserved across re-scrapes.
+- `characterPresets.json`: Smart Race Solver starting aptitudes per character.
