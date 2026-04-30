@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test
 
 @DisplayName("Heuristic beam search")
 class HeuristicTest {
-
     @Test
     fun emptyStateReturnsTrainOnlySchedule() {
         val st = state(currentTurn = 70, races = emptyList(), epithets = emptyList())
@@ -28,19 +27,21 @@ class HeuristicTest {
         // completes an epithet. With a strong epithet weight the solver favours the epithet.
         val rich = race("Rich Stakes", 64, grade = RaceGrade.G1, fans = 100000)
         val key = race("Key Stakes", 64, grade = RaceGrade.G1, fans = 5000)
-        val target = epithet(
-            name = "Key Win",
-            matchers = listOf(EpithetMatcher.WinRace("Key Stakes")),
-            rewardKind = "stat",
-            amount = 30,
-        )
-        val st = state(
-            currentTurn = 64,
-            races = listOf(rich, key),
-            epithets = listOf(target),
-            targetEpithets = setOf("Key Win"),
-            weights = Weights(epithetValue = 100.0),
-        )
+        val target =
+            epithet(
+                name = "Key Win",
+                matchers = listOf(EpithetMatcher.WinRace("Key Stakes")),
+                rewardKind = "stat",
+                amount = 30,
+            )
+        val st =
+            state(
+                currentTurn = 64,
+                races = listOf(rich, key),
+                epithets = listOf(target),
+                targetEpithets = setOf("Key Win"),
+                weights = Weights(epithetValue = 100.0),
+            )
 
         val schedule = Heuristic.search(st)
         assertTrue("Key Win" in schedule.projectedEpithets)
@@ -51,12 +52,13 @@ class HeuristicTest {
     @Test
     fun lockedDecisionIsHonoured() {
         val r = race("Locked Race", 30)
-        val st = state(
-            currentTurn = 28,
-            races = listOf(r),
-            epithets = emptyList(),
-            lockedDecisions = mapOf(30 to Decision.RaceDecision(r.key)),
-        )
+        val st =
+            state(
+                currentTurn = 28,
+                races = listOf(r),
+                epithets = emptyList(),
+                lockedDecisions = mapOf(30 to Decision.RaceDecision(r.key)),
+            )
 
         val schedule = Heuristic.search(st)
         val locked = schedule.decisions[30]
@@ -67,11 +69,12 @@ class HeuristicTest {
     fun ineligibleRaceIsDropped() {
         // All-G aptitudes — the race is filtered out, so Train is chosen instead.
         val r = race("Unreachable", 30)
-        val st = state(
-            currentTurn = 30,
-            races = listOf(r),
-            aptitudes = TestFixtures.ALL_G_APTITUDES,
-        )
+        val st =
+            state(
+                currentTurn = 30,
+                races = listOf(r),
+                aptitudes = TestFixtures.ALL_G_APTITUDES,
+            )
 
         val schedule = Heuristic.search(st)
         val pick = schedule.decisions[30]
@@ -80,8 +83,8 @@ class HeuristicTest {
 
     @Test
     fun trainBeatsLowGradeRaceUnderDefaultWeights() {
-        // Pre-OP races score ~21 (5 stat + 15 SP + small fans) while Train scores ~35 under
-        // defaults, so the solver should not pick the race here.
+        // Pre-OP under default weights: gross 22, cost 49 → ~-27, plus 0.5 fans tiebreaker.
+        // Train is 0, so Train wins.
         val weak = race("Weak Pre-OP", 30, grade = RaceGrade.PRE_OP, fans = 500)
         val st = state(currentTurn = 30, races = listOf(weak), epithets = emptyList())
         val schedule = Heuristic.search(st)
@@ -90,7 +93,8 @@ class HeuristicTest {
 
     @Test
     fun highGradeRaceBeatsTrainUnderDefaultWeights() {
-        // A G1 with reasonable fans scores ~70 — well above Train's ~35 baseline.
+        // G1 under default weights: gross 67, cost 49 → 18, plus 50 fans tiebreaker → ~68.
+        // Train is 0, so the race wins.
         val g1 = race("Big G1", 30, grade = RaceGrade.G1, fans = 50000)
         val st = state(currentTurn = 30, races = listOf(g1), epithets = emptyList())
         val schedule = Heuristic.search(st)

@@ -136,6 +136,8 @@ class TrainingScoringTest {
         return TrainingConfig(
             currentStats = currentStats,
             statPrioritization = statPrioritization,
+            eventChoiceStatPriority = statPrioritization,
+            summerTrainingStatPriority = statPrioritization,
             statTargets = getStatTargetsForDistance(preferredDistance),
             currentDate = currentDate,
             scenario = scenario,

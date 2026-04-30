@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Test
 
 @DisplayName("EpithetTracker classification")
 class EpithetTrackerTest {
-
     @Test
     fun emptyHistoryAllUntouched() {
         val ep = epithet("Test", listOf(EpithetMatcher.WinRace("Japan Cup")))
@@ -54,18 +53,21 @@ class EpithetTrackerTest {
         val r3 = race("Japan Cup Dirt", 56, grade = RaceGrade.G1, terrain = TrackSurface.DIRT, raceTrack = "Chukyo")
         val turfRace = race("Tenno Sho (Autumn)", 58, grade = RaceGrade.G1, terrain = TrackSurface.TURF)
 
-        val achiever = epithet(
-            name = "Dirt G1 Achiever",
-            matchers = listOf(
-                EpithetMatcher.WinCount(count = 3, filter = EpithetFilter(terrain = TrackSurface.DIRT, grade = RaceGrade.G1)),
-            ),
-        )
+        val achiever =
+            epithet(
+                name = "Dirt G1 Achiever",
+                matchers =
+                    listOf(
+                        EpithetMatcher.WinCount(count = 3, filter = EpithetFilter(terrain = TrackSurface.DIRT, grade = RaceGrade.G1)),
+                    ),
+            )
 
-        val st = state(
-            races = listOf(r1, r2, r3, turfRace),
-            epithets = listOf(achiever),
-            history = listOf(win(r1), win(r2), win(turfRace)),
-        )
+        val st =
+            state(
+                races = listOf(r1, r2, r3, turfRace),
+                epithets = listOf(achiever),
+                history = listOf(win(r1), win(r2), win(turfRace)),
+            )
 
         // Only 2 dirt G1 wins so far — turf win does not count.
         assertEquals(EpithetStatus.IN_PROGRESS, EpithetTracker.classify(achiever, st))
@@ -76,22 +78,25 @@ class EpithetTrackerTest {
 
     @Test
     fun epithetAllRequiresPrerequisitesInCompletedSet() {
-        val incredible = epithet(
-            name = "Incredible",
-            matchers = listOf(
-                EpithetMatcher.EpithetAll(listOf("Stunning")),
-                EpithetMatcher.WinAnyOf(listOf("Japan Cup", "Arima Kinen"), atClass = "Classic"),
-            ),
-            dependsOn = listOf("Stunning"),
-        )
+        val incredible =
+            epithet(
+                name = "Incredible",
+                matchers =
+                    listOf(
+                        EpithetMatcher.EpithetAll(listOf("Stunning")),
+                        EpithetMatcher.WinAnyOf(listOf("Japan Cup", "Arima Kinen"), atClass = "Classic"),
+                    ),
+                dependsOn = listOf("Stunning"),
+            )
         val arima = race("Arima Kinen", 48, classYear = "Classic")
 
-        val noStunning = state(
-            races = listOf(arima),
-            epithets = listOf(incredible),
-            history = listOf(win(arima)),
-            completedEpithets = emptySet(),
-        )
+        val noStunning =
+            state(
+                races = listOf(arima),
+                epithets = listOf(incredible),
+                history = listOf(win(arima)),
+                completedEpithets = emptySet(),
+            )
         assertFalse(EpithetTracker.isCompleted(incredible, noStunning))
 
         val withStunning = noStunning.copy(completedEpithets = setOf("Stunning"))

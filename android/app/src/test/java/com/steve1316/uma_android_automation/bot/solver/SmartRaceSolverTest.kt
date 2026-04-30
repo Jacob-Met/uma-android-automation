@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test
 
 @DisplayName("SmartRaceSolver end-to-end")
 class SmartRaceSolverTest {
-
     @Test
     fun solverProducesScheduleForCurrentTurnForward() {
         val r = race("Senior Stakes", 60)
@@ -29,12 +28,13 @@ class SmartRaceSolverTest {
         val keep = epithet("Keep", listOf(EpithetMatcher.WinRace("Keep Stakes")))
         val drop = epithet("Drop", listOf(EpithetMatcher.WinRace("Drop Stakes")))
 
-        val st = state(
-            currentTurn = 60,
-            races = listOf(keepKey, dropKey),
-            epithets = listOf(keep, drop),
-            deadEpithets = setOf("Drop"),
-        )
+        val st =
+            state(
+                currentTurn = 60,
+                races = listOf(keepKey, dropKey),
+                epithets = listOf(keep, drop),
+                deadEpithets = setOf("Drop"),
+            )
 
         val schedule = SmartRaceSolver.solve(st)
         assertTrue("Keep" in schedule.projectedEpithets)
@@ -46,21 +46,23 @@ class SmartRaceSolverTest {
         val unicorn = race("Unicorn Stakes", 30)
         val leopard = race("Leopard Stakes", 38)
         val derby = race("Japan Dirt Derby", 40)
-        val target = epithet(
-            "Kicking Up Dust",
-            listOf(
-                EpithetMatcher.WinRace("Unicorn Stakes"),
-                EpithetMatcher.WinRace("Leopard Stakes"),
-                EpithetMatcher.WinRace("Japan Dirt Derby"),
-            ),
-        )
+        val target =
+            epithet(
+                "Kicking Up Dust",
+                listOf(
+                    EpithetMatcher.WinRace("Unicorn Stakes"),
+                    EpithetMatcher.WinRace("Leopard Stakes"),
+                    EpithetMatcher.WinRace("Japan Dirt Derby"),
+                ),
+            )
 
-        val st = state(
-            currentTurn = 28,
-            races = listOf(unicorn, leopard, derby),
-            epithets = listOf(target),
-            forcedEpithets = setOf("Kicking Up Dust"),
-        )
+        val st =
+            state(
+                currentTurn = 28,
+                races = listOf(unicorn, leopard, derby),
+                epithets = listOf(target),
+                forcedEpithets = setOf("Kicking Up Dust"),
+            )
 
         val schedule = SmartRaceSolver.solve(st)
         assertTrue("Kicking Up Dust" in schedule.projectedEpithets)
@@ -82,10 +84,11 @@ class SmartRaceSolverTest {
 
         // Simulate a race-loss: epA becomes dead; turn advances; r1 is no longer in candidate
         // window for the next solve. Solver should still produce a viable schedule for epB.
-        val afterLoss = initial.copy(
-            currentTurn = 31,
-            deadEpithets = setOf("Win A"),
-        )
+        val afterLoss =
+            initial.copy(
+                currentTurn = 31,
+                deadEpithets = setOf("Win A"),
+            )
         val reRun = SmartRaceSolver.solve(afterLoss)
         assertFalse("Win A" in reRun.projectedEpithets)
         assertTrue("Win B" in reRun.projectedEpithets)
