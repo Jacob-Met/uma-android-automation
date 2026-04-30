@@ -1174,6 +1174,9 @@ class EpithetScraper(BaseScraper):
         `contains(@class, ...)` substrings. The page structure is a single grid of rows
         where each row exposes the epithet name, category/reward text, and condition.
 
+        Args:
+            driver: An active Selenium webdriver positioned on the nicknames page.
+
         Returns:
             Dict keyed by epithet name with the scraper-owned fields populated.
         """
@@ -1219,7 +1222,15 @@ class EpithetScraper(BaseScraper):
 
     @staticmethod
     def _safe_text(parent: WebElement, xpath: str) -> str:
-        """Returns stripped text of the first element matching `xpath`, or empty string."""
+        """Returns stripped text of the first element matching `xpath`, or empty string.
+
+        Args:
+            parent: The parent web element to search within.
+            xpath: The XPath query relative to `parent`.
+
+        Returns:
+            The stripped text of the first match, or an empty string if no match exists.
+        """
         try:
             return parent.find_element(By.XPATH, xpath).text.strip()
         except NoSuchElementException:
@@ -1370,8 +1381,11 @@ class CharacterPresetScraper(BaseScraper):
         """Pulls the six grade letters from the character's aptitude panel.
 
         Gametora renders aptitudes as a grid of label/value pairs; the labels are the
-        keys in [DISTANCE_KEYS] and [SURFACE_KEYS]. We tolerate selector drift by trying
+        keys in `DISTANCE_KEYS` and `SURFACE_KEYS`. We tolerate selector drift by trying
         a couple of class fragments before giving up.
+
+        Args:
+            driver: An active Selenium webdriver positioned on a character page.
 
         Returns:
             Dict mapping each label to a one-letter grade. Returns `None` when the panel
