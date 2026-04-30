@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test
 
 @DisplayName("ScoringFunctions")
 class ScoringFunctionsTest {
-
     private val w = Weights()
 
     @Test
@@ -49,8 +48,10 @@ class ScoringFunctionsTest {
     }
 
     @Test
-    fun trainValueIsZero() {
-        assertEquals(0.0, ScoringFunctions.trainValue(w), 1e-9)
+    fun trainValueIsAntiRaceBias() {
+        // Train carries a +1.0 anti-race bias so that races whose gross reward exactly equals
+        // their cost (G2/G3 under defaults) lose ties to Train.
+        assertEquals(1.0, ScoringFunctions.trainValue(w), 1e-9)
     }
 
     @Test
@@ -75,9 +76,18 @@ class ScoringFunctionsTest {
 
     @Test
     fun consecutivePenaltyAppliesAtThirdRace() {
-        assertEquals(0.0, ScoringFunctions.consecutiveRacePenalty(2, w), 1e-9)
-        assertEquals(w.consecutiveRacePenalty, ScoringFunctions.consecutiveRacePenalty(3, w), 1e-9)
-        assertEquals(w.consecutiveRacePenalty, ScoringFunctions.consecutiveRacePenalty(5, w), 1e-9)
+        // Use a non-Late-Dec turn (turn 30) so the exemption doesn't kick in.
+        assertEquals(0.0, ScoringFunctions.consecutiveRacePenalty(2, 30, w), 1e-9)
+        assertEquals(w.consecutiveRacePenalty, ScoringFunctions.consecutiveRacePenalty(3, 30, w), 1e-9)
+        assertEquals(w.consecutiveRacePenalty, ScoringFunctions.consecutiveRacePenalty(5, 30, w), 1e-9)
+    }
+
+    @Test
+    fun consecutivePenaltyIsWaivedOnLateDecTurns() {
+        // Late-Dec turns (23, 47, 71) end the year and don't carry conditioning penalty.
+        assertEquals(0.0, ScoringFunctions.consecutiveRacePenalty(3, 23, w), 1e-9)
+        assertEquals(0.0, ScoringFunctions.consecutiveRacePenalty(5, 47, w), 1e-9)
+        assertEquals(0.0, ScoringFunctions.consecutiveRacePenalty(4, 71, w), 1e-9)
     }
 
     @Test
