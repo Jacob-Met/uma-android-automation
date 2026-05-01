@@ -31,6 +31,12 @@ export const useSettingsManager = () => {
     // Debounce timer for auto-saving settings.
     const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+    // Snapshot of the settings as last persisted to SQLite. Used to compute a per-slice diff so
+    // each toggle only writes the slice it touched (~10 rows) instead of the full 175-row batch.
+    // Slice-level identity is reliable because slice context updates always replace the slice
+    // object (e.g. `updateMisc({ ...misc, foo: bar })`).
+    const lastSavedSettingsRef = useRef<Settings | null>(null)
+
     // Keep the ref in sync with the latest settings.
     useEffect(() => {
         settingsRef.current = settings
@@ -63,8 +69,28 @@ export const useSettingsManager = () => {
         // Debounce the save to batch rapid changes.
         autoSaveTimerRef.current = setTimeout(async () => {
             try {
-                logWithTimestamp("[SettingsManager] Auto-saving settings to database...")
-                await databaseManager.saveSettingsBatch(convertSettingsToBatch(settingsRef.current))
+                const current = settingsRef.current
+                const last = lastSavedSettingsRef.current
+                // First save after load: persist everything. Subsequent saves: only the slices
+                // whose top-level reference changed since the last persisted snapshot.
+                let toPersist: Record<string, any>
+                if (last == null) {
+                    toPersist = current
+                } else {
+                    toPersist = {}
+                    for (const key of Object.keys(current) as Array<keyof Settings>) {
+                        if (current[key] !== last[key]) {
+                            toPersist[key as string] = current[key]
+                        }
+                    }
+                }
+                const batch = convertSettingsToBatch(toPersist)
+                if (batch.length === 0) {
+                    return
+                }
+                logWithTimestamp(`[SettingsManager] Auto-saving ${batch.length} settings (slices: ${Object.keys(toPersist).join(", ")}).`)
+                await databaseManager.saveSettingsBatch(batch)
+                lastSavedSettingsRef.current = current
                 logWithTimestamp("[SettingsManager] Auto-save completed.")
             } catch (error) {
                 logErrorWithTimestamp(`[SettingsManager] Auto-save failed: ${error}`)
@@ -92,6 +118,7 @@ export const useSettingsManager = () => {
             // Read from the ref to always get the latest settings.
             const localSettings: Settings = newSettings ? newSettings : settingsRef.current
             await databaseManager.saveSettingsBatch(convertSettingsToBatch(localSettings))
+            lastSavedSettingsRef.current = localSettings
             endTiming({ status: "success", hasNewSettings: !!newSettings })
         } catch (error) {
             logErrorWithTimestamp(`Error saving settings: ${error}`)
@@ -115,6 +142,7 @@ export const useSettingsManager = () => {
             // Read from the ref to always get the latest settings.
             const localSettings: Settings = newSettings ? newSettings : settingsRef.current
             await databaseManager.saveSettingsBatch(convertSettingsToBatch(localSettings))
+            lastSavedSettingsRef.current = localSettings
             endTiming({ status: "success", hasNewSettings: !!newSettings, immediate: true })
         } catch (error) {
             logErrorWithTimestamp(`Error saving settings immediately: ${error}`)
@@ -170,6 +198,7 @@ export const useSettingsManager = () => {
                 if (anyMigrated) {
                     try {
                         await databaseManager.saveSettingsBatch(convertSettingsToBatch(newSettings))
+                        lastSavedSettingsRef.current = newSettings
                         logWithTimestamp("[SettingsManager] Saved migrated settings to database.")
                     } catch (migrationSaveError) {
                         logErrorWithTimestamp("[SettingsManager] Error saving migrated settings:", migrationSaveError)
@@ -177,6 +206,9 @@ export const useSettingsManager = () => {
                 }
 
                 setSettings(newSettings)
+                // The DB now matches React state, so the next auto-save can diff against it
+                // and skip writing slices that haven't changed.
+                lastSavedSettingsRef.current = newSettings
                 // Mark that the initial load has completed so auto-save can begin.
                 hasLoadedRef.current = true
                 logWithTimestamp(`[SettingsManager] Settings loaded and applied to context ${context}.`)
@@ -261,6 +293,7 @@ export const useSettingsManager = () => {
 
                 // Save settings to SQLite database.
                 await databaseManager.saveSettingsBatch(convertSettingsToBatch(importedSettings))
+                lastSavedSettingsRef.current = importedSettings
                 setSettings(importedSettings)
 
                 // Import profiles if they exist.
@@ -456,6 +489,7 @@ export const useSettingsManager = () => {
 
             // Save default settings to SQLite database.
             await databaseManager.saveSettingsBatch(convertSettingsToBatch(defaultSettingsCopy))
+            lastSavedSettingsRef.current = defaultSettingsCopy
 
             // Update the current settings in context.
             setSettings(defaultSettingsCopy)
