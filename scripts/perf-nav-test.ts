@@ -48,12 +48,25 @@ interface NavScenario {
     toggleTapY?: number
 }
 
+// Coordinates calibrated 2026-05-01 with `enableAskTheDocs=true` (Chat row inserted between
+// Home and Settings; pushes everything below it down ~91 px). If that toggle is later disabled,
+// re-dump and shift these up.
 const SCENARIOS: NavScenario[] = [
     { name: "Settings", route: "Settings", tapX: 213, tapY: 479, toggleTapX: 200, toggleTapY: 1670 },
+    // Settings expands by default; nested rows start at y=565 with a vertical stride of ~89 px.
     { name: "Training Settings", route: "TrainingSettings", tapX: 255, tapY: 565 },
+    { name: "Training Event Settings", route: "TrainingEventSettings", tapX: 280, tapY: 652 },
     { name: "Racing Settings", route: "RacingSettings", tapX: 229, tapY: 744 },
+    { name: "Skill Settings", route: "SkillSettings", tapX: 220, tapY: 826 },
+    { name: "Event Log Visualizer", route: "EventLogVisualizer", tapX: 250, tapY: 904 },
+    { name: "Discord Settings", route: "DiscordSettings", tapX: 220, tapY: 978 },
+    { name: "Scenario Overrides Settings", route: "ScenarioOverridesSettings", tapX: 290, tapY: 1065 },
+    { name: "Debug Settings", route: "DebugSettings", tapX: 220, tapY: 1153 },
+    { name: "LLM Settings", route: "LLMSettings", tapX: 220, tapY: 1227 },
     // Smart Race Solver lives on the `smart-race-solver` feature branch only. Add a scenario
     // here once that branch lands on master.
+    // RacingPlanSettings / SkillPlanSettings are sub-nested and need a multi-tap nav (expand
+    // chevron then tap row) — not scripted yet.
 ]
 
 // Per-phase budget (ms). Soft thresholds — we report breaches but don't fail the run unless the
