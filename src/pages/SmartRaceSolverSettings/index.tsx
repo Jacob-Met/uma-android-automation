@@ -99,7 +99,7 @@ interface AptitudeRowProps {
     /** Currently selected rank for this slot. */
     currentRank: string
     /** Called when the user picks a rank. */
-    onChange: (slot: any, rank: string) => void
+    onChange: (slot: keyof AptitudeMap, rank: string) => void
     /** Style sheet from the parent (stable across renders). */
     styles: any
 }
@@ -376,8 +376,6 @@ const SmartRaceSolverSettings = () => {
     )
 
     const applyPreset = (preset: CharacterPresetEntry) => {
-        const startedAt = Date.now()
-        console.log(`[SmartRaceSolver] applyPreset:start name=${preset.name}`)
         updateRacingSetting("smartRaceSolverCharacterPreset", preset.name)
         updateRacingSetting(
             "smartRaceSolverAptitudes",
@@ -390,7 +388,6 @@ const SmartRaceSolverSettings = () => {
                 Dirt: preset.surfaceAptitudes.Dirt,
             })
         )
-        console.log(`[SmartRaceSolver] applyPreset:end ${Date.now() - startedAt}ms`)
     }
 
     // Functional-updater form keeps these callbacks identity-stable so the memoized
@@ -516,8 +513,6 @@ const SmartRaceSolverSettings = () => {
             return
         }
         setPreviewLoading(true)
-        const startedAt = Date.now()
-        console.log("[SmartRaceSolver] previewSchedule:start")
         try {
             const result = await previewSchedule(snapshot)
             if (result.error) {
@@ -534,7 +529,6 @@ const SmartRaceSolverSettings = () => {
             setPreviewError(String(e?.message ?? e))
         } finally {
             setPreviewLoading(false)
-            console.log(`[SmartRaceSolver] previewSchedule:end ${Date.now() - startedAt}ms`)
         }
     }
 
@@ -769,22 +763,6 @@ const SmartRaceSolverSettings = () => {
 
     const renderAptitudeRow = (slot: keyof AptitudeMap, label: string) => <AptitudeRow key={slot} slot={slot} label={label} currentRank={aptitudes[slot]} onChange={setAptitude} styles={styles} />
 
-    const renderEpithetChip = (epithet: EpithetEntry, selected: boolean, onPress: () => void) => (
-        <TouchableOpacity key={epithet.name} style={[styles.chip, selected && styles.chipActive]} onPress={onPress}>
-            <Text style={selected ? styles.chipTextActive : styles.chipText}>{epithet.name}</Text>
-            {epithet.reward_text ? (
-                <Text style={selected ? styles.chipRewardActive : styles.chipReward} numberOfLines={2}>
-                    {epithet.reward_text}
-                </Text>
-            ) : null}
-            {epithet.condition_text ? (
-                <Text style={selected ? styles.chipConditionActive : styles.chipCondition} numberOfLines={3}>
-                    {epithet.condition_text}
-                </Text>
-            ) : null}
-        </TouchableOpacity>
-    )
-
     const shortenRaceName = (name: string): string => {
         // Strip the trailing parenthetical "(Junior Class December, Second Half)" if present so we
         // only show the race name itself; the date already comes from the cell's row.
@@ -895,14 +873,6 @@ const SmartRaceSolverSettings = () => {
         )
     }
 
-    /**
-     * 4×6-grid cell: race-day cells render the grade chip + race name and remain tappable for
-     * the popover; train/rest cells are static (no popover, no TouchableOpacity wrapper). The
-     * date label ("Early Jul" etc.) renders below the cell, mirroring the in-game calendar.
-     *
-     * Junior Year turns 1..13 (Early Jan through Early Jul) are the in-game pre-debut period
-     * with no available races, so they render with a "Pre-Debut" locked style.
-     */
     /**
      * 4×6-grid cell. All non-Pre-Debut cells (race or Train/Rest) are tappable so the user can
      * lock, delete, or switch the pick from inside the popover. Locked cells render with a
@@ -1218,7 +1188,7 @@ const SmartRaceSolverSettings = () => {
                         <SearchableItem
                             id="enable-smart-race-solver"
                             title="Enable Smart Race Solver"
-                            description="Beam-search-based race scheduler that targets epithet completions and re-plans dynamically across the 72-turn career."
+                            description="Plans every turn of the career to maximize score by targeting epithet rewards. The bot only races when the solver picks a race; other turns become training or rest."
                             style={styles.section}
                         >
                             <CustomCheckbox
@@ -1271,7 +1241,7 @@ const SmartRaceSolverSettings = () => {
                                     condition={enableSmartRaceSolver}
                                     parentId="enable-smart-race-solver"
                                     title="Aptitudes"
-                                    description="Distance and surface aptitude grades. Races below the threshold are excluded from the candidate pool."
+                                    description="Distance and surface aptitude grades. Races below the threshold are skipped by the solver."
                                     style={styles.section}
                                 >
                                     <View style={sectionsDisabledStyle}>
@@ -1364,7 +1334,7 @@ const SmartRaceSolverSettings = () => {
                                     condition={enableSmartRaceSolver}
                                     parentId="enable-smart-race-solver"
                                     title="Forced Epithets"
-                                    description="Epithets the solver MUST complete. Beams that lose feasibility for any forced epithet are pruned."
+                                    description="Epithets the solver MUST complete. If completion becomes impossible (for example a needed race was already lost), the solver stops planning. Use sparingly — each forced epithet narrows what the solver can pick."
                                     style={styles.section}
                                 >
                                     <View style={sectionsDisabledStyle}>
@@ -1394,8 +1364,8 @@ const SmartRaceSolverSettings = () => {
                                     <View style={sectionsDisabledStyle}>
                                         <Text style={styles.sectionTitle}>Scoring Weights</Text>
                                         <Text style={styles.description}>
-                                            Power-user knobs for the scoring formula. Defaults match the reference Trackblazer site and are calibrated for typical career runs — only tweak if you
-                                            understand what you're changing.
+                                            Advanced settings that fine-tune how the solver values races vs. epithets and what it penalizes. Defaults work for most runs — only change these if you know
+                                            how they interact.
                                         </Text>
                                         <CustomAccordion
                                             sections={[

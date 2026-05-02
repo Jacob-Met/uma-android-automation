@@ -440,7 +440,7 @@ const searchConfig: SearchOption[] = [
     {
         id: "enable-smart-race-solver",
         title: "Enable Smart Race Solver",
-        description: "Beam-search-based race scheduler that targets epithet completions and re-plans dynamically across the 72-turn career.",
+        description: "Plans every turn of the career to maximize score by targeting epithet rewards. The bot only races when the solver picks a race; other turns become training or rest.",
         page: "SmartRaceSolverSettings",
     },
     {
@@ -474,14 +474,14 @@ const searchConfig: SearchOption[] = [
     {
         id: "smart-solver-forced-epithets",
         title: "Forced Epithets",
-        description: "Epithets the solver MUST complete. Beams that lose feasibility for any forced epithet are pruned.",
+        description: "Epithets the solver MUST complete. If completion becomes impossible (for example a needed race was already lost), the solver stops planning. Use sparingly — each forced epithet narrows what the solver can pick.",
         page: "SmartRaceSolverSettings",
         parentId: "enable-smart-race-solver",
     },
     {
         id: "smart-solver-weights",
         title: "Scoring Weights",
-        description: "Advanced multipliers and penalties: race value, epithet value, hint reward, consecutive race penalty, summer block penalty, race bonus %, race cost %.",
+        description: "Advanced multipliers for how the solver balances race rewards, epithet completion, and penalties for racing too often or in summer.",
         page: "SmartRaceSolverSettings",
         parentId: "enable-smart-race-solver",
     },
