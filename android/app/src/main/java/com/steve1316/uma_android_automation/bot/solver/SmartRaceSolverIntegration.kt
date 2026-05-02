@@ -25,8 +25,9 @@ import org.json.JSONObject
 object SmartRaceSolverIntegration {
     private const val TAG: String = "[SMART_RACE_SOLVER]"
 
-    /** Race wins accumulated during the current bot run. Cleared by [reset]. Guarded by its own
-     *  monitor since [recordRaceWon] and [buildSolverState] can race on the bot/UI threads. */
+    /** Wins for the current run — both confirmed in-game finishes and Preview-assumed wins
+     *  added on a mid-run restart. Cleared by [reset]. Guarded by its own monitor since the
+     *  bot and UI threads can read/write here concurrently. */
     private val raceHistory: MutableList<RaceWin> = mutableListOf()
 
     /** Memoised result of [parseEpithets] applied to the persisted `epithetsData` setting.
@@ -41,20 +42,13 @@ object SmartRaceSolverIntegration {
      *  Used as a fallback when the JS bridge does not ship inline races JSON. */
     @Volatile private var cachedRaces: Map<TurnNumber, List<RaceCandidate>>? = null
 
-    /**
-     * Content-keyed cache for races passed inline through [previewSchedule]'s configJson. The
-     * JS layer stringifies the bundled JSON once at module load and ships it on every preview
-     * call (~150KB), so without this cache we'd re-parse on every debounced re-solve. Keyed by
-     * `String.hashCode()` of the JSON payload since the bundled JSON is identical across calls;
-     * a hash mismatch invalidates the cache and re-parses. The pair is `(hash, parsedValue)`.
-     */
+    /** Caches the most recent inline races payload from the JS bridge so subsequent preview
+     *  calls can omit the field. Keyed by hashCode of the JSON to invalidate when content
+     *  changes. The pair is `(hash, parsedValue)`. */
     @Volatile private var cachedInlineRaces: Pair<Int, Map<TurnNumber, List<RaceCandidate>>>? = null
 
-    /**
-     * Content-keyed cache for epithets passed inline through [previewSchedule]'s configJson.
-     * Same omit-after-prime contract and hash-keying scheme as [cachedInlineRaces]; see that
-     * field's docstring for details. The pair is `(hash, parsedValue)`.
-     */
+    /** Same idea as [cachedInlineRaces] but for the inline epithets payload. The pair is
+     *  `(hash, parsedValue)`. */
     @Volatile private var cachedInlineEpithets: Pair<Int, List<Epithet>>? = null
 
     /** Race staged by [markPendingRace] awaiting an outcome confirmation via [commitPendingRace]. */
@@ -71,8 +65,9 @@ object SmartRaceSolverIntegration {
     }
 
     /**
-     * Records a winning race in the in-memory history. Idempotent for the same
-     * `(raceKey, turnNumber)` pair so duplicate calls from retries don't double-count.
+     * Adds a win to the run's race history. Used for confirmed in-run wins and for
+     * Preview-assumed wins on a mid-run restart. Idempotent on `(raceKey, turnNumber)` so
+     * retries don't double-count.
      *
      * @param raceKey Race key (matches [RaceCandidate.key]).
      * @param raceName Race name (matches [RaceCandidate.name]).
@@ -102,12 +97,10 @@ object SmartRaceSolverIntegration {
     }
 
     /**
-     * Idempotent per-run hook that logs the Preview-equivalent schedule and (on a mid-run
-     * restart) seeds [raceHistory] with assumed wins for turns before [currentTurn]. Safe
-     * to call repeatedly: only the first call after [reset] does any work. Designed to be
-     * invoked from the campaign loop right after the date is detected so the schedule log
-     * appears before shop/item dialogs rather than later when [peekRaceKeyForTurn] eventually
-     * runs.
+     * Once-per-run hook that logs the Preview schedule and, on a mid-run restart, seeds
+     * [raceHistory] with assumed wins for turns before [currentTurn]. Safe to call every
+     * turn — only the first call after [reset] does any work. Intended to run right after
+     * the date is detected so the schedule log appears before shop/item dialogs.
      *
      * @param currentTurn The turn the bot is on.
      * @param scenario Active scenario name from `settings.general.scenario`.
@@ -122,11 +115,10 @@ object SmartRaceSolverIntegration {
     }
 
     /**
-     * Commits the most recent [markPendingRace] entry to [raceHistory] when [won] is true,
-     * or discards it when false (e.g. retries disabled or exhausted). No-op when no race
-     * is pending. Idempotent on `(raceKey, turnNumber)` via [recordRaceWon].
+     * Records the staged race as a win when [won] is true, or drops it otherwise. No-op
+     * when nothing is pending.
      *
-     * @param won True when the race ended in 1st place (LabelCongratulations detected).
+     * @param won True when the race finished 1st (LabelCongratulations detected).
      */
     fun commitPendingRace(won: Boolean) {
         val pending = pendingRace ?: return
@@ -141,10 +133,9 @@ object SmartRaceSolverIntegration {
     }
 
     /**
-     * Logs the epithets whose matchers reference [raceName] alongside their post-win status
-     * and per-matcher progress. Called only on confirmed wins so losses generate no noise.
-     * Filter-based matchers (e.g. [EpithetMatcher.WinCount]) are skipped to keep the affected
-     * list narrow to epithets that explicitly name this race.
+     * Logs the epithets this race directly named, with their post-win status and per-matcher
+     * progress. Generic matchers (win counts, dependencies on other epithets) are skipped so
+     * the line stays focused on epithets the race actually moved.
      *
      * @param raceName The just-confirmed race name (matches [RaceCandidate.name]).
      */
@@ -153,19 +144,7 @@ object SmartRaceSolverIntegration {
         val racesByTurn = cachedRaces ?: loadAllRaces() ?: return
         val affected = epithets.filter { epi -> epi.matchers.any { matcherReferencesRace(it, raceName) } }
         if (affected.isEmpty()) return
-        val state =
-            SolverState(
-                currentTurn = 1,
-                scenario = "",
-                characterPreset = null,
-                aptitudes = readUserAptitudes(),
-                racesByTurn = racesByTurn,
-                epithets = epithets,
-                raceHistory = synchronized(raceHistory) { raceHistory.toList() },
-                forcedEpithets = readStringSet("smartRaceSolverForcedEpithets"),
-                targetEpithets = readStringSet("smartRaceSolverTargetEpithets"),
-                weights = readWeights(),
-            )
+        val state = newSolverState(currentTurn = 1, scenario = "", epithets = epithets, racesByTurn = racesByTurn)
         val sb = StringBuilder()
         sb.append("Race \"$raceName\" updated ${affected.size} epithet(s):")
         for (epi in affected) {
@@ -177,10 +156,8 @@ object SmartRaceSolverIntegration {
     }
 
     /**
-     * True when [matcher] explicitly references [raceName] by name. Filter-based
-     * ([EpithetMatcher.WinCount]) and epithet-dependency matchers
-     * ([EpithetMatcher.EpithetAnyOf], [EpithetMatcher.EpithetAll]) are excluded so
-     * post-win logging only flags epithets that name the race directly.
+     * True when the matcher names this specific race. Generic count and dependency matchers
+     * return false so they are not flagged on a single win.
      *
      * @param matcher Matcher to inspect.
      * @param raceName Race name (matches [RaceCandidate.name]).
@@ -217,7 +194,8 @@ object SmartRaceSolverIntegration {
             loadEpithets() ?: return null.also {
                 MessageLog.w(TAG, "Solver enabled but epithets.json data is empty; skipping.")
             }
-        val state = buildSolverState(currentTurn, scenario, epithets, candidates) ?: return null
+        val racesForTurn = candidates.map { it.toRaceCandidate(currentTurn) }
+        val state = newSolverState(currentTurn, scenario, epithets, mapOf(currentTurn to racesForTurn))
 
         val schedule = SmartRaceSolver.solve(state)
         val decision = schedule.decisionAt(currentTurn)
@@ -236,16 +214,12 @@ object SmartRaceSolverIntegration {
     }
 
     /**
-     * Peeks at the solver's planned race key for [currentTurn] without requiring on-screen
-     * candidates. Used by callers that need to know whether the solver will race this turn
-     * before opening the race-list UI (e.g. Trackblazer's pre-check, Racing's early-exit OCR
-     * scan).
+     * Convenience: returns the planned race key for [currentTurn], or null when the solver
+     * picked Train/Rest or has no opinion.
      *
      * @param currentTurn The bot's current turn number.
      * @param scenario Active scenario name from `settings.general.scenario`.
-     * @return The planned race key (matches [RaceCandidate.key]), or null when the solver
-     *   cannot or should not influence this turn (feature disabled, missing data, or solver
-     *   picked Train/Rest).
+     * @return The planned race key, or null.
      */
     fun peekRaceKeyForTurn(currentTurn: TurnNumber, scenario: String): String? =
         (peekDecisionForTurn(currentTurn, scenario) as? Decision.RaceDecision)?.raceKey
@@ -268,30 +242,16 @@ object SmartRaceSolverIntegration {
 
         runStartupHooks(currentTurn, scenario)
 
-        val state =
-            SolverState(
-                currentTurn = currentTurn,
-                scenario = scenario,
-                characterPreset = SettingsHelper.getStringSetting("racing", "smartRaceSolverCharacterPreset").ifEmpty { null },
-                aptitudes = readUserAptitudes(),
-                racesByTurn = racesByTurn,
-                epithets = epithets,
-                raceHistory = synchronized(raceHistory) { raceHistory.toList() },
-                forcedEpithets = readStringSet("smartRaceSolverForcedEpithets"),
-                targetEpithets = readStringSet("smartRaceSolverTargetEpithets"),
-                weights = readWeights(),
-            )
+        val state = newSolverState(currentTurn, scenario, epithets, racesByTurn)
         val schedule = SmartRaceSolver.solve(state)
         return schedule.decisionAt(currentTurn)
     }
 
     /**
-     * True when [raceData] resolves to the same race as the supplied solver [raceKey]. Mirrors
-     * the matching logic used inside [pickRace] so callers can match candidates against a key
-     * returned by [peekRaceKeyForTurn] without re-implementing the comparison.
+     * True when the on-screen [raceData] matches the solver's [raceKey].
      *
      * @param raceData On-screen race resolved by [Racing.lookupRaceInDatabase].
-     * @param raceKey Solver race key returned by [peekRaceKeyForTurn].
+     * @param raceKey Solver race key.
      * @return True when the on-screen race matches the solver's key.
      */
     fun isRaceKeyMatch(raceData: RaceData, raceKey: String): Boolean = raceData.name == raceKey || raceData.name == raceNameFromKey(raceKey)
@@ -363,39 +323,40 @@ object SmartRaceSolverIntegration {
     }
 
     /**
-     * Builds the solver state for [currentTurn]. Only the on-screen [candidates] populate the
-     * candidate pool — the solver still receives the full epithet list so it can score
-     * schedule-completing picks correctly relative to alternatives.
+     * Builds a [SolverState] for runtime calls. Settings-backed fields (character preset,
+     * aptitudes, forced/target epithets, weights) are read here so callers only need to
+     * supply the inputs that vary per call.
      *
-     * @param currentTurn Turn the state is being built for.
+     * @param currentTurn Turn the state targets.
      * @param scenario Active scenario name.
-     * @param epithets Full list of epithets parsed from settings.
-     * @param candidates On-screen race candidates available on [currentTurn].
-     * @return Populated [SolverState], or null when state cannot be assembled.
+     * @param epithets Parsed epithet list.
+     * @param racesByTurn Race calendar the solver may pick from.
+     * @param raceHistorySnapshot History to feed the solver. Defaults to a snapshot of the
+     *   current run's accumulated wins.
+     * @param lockedDecisions Manual turn → decision overrides. Defaults to empty (no locks).
+     * @return Populated [SolverState].
      */
-    private fun buildSolverState(
+    private fun newSolverState(
         currentTurn: TurnNumber,
         scenario: String,
         epithets: List<Epithet>,
-        candidates: List<RaceData>,
-    ): SolverState? {
-        val racesForTurn = candidates.map { it.toRaceCandidate(currentTurn) }
-        // TODO: completedEpithets defaults to emptySet() — never populated from runtime
-        //  EpithetTracker. Causes "projected epithets: []" in pickRace() logs because the
-        //  beam search starts blind to prior wins. Fix tracked separately.
-        return SolverState(
+        racesByTurn: Map<TurnNumber, List<RaceCandidate>>,
+        raceHistorySnapshot: List<RaceWin> = synchronized(raceHistory) { raceHistory.toList() },
+        lockedDecisions: Map<TurnNumber, Decision> = emptyMap(),
+    ): SolverState =
+        SolverState(
             currentTurn = currentTurn,
             scenario = scenario,
             characterPreset = SettingsHelper.getStringSetting("racing", "smartRaceSolverCharacterPreset").ifEmpty { null },
             aptitudes = readUserAptitudes(),
-            racesByTurn = mapOf(currentTurn to racesForTurn),
+            racesByTurn = racesByTurn,
             epithets = epithets,
-            raceHistory = synchronized(raceHistory) { raceHistory.toList() },
+            raceHistory = raceHistorySnapshot,
             forcedEpithets = readStringSet("smartRaceSolverForcedEpithets"),
             targetEpithets = readStringSet("smartRaceSolverTargetEpithets"),
+            lockedDecisions = lockedDecisions,
             weights = readWeights(),
         )
-    }
 
     /**
      * Computes the Preview-equivalent schedule for the current configuration, logs it, and
@@ -420,17 +381,13 @@ object SmartRaceSolverIntegration {
         val manualLocksJson = SettingsHelper.getStringSetting("racing", "smartRaceSolverManualLocks")
         val manualLocksObj = runCatching { if (manualLocksJson.isEmpty()) null else JSONObject(manualLocksJson) }.getOrNull()
         val state =
-            SolverState(
+            newSolverState(
                 currentTurn = 1,
                 scenario = scenario,
-                characterPreset = SettingsHelper.getStringSetting("racing", "smartRaceSolverCharacterPreset").ifEmpty { null },
-                aptitudes = readUserAptitudes(),
-                racesByTurn = racesByTurn,
                 epithets = epithets,
-                forcedEpithets = readStringSet("smartRaceSolverForcedEpithets"),
-                targetEpithets = readStringSet("smartRaceSolverTargetEpithets"),
+                racesByTurn = racesByTurn,
+                raceHistorySnapshot = emptyList(),
                 lockedDecisions = parseManualLocks(manualLocksObj, racesByTurn),
-                weights = readWeights(),
             )
         val schedule = SmartRaceSolver.solve(state)
         logPreviewSchedule(schedule, racesByTurn)
