@@ -1,4 +1,3 @@
-#!/usr/bin/env tsx
 /**
  * Scripted navigation-latency check. Drives the connected emulator over `adb`, taps a sequence
  * of drawer links, then captures the resulting `[PERF]` and `[BLOCK]` logcat lines and asserts
@@ -32,23 +31,33 @@ const ACTIVITY = "com.steve1316.uma_android_automation/.MainActivity"
 // `expandTapX/Y`, when set, performs a pre-tap (the chevron next to the parent row) before the
 // main row tap. Used for nested routes (Smart Race Solver lives under Racing Settings — tapping
 // the Racing label navigates instead of expanding, so we tap the chevron at its right edge).
+/**
+ * One drawer-driven navigation scenario for the harness to exercise.
+ */
 interface NavScenario {
+    /** Human-readable label printed in the harness summary. */
     name: string
+    /** Route name as it appears in `[PERF] UI - navigation_to_<route>` log lines. */
     route: string
+    /** X-coordinate (px) for the drawer-row tap that triggers navigation. */
     tapX: number
+    /** Y-coordinate (px) for the drawer-row tap that triggers navigation. */
     tapY: number
+    /** Optional X-coordinate of a chevron tap to expand a parent row before navigating. */
     expandTapX?: number
+    /** Optional Y-coordinate of a chevron tap to expand a parent row before navigating. */
     expandTapY?: number
     /**
-     * Coordinate of a known checkbox-style toggle on the destination page. When set, the harness
-     * waits for the page to settle, taps the toggle, and measures `[BLOCK]` events for
-     * [TOGGLE_CAPTURE_MS] to surface re-render fan-out cost on already-mounted pages.
+     * Coordinate of a known checkbox on the destination page. When set, the harness
+     * waits for the page to settle, taps the checkbox, and measures `[BLOCK]` events for
+     * `TOGGLE_CAPTURE_MS` to surface re-render fan-out cost on already-mounted pages.
      */
     toggleTapX?: number
+    /** Companion Y-coordinate to `toggleTapX`. */
     toggleTapY?: number
 }
 
-// Coordinates calibrated 2026-05-01 with `enableAskTheDocs=true` (Chat row inserted between
+// Coordinates calibrated with `enableAskTheDocs=true` (Chat row inserted between
 // Home and Settings; pushes everything below it down ~91 px). If that toggle is later disabled,
 // re-dump and shift these up.
 const SCENARIOS: NavScenario[] = [
@@ -63,8 +72,6 @@ const SCENARIOS: NavScenario[] = [
     { name: "Scenario Overrides Settings", route: "ScenarioOverridesSettings", tapX: 290, tapY: 1065 },
     { name: "Debug Settings", route: "DebugSettings", tapX: 220, tapY: 1153 },
     { name: "LLM Settings", route: "LLMSettings", tapX: 220, tapY: 1227 },
-    // Smart Race Solver lives on the `smart-race-solver` feature branch only. Add a scenario
-    // here once that branch lands on master.
     // RacingPlanSettings / SkillPlanSettings are sub-nested and need a multi-tap nav (expand
     // chevron then tap row) — not scripted yet.
 ]
@@ -86,12 +93,24 @@ const TOGGLE_BUDGET_MS = 100
 // Cold-start budget: from `am force-stop` + `am start` to the first `Home_mount` log.
 const COLD_START_BUDGET_MS = 3000
 
+/**
+ * One parsed `[PERF] UI - navigation_to_<route>_<phase>` sample.
+ */
 interface PhaseSample {
+    /** Route name extracted from the log line. */
     route: string
+    /** Phase name (e.g. `drawer_closed`, `dispatch`, `first_commit`). */
     phase: string
+    /** Phase duration in milliseconds. */
     ms: number
 }
 
+/**
+ * Run a shell command synchronously and return its stdout.
+ * @param cmd - The full command line to execute.
+ * @param opts - Options bag. `check` defaults to `true`; pass `false` to swallow non-zero exits and return an empty string. `timeoutMs` defaults to 15000.
+ * @returns The captured stdout as a UTF-8 string.
+ */
 const sh = (cmd: string, opts: { check?: boolean; timeoutMs?: number } = {}): string => {
     try {
         return execSync(cmd, { encoding: "utf8", timeout: opts.timeoutMs ?? 15000, stdio: ["ignore", "pipe", "pipe"] })
@@ -101,16 +120,27 @@ const sh = (cmd: string, opts: { check?: boolean; timeoutMs?: number } = {}): st
     }
 }
 
+/**
+ * Run an `adb -s <DEVICE> ...` command against the configured emulator/device.
+ * @param args - Arguments to pass to `adb` (everything after `-s <DEVICE>`).
+ * @param timeoutMs - Per-command timeout in milliseconds. Defaults to 15000.
+ * @returns The combined stdout of the command.
+ */
 const adb = (args: string, timeoutMs = 15000): string => sh(`adb -s ${DEVICE} ${args}`, { timeoutMs })
 
+/**
+ * Promise-based sleep helper.
+ * @param ms - Duration to sleep in milliseconds.
+ * @returns A promise that resolves once the duration has elapsed.
+ */
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 /**
- * Capture `adb logcat` for [windowMs] milliseconds and return the collected lines. Uses
+ * Capture `adb logcat` for `windowMs` milliseconds and return the collected lines. Uses
  * `adb logcat -c` then sleeps then `adb logcat -d` (one-shot) — simpler and less prone to
  * hung child processes than streaming `spawn`.
  *
- * @param windowMs Capture duration in milliseconds.
+ * @param windowMs - Capture duration in milliseconds.
  * @returns The combined stdout of `adb logcat -d` over the window.
  */
 const captureLogcat = async (windowMs: number): Promise<string> => {
@@ -124,13 +154,25 @@ const TOTAL_RE = /\[PERF\] UI - navigation_to_([A-Za-z]+): ([\d.]+)ms/
 const BLOCK_RE = /\[BLOCK\] JS thread blocked for (\d+)ms/
 const SLOW_COMMIT_RE = /\[SLOW-COMMIT\] (\S+) commit took (\d+)ms/
 
+/**
+ * Aggregated parse result of one logcat capture window.
+ */
 interface Sample {
+    /** Per-phase navigation samples extracted from `[PERF] UI - navigation_to_<route>_<phase>` lines. */
     phases: PhaseSample[]
+    /** Cumulative `navigation_to_<route>` totals keyed by route. */
     totals: Map<string, number>
+    /** Every `[BLOCK] JS thread blocked for <n>ms` event observed in the window. */
     blocks: number[]
+    /** Every `[SLOW-COMMIT] <component> commit took <n>ms` event observed in the window. */
     slowCommits: Array<{ component: string; ms: number }>
 }
 
+/**
+ * Parse a logcat dump into the typed event buckets the harness reports on.
+ * @param logs - The raw stdout from `adb logcat -d`.
+ * @returns A `Sample` containing every phase, total, block, and slow-commit event.
+ */
 const parseSamples = (logs: string): Sample => {
     const phases: PhaseSample[] = []
     const totals = new Map<string, number>()
@@ -155,22 +197,42 @@ const parseSamples = (logs: string): Sample => {
     return { phases, totals, blocks, slowCommits }
 }
 
+/**
+ * Open the navigation drawer via an edge-swipe from `x=5` to `x=600`.
+ * @returns Nothing; the swipe event is fire-and-forget.
+ */
 const openDrawer = () => {
     // Edge-swipe right from x=5 to x=600.
     adb("shell input swipe 5 600 600 600 80")
 }
 
+/**
+ * Send a single `input tap` event to the device.
+ * @param x - X-coordinate (px) of the tap.
+ * @param y - Y-coordinate (px) of the tap.
+ * @returns Nothing; the tap event is fire-and-forget.
+ */
 const tapAt = (x: number, y: number) => {
     adb(`shell input tap ${x} ${y}`)
 }
 
+/**
+ * Aggregated metrics for one scenario run, used in the final summary table.
+ */
 interface ScenarioResult {
+    /** Route name (matches `NavScenario.route`). */
     route: string
+    /** Total `navigation_to_<route>` time in milliseconds, or `-1` if the log line never fired. */
     total: number
+    /** Per-phase samples for this scenario. */
     phases: PhaseSample[]
+    /** Every `[BLOCK]` event observed in the navigation window. */
     navBlocks: number[]
+    /** Sum of every `[BLOCK]` event in the toggle window, or `null` if no toggle was scripted. */
     toggleBlockedMs: number | null
+    /** Individual block events observed in the toggle window. */
     toggleBlocks: number[]
+    /** Every `[SLOW-COMMIT]` event observed in the toggle window. */
     toggleSlowCommits: Array<{ component: string; ms: number }>
 }
 
@@ -206,6 +268,12 @@ const measureColdStart = async (): Promise<number> => {
     return homeMountMs
 }
 
+/**
+ * Harness entrypoint. Runs the cold-start probe, then loops over every `NavScenario`,
+ * captures cold-nav and (where wired) toggle metrics, prints a summary table, and exits
+ * non-zero if any phase or toggle exceeds its configured budget.
+ * @returns A promise that resolves once the harness has finished printing its summary.
+ */
 const main = async () => {
     console.log(`Targeting ${DEVICE} (${PACKAGE})`)
     const coldStartMs = await measureColdStart()
