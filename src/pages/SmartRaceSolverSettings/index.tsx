@@ -1223,7 +1223,7 @@ const SmartRaceSolverSettings = () => {
                         >
                             <CustomCheckbox
                                 label="Enable Smart Race Solver"
-                                description="Plans the entire 72-turn career with an exact optimization solver, picking races and training turns to maximize score. Activates during a run when the scenario year is Classic or Senior, Farming Fans is on, and Force Racing is off."
+                                description="Plans every turn of the 72-turn career to maximize score, deciding for each turn whether to race, train, or rest. The bot only runs the races the solver currently plans and never adds extra ones, even when Farming Fans would otherwise pick one up; the plan itself re-solves each turn so wins and losses reshape the remaining schedule. Activates when Farming Fans is on and Force Racing is off."
                                 checked={enableSmartRaceSolver}
                                 onCheckedChange={(checked) => updateRacingSetting("enableSmartRaceSolver", checked)}
                             />
