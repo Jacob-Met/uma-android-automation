@@ -1618,7 +1618,7 @@ abstract class Campaign(game: Game) : Task(game) {
             val dateChanged = updateDate()
             // Once-per-run: log the Smart Race Solver Preview schedule and seed mid-run history
             // recovery now that the date is known, so it appears in logs before shop/items.
-            SmartRaceSolverIntegration.runStartupHooks(date.day, game.scenario)
+            SmartRaceSolverIntegration.runStartupHooks(game = game, currentTurn = date.day, scenario = game.scenario)
             if (dateChanged || !trainee.bHasUpdatedStats) {
                 // Reset common daily flags.
                 racing.encounteredRacingPopup = false

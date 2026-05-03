@@ -2,8 +2,11 @@ package com.steve1316.uma_android_automation.bot.solver
 
 import com.steve1316.automation_library.utils.MessageLog
 import com.steve1316.automation_library.utils.SettingsHelper
+import com.steve1316.automation_library.utils.TextUtils
+import com.steve1316.uma_android_automation.bot.Game
 import com.steve1316.uma_android_automation.bot.Racing.RaceData
 import com.steve1316.uma_android_automation.types.Aptitude
+import com.steve1316.uma_android_automation.types.GameDate
 import com.steve1316.uma_android_automation.types.RaceGrade
 import com.steve1316.uma_android_automation.types.TrackDistance
 import com.steve1316.uma_android_automation.types.TrackSurface
@@ -24,6 +27,11 @@ import org.json.JSONObject
  */
 object SmartRaceSolverIntegration {
     private const val TAG: String = "[SMART_RACE_SOLVER]"
+
+    /** Junior turns 1..13 (Early Jan → Early Jul) are the in-game pre-debut period with no
+     *  races, so the OCR-driven Career → Race History scrape is skipped at or below this
+     *  turn and the existing Preview-based seed runs instead. */
+    private const val PRE_DEBUT_TURN_THRESHOLD: TurnNumber = 13
 
     /** Wins for the current run — both confirmed in-game finishes and Preview-assumed wins
      *  added on a mid-run restart. Cleared by [reset]. Guarded by its own monitor since the
@@ -97,20 +105,37 @@ object SmartRaceSolverIntegration {
     }
 
     /**
-     * Once-per-run hook that logs the Preview schedule and, on a mid-run restart, seeds
-     * [raceHistory] with assumed wins for turns before [currentTurn]. Safe to call every
-     * turn — only the first call after [reset] does any work. Intended to run right after
-     * the date is detected so the schedule log appears before shop/item dialogs.
+     * Once-per-run hook that logs the Preview schedule and seeds [raceHistory] for the
+     * current run. Safe to call every turn — only the first call after [reset] does any
+     * work. Intended to run right after the date is detected so the schedule log appears
+     * before shop/item dialogs.
      *
+     * When [currentTurn] is past the in-game pre-debut period,
+     * this opens the Career → Race History dialog and reads the trainee's actual past
+     * wins via OCR. On any failure, it falls back to assuming every previewed race
+     * was won.
+     *
+     * @param game Active Game instance for tap/screenshot/OCR access; null for callers
+     *   that cannot drive the screen (the OCR scrape is skipped in that case).
      * @param currentTurn The turn the bot is on.
      * @param scenario Active scenario name from `settings.general.scenario`.
      */
-    fun runStartupHooks(currentTurn: TurnNumber, scenario: String) {
+    fun runStartupHooks(game: Game?, currentTurn: TurnNumber, scenario: String) {
         if (historySeeded) return
         if (!SettingsHelper.getBooleanSetting("racing", "enableSmartRaceSolver")) return
         val epithets = loadEpithets() ?: return
         val racesByTurn = loadAllRaces() ?: return
-        seedHistoryFromPreview(currentTurn, scenario, epithets, racesByTurn)
+
+        val seededFromOcr =
+            if (game != null && currentTurn > PRE_DEBUT_TURN_THRESHOLD) {
+                seedHistoryFromCareerScrape(game, racesByTurn)
+            } else {
+                false
+            }
+
+        if (!seededFromOcr) {
+            seedHistoryFromPreview(currentTurn, scenario, epithets, racesByTurn)
+        }
         historySeeded = true
     }
 
@@ -145,12 +170,7 @@ object SmartRaceSolverIntegration {
      * @param historyBefore Snapshot of [raceHistory] before [recordRaceWon] added this win.
      * @param historyAfter Snapshot of [raceHistory] after [recordRaceWon] added this win.
      */
-    private fun logEpithetProgressAfterWin(
-        raceName: String,
-        turnNumber: TurnNumber,
-        historyBefore: List<RaceWin>,
-        historyAfter: List<RaceWin>,
-    ) {
+    private fun logEpithetProgressAfterWin(raceName: String, turnNumber: TurnNumber, historyBefore: List<RaceWin>, historyAfter: List<RaceWin>) {
         val epithets = cachedEpithets ?: loadEpithets() ?: return
         val racesByTurn = cachedRaces ?: loadAllRaces() ?: return
         val race = racesByTurn[turnNumber]?.firstOrNull { it.name == raceName }
@@ -343,7 +363,7 @@ object SmartRaceSolverIntegration {
         val epithets = loadEpithets() ?: return null
         val racesByTurn = loadAllRaces() ?: return null
 
-        runStartupHooks(currentTurn, scenario)
+        runStartupHooks(game = null, currentTurn = currentTurn, scenario = scenario)
 
         val state = newSolverState(currentTurn, scenario, epithets, racesByTurn)
         val schedule = SmartRaceSolver.solve(state)
@@ -458,12 +478,7 @@ object SmartRaceSolverIntegration {
      * @param epithets Full list of epithets parsed from settings.
      * @param racesByTurn Full race calendar from settings.
      */
-    private fun seedHistoryFromPreview(
-        currentTurn: TurnNumber,
-        scenario: String,
-        epithets: List<Epithet>,
-        racesByTurn: Map<TurnNumber, List<RaceCandidate>>,
-    ) {
+    private fun seedHistoryFromPreview(currentTurn: TurnNumber, scenario: String, epithets: List<Epithet>, racesByTurn: Map<TurnNumber, List<RaceCandidate>>) {
         val manualLocksJson = SettingsHelper.getStringSetting("racing", "smartRaceSolverManualLocks")
         val manualLocksObj = runCatching { if (manualLocksJson.isEmpty()) null else JSONObject(manualLocksJson) }.getOrNull()
         val state =
@@ -491,6 +506,61 @@ object SmartRaceSolverIntegration {
         if (seeded > 0) {
             MessageLog.i(TAG, "Seeded raceHistory with $seeded assumed wins from Preview for turns 1..${currentTurn - 1} (mid-run restart recovery).")
         }
+    }
+
+    /**
+     * Seeds [raceHistory] from the in-game Career → Race History dialog. Reads each
+     * row's race name, in-game date, and 1st-place icon presence; only entries where
+     * the trainee placed 1st become a [RaceWin]. A successful scrape — even one that
+     * produces zero wins — is authoritative ("the trainee genuinely has no past wins")
+     * and prevents the caller from falling back to the preview-as-wins seed.
+     *
+     * @param game Active Game instance for tap/screenshot/OCR access.
+     * @param racesByTurn Race calendar from settings, used to resolve OCR'd race names
+     *   into the canonical [RaceCandidate.key] that downstream consumers expect.
+     * @return True if the scrape ran end-to-end; false if navigation or OCR failed and
+     *   the caller should fall back to preview-based seeding.
+     */
+    private fun seedHistoryFromCareerScrape(game: Game, racesByTurn: Map<TurnNumber, List<RaceCandidate>>): Boolean {
+        val entries = RaceHistory.scrape(game) ?: return false
+
+        // Career → Race History is sorted newest-first; turns must strictly decrease as
+        // we iterate. Any entry that breaks that invariant is OCR garbage from a
+        // mid-scroll frame and is safely dropped.
+        data class MatchedEntry(val candidate: RaceCandidate, val dateString: String, val won: Boolean)
+        val matched = mutableListOf<MatchedEntry>()
+        var lastTurnSeen: TurnNumber = Int.MAX_VALUE
+        for (entry in entries) {
+            val gameDate =
+                GameDate.fromDateString(s = entry.dateString, imageUtils = game.imageUtils, scenario = game.scenario)
+                    ?: continue
+            val turnNumber = gameDate.day
+            if (turnNumber >= lastTurnSeen) continue
+            lastTurnSeen = turnNumber
+
+            val candidates = racesByTurn[turnNumber] ?: continue
+            val matchedFormatted =
+                TextUtils.matchStringInList(entry.nameFormatted, candidates.map { it.nameFormatted }, threshold = 0.85)
+                    ?: continue
+            val candidate = candidates.firstOrNull { it.nameFormatted == matchedFormatted } ?: continue
+
+            matched.add(MatchedEntry(candidate, entry.dateString, entry.won))
+            if (entry.won) recordRaceWon(candidate.key, candidate.name, candidate.classYear, turnNumber)
+        }
+
+        val seeded = matched.count { it.won }
+        val sb = StringBuilder()
+        sb.append("Seeded raceHistory from Career → Race History scrape (${matched.size} races, $seeded wins):")
+        if (matched.isEmpty()) {
+            sb.append("\n  (no matched entries)")
+        } else {
+            for (m in matched) {
+                val outcome = if (m.won) "Won" else "Lost"
+                sb.append("\n  Turn ${m.candidate.turnNumber} (${m.dateString}): $outcome — ${m.candidate.name}")
+            }
+        }
+        MessageLog.i(TAG, sb.toString())
+        return true
     }
 
     /**
@@ -929,10 +999,7 @@ object SmartRaceSolverIntegration {
      * @param racesByTurn Candidate pool used to enrich race decisions with name and grade fields.
      * @return JSON string of `{decisions, projectedEpithets, totalScore}`.
      */
-    private fun serializeSchedule(
-        schedule: Schedule,
-        racesByTurn: Map<TurnNumber, List<RaceCandidate>>,
-    ): String {
+    private fun serializeSchedule(schedule: Schedule, racesByTurn: Map<TurnNumber, List<RaceCandidate>>): String {
         val decisions = JSONObject()
         for ((turn, decision) in schedule.decisions) {
             val entry = JSONObject()
