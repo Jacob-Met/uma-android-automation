@@ -4,13 +4,11 @@ import { Divider } from "react-native-paper"
 import { previewSchedule, SchedulePreview, ScheduleEntry, SolverConfigSnapshot } from "../../lib/solver/preview"
 import {
     APTITUDE_RANKS,
-    APT_ORDER,
     AptitudeMap,
     CharacterPresetEntry,
     DEFAULT_APTITUDES,
     DEFAULT_WEIGHTS,
     EpithetEntry,
-    EpithetWithMatchers,
     GRADE_COLORS,
     RaceEntry,
     shortenRaceName,
@@ -19,7 +17,7 @@ import {
     WeightsMap,
     YEAR_LABELS,
 } from "../../lib/solver/constants"
-import { computePreviewStats, epithetProgress, epithetsForRace, isRaceEligible } from "../../lib/solver/scoring"
+import { charactersForEpithet, computePreviewStats, epithetProgress, epithetsForRace, isRaceEligible, scenariosForEpithet } from "../../lib/solver/scoring"
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
 import { useTheme } from "../../context/ThemeContext"
 import { RacingContext, GeneralMiscContext, defaultSettings } from "../../context/BotStateContext"
@@ -95,7 +93,7 @@ AptitudeRow.displayName = "AptitudeRow"
  */
 interface EpithetChipProps {
     /** The epithet entry to render (data file row). */
-    epithet: { name: string; reward_text?: string; condition_text?: string; [k: string]: any }
+    epithet: { name: string; bullet_points?: string[]; [k: string]: any }
     /** Whether this chip is currently in the parent's selected list. */
     selected: boolean
     /** Stable parent callback that flips the chip's selection state by name. */
@@ -103,21 +101,29 @@ interface EpithetChipProps {
     /** Style sheet from the parent (stable across renders). */
     styles: any
 }
-const EpithetChip = memo(({ epithet, selected, onToggle, styles }: EpithetChipProps) => (
-    <TouchableOpacity style={[styles.chip, selected && styles.chipActive]} onPress={() => onToggle(epithet.name)}>
-        <Text style={selected ? styles.chipTextActive : styles.chipText}>{epithet.name}</Text>
-        {epithet.reward_text ? (
-            <Text style={selected ? styles.chipRewardActive : styles.chipReward} numberOfLines={2}>
-                {epithet.reward_text}
-            </Text>
-        ) : null}
-        {epithet.condition_text ? (
-            <Text style={selected ? styles.chipConditionActive : styles.chipCondition} numberOfLines={3}>
-                {epithet.condition_text}
-            </Text>
-        ) : null}
-    </TouchableOpacity>
-))
+
+const EpithetChip = memo(({ epithet, selected, onToggle, styles }: EpithetChipProps) => {
+    const bullets = epithet.bullet_points ?? []
+    // By convention the last bullet is the reward and gets the bolder `chipReward` styling so
+    // the visual hierarchy matches the legacy reward_text / condition_text layout.
+    const conditionBullets = bullets.length > 1 ? bullets.slice(0, -1) : []
+    const rewardBullet = bullets.length > 0 ? bullets[bullets.length - 1] : null
+    return (
+        <TouchableOpacity style={[styles.chip, selected && styles.chipActive]} onPress={() => onToggle(epithet.name)}>
+            <Text style={selected ? styles.chipTextActive : styles.chipText}>{epithet.name}</Text>
+            {conditionBullets.map((b, idx) => (
+                <Text key={idx} style={selected ? styles.chipConditionActive : styles.chipCondition} numberOfLines={2}>
+                    {b}
+                </Text>
+            ))}
+            {rewardBullet ? (
+                <Text style={selected ? styles.chipRewardActive : styles.chipReward} numberOfLines={2}>
+                    {rewardBullet}
+                </Text>
+            ) : null}
+        </TouchableOpacity>
+    )
+})
 EpithetChip.displayName = "EpithetChip"
 
 /**
@@ -192,7 +198,39 @@ const SmartRaceSolverSettings = () => {
         }
     }, [smartRaceSolverWeights])
 
-    const allEpithets = useMemo<EpithetEntry[]>(() => Object.values(epithetsData) as EpithetEntry[], [])
+    const allEpithetsRaw = useMemo<EpithetEntry[]>(() => Object.values(epithetsData) as unknown as EpithetEntry[], [])
+
+    /** Epithets visible in the target/forced pickers, gated by both `general.scenario` and the
+     *  selected `smartRaceSolverCharacterPreset`. Each gate is parsed from the bullet list:
+     *  scenario via `scenariosForEpithet` (e.g. "Trackblazer scenario only"), character via
+     *  `charactersForEpithet` (e.g. "Yaeno Muteki only"). An epithet that carries no restriction
+     *  of a given kind is universal for that gate. Mirrors `epithetsForActiveContext` in
+     *  `SmartRaceSolverIntegration`. */
+    const allEpithets = useMemo<EpithetEntry[]>(() => {
+        const activeScenario = (general?.scenario || "Trackblazer").toLowerCase()
+        const activePreset = (smartRaceSolverCharacterPreset || "").toLowerCase()
+        return allEpithetsRaw.filter((e) => {
+            const scenarioRestrictions = scenariosForEpithet(e).map((s) => s.toLowerCase())
+            if (scenarioRestrictions.length > 0 && !scenarioRestrictions.includes(activeScenario)) return false
+            const characterRestrictions = charactersForEpithet(e).map((c) => c.toLowerCase())
+            if (characterRestrictions.length > 0 && activePreset && !characterRestrictions.includes(activePreset)) return false
+            return true
+        })
+    }, [allEpithetsRaw, general?.scenario, smartRaceSolverCharacterPreset])
+
+    /** Human-readable summary of which scenario / character filters are slimming the picker.
+     *  Returns null when no restriction is active (every epithet is visible). Rendered above
+     *  both the Target and Forced pickers so users understand why the list is shorter than
+     *  the full {@link allEpithetsRaw}. */
+    const restrictionNotice = useMemo<string | null>(() => {
+        const activeScenario = general?.scenario || "Trackblazer"
+        const activePreset = smartRaceSolverCharacterPreset || ""
+        const parts: string[] = [`${activeScenario}-scenario restriction in-effect`]
+        if (activePreset) parts.push(`${activePreset} character restriction in-effect`)
+        if (allEpithetsRaw.length === allEpithets.length) return null
+        return `${parts.join(" + ")} — showing ${allEpithets.length} of ${allEpithetsRaw.length} epithets.`
+    }, [allEpithets.length, allEpithetsRaw.length, general?.scenario, smartRaceSolverCharacterPreset])
+
     const allPresets = useMemo<CharacterPresetEntry[]>(() => Object.values(characterPresetsData) as CharacterPresetEntry[], [])
     const allRaces = useMemo<RaceEntry[]>(() => Object.values(racesData) as RaceEntry[], [])
 
@@ -257,13 +295,13 @@ const SmartRaceSolverSettings = () => {
     const filteredEpithets = useMemo(() => {
         if (!epithetSearch) return allEpithets
         const q = epithetSearch.toLowerCase()
-        return allEpithets.filter((e) => e.name.toLowerCase().includes(q) || e.reward_text.toLowerCase().includes(q))
+        return allEpithets.filter((e) => e.name.toLowerCase().includes(q) || (e.bullet_points ?? []).join(" ").toLowerCase().includes(q))
     }, [allEpithets, epithetSearch])
 
     const filteredForcedEpithets = useMemo(() => {
         if (!forcedEpithetSearch) return allEpithets
         const q = forcedEpithetSearch.toLowerCase()
-        return allEpithets.filter((e) => e.name.toLowerCase().includes(q) || e.reward_text.toLowerCase().includes(q))
+        return allEpithets.filter((e) => e.name.toLowerCase().includes(q) || (e.bullet_points ?? []).join(" ").toLowerCase().includes(q))
     }, [allEpithets, forcedEpithetSearch])
 
     // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -478,6 +516,17 @@ const SmartRaceSolverSettings = () => {
                 section: { marginVertical: 8, padding: 12, backgroundColor: colors.card, borderRadius: 8 },
                 sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.foreground, marginBottom: 6 },
                 description: { fontSize: 13, color: colors.mutedForeground, marginBottom: 8 },
+                restrictionNotice: {
+                    fontSize: 12,
+                    color: colors.foreground,
+                    backgroundColor: colors.muted,
+                    borderLeftColor: colors.primary,
+                    borderLeftWidth: 3,
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: 4,
+                    marginBottom: 8,
+                },
                 inputLabel: { fontSize: 14, color: colors.foreground, marginBottom: 4, marginTop: 6 },
                 input: { backgroundColor: colors.background, color: colors.foreground, marginBottom: 4 },
                 inputDescription: { fontSize: 12, color: colors.mutedForeground, marginBottom: 4 },
@@ -673,6 +722,7 @@ const SmartRaceSolverSettings = () => {
                 epithetCardName: { fontSize: 13, fontWeight: "700", color: colors.foreground, marginBottom: 2 },
                 epithetCardReward: { fontSize: 11, color: colors.foreground, marginBottom: 1 },
                 epithetCardCondition: { fontSize: 11, color: colors.mutedForeground, fontStyle: "italic" },
+                epithetCardConditionItem: { fontSize: 11, color: colors.mutedForeground, fontStyle: "italic", marginLeft: 8 },
                 statsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "nowrap", marginVertical: 6, paddingHorizontal: 2 },
                 statsCell: { flexDirection: "row", alignItems: "baseline", flexShrink: 1, paddingHorizontal: 2 },
                 statsLabel: { fontSize: 13, color: colors.mutedForeground, marginRight: 4 },
@@ -731,12 +781,13 @@ const SmartRaceSolverSettings = () => {
                             <Text style={styles.popoverEmpty}>None — this race does not match any tracked epithet matcher.</Text>
                         ) : (
                             matched.map((ep) => {
-                                const prog = preview ? epithetProgress(turn, ep as EpithetWithMatchers, preview, racesByKey) : null
+                                const prog = preview ? epithetProgress(turn, ep, preview, racesByKey) : null
                                 const progLabel = prog ? `(${prog.current}/${prog.required}) ` : ""
+                                const rewardBullet = (ep.bullet_points ?? []).slice(-1)[0] ?? ""
                                 return (
                                     <Text key={ep.name} style={styles.popoverEpithet}>
                                         • {progLabel}
-                                        {ep.name} — {ep.reward_text}
+                                        {ep.name} — {rewardBullet}
                                     </Text>
                                 )
                             })
@@ -1053,7 +1104,8 @@ const SmartRaceSolverSettings = () => {
                                             when those races wouldn't otherwise be worth racing. The schedule is still allowed to skip a target if it would hurt overall score — for guaranteed
                                             completion use Forced Epithets instead.
                                         </Text>
-                                        <Input style={styles.input} value={epithetSearch} onChangeText={setEpithetSearch} placeholder="Search 36 epithets…" />
+                                        {restrictionNotice && <Text style={styles.restrictionNotice}>{restrictionNotice}</Text>}
+                                        <Input style={styles.input} value={epithetSearch} onChangeText={setEpithetSearch} placeholder={`Search ${allEpithets.length} epithets…`} />
                                         <ScrollView style={styles.epithetList} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                                             <View style={styles.row}>
                                                 {filteredEpithets.map((ep) => (
@@ -1079,7 +1131,8 @@ const SmartRaceSolverSettings = () => {
                                             Epithets the solver MUST complete. If a forced epithet becomes impossible (e.g. a required race is already lost), the solver fails and falls back. Use
                                             sparingly — every forced epithet shrinks the search space and may push the solver to skip otherwise-valuable races just to satisfy the constraint.
                                         </Text>
-                                        <Input style={styles.input} value={forcedEpithetSearch} onChangeText={setForcedEpithetSearch} placeholder="Search 36 epithets…" />
+                                        {restrictionNotice && <Text style={styles.restrictionNotice}>{restrictionNotice}</Text>}
+                                        <Input style={styles.input} value={forcedEpithetSearch} onChangeText={setForcedEpithetSearch} placeholder={`Search ${allEpithets.length} epithets…`} />
                                         <ScrollView style={styles.epithetList} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                                             <View style={styles.row}>
                                                 {filteredForcedEpithets.map((ep) => (
@@ -1309,10 +1362,12 @@ const SmartRaceSolverSettings = () => {
                                                 return <Text style={styles.inputDescription}>No epithets selected — pick targets above to see their rewards here.</Text>
                                             }
                                             return selectedNames.map((name) => {
-                                                const ep = (epithetsData as Record<string, EpithetEntry>)[name]
+                                                const ep = (epithetsData as unknown as Record<string, EpithetEntry>)[name]
                                                 const isForced = forcedEpithets.includes(name)
-                                                const reward = ep?.reward_text ?? "(reward unknown)"
-                                                const condition = ep?.condition_text ?? "(condition unknown)"
+                                                const epBullets = ep?.bullet_points ?? []
+                                                const rawReward = epBullets.length > 0 ? epBullets[epBullets.length - 1] : "(reward unknown)"
+                                                const reward = rawReward.replace(/^\s*reward\s*:\s*/i, "")
+                                                const conditionLines = epBullets.length > 1 ? epBullets.slice(0, -1) : []
                                                 const isHighlighted = highlightedEpithet === name
                                                 return (
                                                     <TouchableOpacity
@@ -1325,7 +1380,18 @@ const SmartRaceSolverSettings = () => {
                                                             {isForced ? "  ★" : ""}
                                                         </Text>
                                                         <Text style={styles.epithetCardReward}>Reward: {reward}</Text>
-                                                        <Text style={styles.epithetCardCondition}>Condition: {condition}</Text>
+                                                        {conditionLines.length > 0 ? (
+                                                            <>
+                                                                <Text style={styles.epithetCardCondition}>Condition:</Text>
+                                                                {conditionLines.map((line, idx) => (
+                                                                    <Text key={`sel-${name}-cond-${idx}`} style={styles.epithetCardConditionItem}>
+                                                                        • {line}
+                                                                    </Text>
+                                                                ))}
+                                                            </>
+                                                        ) : (
+                                                            <Text style={styles.epithetCardCondition}>Condition: (condition unknown)</Text>
+                                                        )}
                                                     </TouchableOpacity>
                                                 )
                                             })
@@ -1339,9 +1405,11 @@ const SmartRaceSolverSettings = () => {
                                             <Text style={styles.inputDescription}>The preview schedule does not project completing any epithets with the current configuration.</Text>
                                         )}
                                         {(preview?.projectedEpithets ?? []).map((name) => {
-                                            const ep = (epithetsData as Record<string, EpithetEntry>)[name]
-                                            const reward = ep?.reward_text ?? "(reward unknown)"
-                                            const condition = ep?.condition_text ?? "(condition unknown)"
+                                            const ep = (epithetsData as unknown as Record<string, EpithetEntry>)[name]
+                                            const epBullets = ep?.bullet_points ?? []
+                                            const rawReward = epBullets.length > 0 ? epBullets[epBullets.length - 1] : "(reward unknown)"
+                                            const reward = rawReward.replace(/^\s*reward\s*:\s*/i, "")
+                                            const conditionLines = epBullets.length > 1 ? epBullets.slice(0, -1) : []
                                             const isSelected = targetEpithets.includes(name) || forcedEpithets.includes(name)
                                             const isHighlighted = highlightedEpithet === name
                                             return (
@@ -1355,7 +1423,18 @@ const SmartRaceSolverSettings = () => {
                                                         {isSelected ? "  ✓" : ""}
                                                     </Text>
                                                     <Text style={styles.epithetCardReward}>Reward: {reward}</Text>
-                                                    <Text style={styles.epithetCardCondition}>Condition: {condition}</Text>
+                                                    {conditionLines.length > 0 ? (
+                                                        <>
+                                                            <Text style={styles.epithetCardCondition}>Condition:</Text>
+                                                            {conditionLines.map((line, idx) => (
+                                                                <Text key={`proj-${name}-cond-${idx}`} style={styles.epithetCardConditionItem}>
+                                                                    • {line}
+                                                                </Text>
+                                                            ))}
+                                                        </>
+                                                    ) : (
+                                                        <Text style={styles.epithetCardCondition}>Condition: (condition unknown)</Text>
+                                                    )}
                                                 </TouchableOpacity>
                                             )
                                         })}
