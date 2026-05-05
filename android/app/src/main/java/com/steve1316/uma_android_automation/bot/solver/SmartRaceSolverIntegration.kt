@@ -1122,6 +1122,10 @@ object SmartRaceSolverIntegration {
         val state = newSolverState(currentRunTurn, currentRunScenario, epithets, racesByTurn)
         val schedule = SmartRaceSolver.solve(state)
 
+        val winsSnapshot = synchronized(raceHistory) { raceHistory.toList() }
+        val lossesSnapshot = synchronized(raceLosses) { raceLosses.toList() }
+        val contributionsByTurn = computeEpithetContributionsByTurn(epithets, racesByTurn, schedule, winsSnapshot)
+
         val decisions = JSONObject()
         for ((turn, decision) in schedule.decisions) {
             val entry = JSONObject()
@@ -1132,6 +1136,8 @@ object SmartRaceSolverIntegration {
                     entry.put("raceKey", decision.raceKey)
                     entry.put("name", race?.name ?: decision.raceKey)
                     entry.put("grade", race?.grade?.name ?: "")
+                    if (race != null) addRaceDetails(entry, race)
+                    contributionsByTurn[turn]?.let { entry.put("contributions", it) }
                 }
                 Decision.Train -> entry.put("type", "Train")
                 Decision.Rest -> entry.put("type", "Rest")
@@ -1140,13 +1146,11 @@ object SmartRaceSolverIntegration {
         }
 
         val results = JSONArray()
-        val winsSnapshot = synchronized(raceHistory) { raceHistory.toList() }
-        val lossesSnapshot = synchronized(raceLosses) { raceLosses.toList() }
         for (win in winsSnapshot) {
-            results.put(buildResultEntry(win.turnNumber, win.raceKey, win.name, racesByTurn, RaceOutcome.WIN))
+            results.put(buildResultEntry(win.turnNumber, win.raceKey, win.name, racesByTurn, RaceOutcome.WIN, contributionsByTurn[win.turnNumber]))
         }
         for (loss in lossesSnapshot) {
-            results.put(buildResultEntry(loss.turnNumber, loss.raceKey, loss.name, racesByTurn, RaceOutcome.LOSE))
+            results.put(buildResultEntry(loss.turnNumber, loss.raceKey, loss.name, racesByTurn, RaceOutcome.LOSE, null))
         }
 
         return JSONObject()
@@ -1157,15 +1161,17 @@ object SmartRaceSolverIntegration {
     }
 
     /**
-     * Builds a single race-result entry for the calendar snapshot, looking up the race grade
-     * from the candidate pool when possible.
+     * Builds a single race-result entry for the calendar snapshot, looking up race details
+     * from the candidate pool when possible. Wins also carry a `contributions` array if this
+     * race advances any tracked epithet at this turn.
      *
      * @param turn Turn number the race ran on.
      * @param raceKey Race key.
      * @param raceName Display name (used as fallback when no candidate is found).
-     * @param racesByTurn Candidate pool used to resolve the grade label.
+     * @param racesByTurn Candidate pool used to resolve race details.
      * @param outcome Win or loss marker.
-     * @return JSON `{turn, raceKey, name, grade, outcome}`.
+     * @param contributions Pre-computed epithet contributions for this turn, or null.
+     * @return JSON `{turn, raceKey, name, grade, outcome, raceTrack?, terrain?, distanceType?, distanceMeters?, fans?, contributions?}`.
      */
     private fun buildResultEntry(
         turn: TurnNumber,
@@ -1173,14 +1179,154 @@ object SmartRaceSolverIntegration {
         raceName: String,
         racesByTurn: Map<TurnNumber, List<RaceCandidate>>,
         outcome: RaceOutcome,
+        contributions: JSONArray?,
     ): JSONObject {
         val race = racesByTurn[turn]?.firstOrNull { it.key == raceKey }
-        return JSONObject()
+        val obj = JSONObject()
             .put("turn", turn)
             .put("raceKey", raceKey)
             .put("name", race?.name ?: raceName)
             .put("grade", race?.grade?.name ?: "")
             .put("outcome", outcome.name)
+        if (race != null) addRaceDetails(obj, race)
+        if (contributions != null) obj.put("contributions", contributions)
+        return obj
+    }
+
+    /**
+     * Stamps the race-detail fields used by the viewer's hover tooltip onto an existing JSON
+     * object. Mirrors the popover meta line on the Smart Race Solver page.
+     *
+     * @param obj Target JSON object (mutated in place).
+     * @param race Source race candidate.
+     */
+    private fun addRaceDetails(obj: JSONObject, race: RaceCandidate) {
+        obj.put("raceTrack", race.raceTrack)
+        obj.put("terrain", race.terrain.name)
+        obj.put("distanceType", race.distanceType.name)
+        obj.put("distanceMeters", race.distanceMeters)
+        obj.put("fans", race.fans)
+    }
+
+    /**
+     * Walks a unified wins-by-turn timeline (past wins from `raceHistory` plus the solver's
+     * planned wins for the remaining turns) and computes, for each race-turn, the list of
+     * tracked epithets whose `(current, required)` aggregate increased on that turn. The diff
+     * mirrors the React Native Smart Race Solver popover's "Progresses these epithets" section.
+     *
+     * @param epithets Tracked epithets used for the diff.
+     * @param racesByTurn Candidate pool used to resolve race keys to candidates.
+     * @param schedule Solver schedule supplying the planned future wins.
+     * @param winsSnapshot Authoritative past wins.
+     * @return Map of turn -> JSON array of `{name, beforeCurrent, beforeRequired, afterCurrent, afterRequired, reward}` entries.
+     */
+    private fun computeEpithetContributionsByTurn(
+        epithets: List<Epithet>,
+        racesByTurn: Map<TurnNumber, List<RaceCandidate>>,
+        schedule: Schedule,
+        winsSnapshot: List<RaceWin>,
+    ): Map<TurnNumber, JSONArray> {
+        if (epithets.isEmpty()) return emptyMap()
+
+        val winsByTurn = mutableMapOf<TurnNumber, RaceCandidate>()
+        for (win in winsSnapshot) {
+            val race = racesByTurn[win.turnNumber]?.firstOrNull { it.key == win.raceKey } ?: continue
+            winsByTurn[win.turnNumber] = race
+        }
+        for ((turn, decision) in schedule.decisions) {
+            if (turn in winsByTurn || decision !is Decision.RaceDecision) continue
+            if (turn < currentRunTurn) continue
+            val race = racesByTurn[turn]?.firstOrNull { it.key == decision.raceKey } ?: continue
+            winsByTurn[turn] = race
+        }
+
+        val contributions = mutableMapOf<TurnNumber, JSONArray>()
+        val cumulativeWins = mutableListOf<RaceWin>()
+        var statePrev = newSolverState(
+            currentTurn = 1,
+            scenario = currentRunScenario,
+            epithets = epithets,
+            racesByTurn = racesByTurn,
+            raceHistorySnapshot = emptyList(),
+        )
+        for (turn in 1..72) {
+            val race = winsByTurn[turn] ?: continue
+            cumulativeWins.add(RaceWin(race.key, race.name, race.classYear, turn))
+            val stateNow = newSolverState(
+                currentTurn = 1,
+                scenario = currentRunScenario,
+                epithets = epithets,
+                racesByTurn = racesByTurn,
+                raceHistorySnapshot = cumulativeWins.toList(),
+            )
+
+            val arr = JSONArray()
+            for (epi in epithets) {
+                val aggBefore = epithetFraction(epi, statePrev) ?: (0 to 0)
+                val aggAfter = epithetFraction(epi, stateNow) ?: (0 to 0)
+                if (aggBefore == aggAfter) continue
+
+                // Identify which specific matchers this race advanced and surface their condition text.
+                val conditions = JSONArray()
+                for (m in epi.matchers) {
+                    val mBefore = matcherFraction(m, statePrev) ?: continue
+                    val mAfter = matcherFraction(m, stateNow) ?: continue
+                    if (mBefore == mAfter) continue
+                    matcherConditionLabel(m, race)?.let { conditions.put(it) }
+                }
+
+                arr.put(
+                    JSONObject()
+                        .put("name", epi.name)
+                        .put("beforeCurrent", aggBefore.first)
+                        .put("beforeRequired", aggBefore.second)
+                        .put("afterCurrent", aggAfter.first)
+                        .put("afterRequired", aggAfter.second)
+                        .put("conditions", conditions)
+                        .put("reward", epi.bullets.lastOrNull() ?: ""),
+                )
+            }
+            if (arr.length() > 0) contributions[turn] = arr
+            statePrev = stateNow
+        }
+        return contributions
+    }
+
+    /**
+     * Builds a human-readable label for a single matcher that this race advanced. Mirrors
+     * the matcher schema in [Epithet.kt]: name-based matchers reference the specific race
+     * name, filter-based matchers describe their predicate.
+     *
+     * @param matcher The matcher whose count just incremented.
+     * @param race The contributing race.
+     * @return A short condition label like `"Win the Victoria Mile"`, or null when the matcher
+     *   is not a race-progression matcher (e.g. epithet prerequisites).
+     */
+    private fun matcherConditionLabel(matcher: EpithetMatcher, race: RaceCandidate): String? =
+        when (matcher) {
+            is EpithetMatcher.WinRace -> "Win the ${matcher.name}"
+            is EpithetMatcher.WinRaceTimes -> "Win the ${matcher.name} (${matcher.times} times)"
+            is EpithetMatcher.WinAnyOf -> "Win the ${race.name}"
+            is EpithetMatcher.WinAtLeast -> "Win the ${race.name}"
+            is EpithetMatcher.WinCount -> "Win a ${describeFilter(matcher.filter)}"
+            is EpithetMatcher.EpithetAnyOf, is EpithetMatcher.EpithetAll -> null
+        }
+
+    /**
+     * Formats an [EpithetFilter] into a short noun phrase (e.g. `"G1 Turf race"`).
+     *
+     * @param filter Filter to describe.
+     * @return Short label suitable for the tooltip.
+     */
+    private fun describeFilter(filter: EpithetFilter): String {
+        val parts = mutableListOf<String>()
+        filter.grade?.let { parts.add(it.name) }
+        if (filter.gradeAtLeastOpen) parts.add("OP+")
+        if (filter.gradedOnly) parts.add("graded")
+        filter.terrain?.let { parts.add(it.name.lowercase().replaceFirstChar(Char::uppercase)) }
+        if (filter.nameContainsCountry) parts.add("country-named")
+        parts.add("race")
+        return parts.joinToString(" ")
     }
 
     // //////////////////////////////////////////////////////////////////////////////////////////////////

@@ -2730,14 +2730,26 @@
                 if (section) section.classList.toggle("collapsed")
             }
 
+            // Latest snapshot kept for the hover-tooltip lookup. Decisions and results are
+            // indexed by turn number so showRaceCellTooltip is O(1) per hover.
+            var latestCalendarSnapshot = null
+            var latestResultsByTurn = {}
+
             /**
              * Renders the Race History calendar from a snapshot pushed by the bot.
-             * Snapshot shape: { currentTurn:int, decisions:{turn->{type,raceKey?,name?,grade?}}, results:[{turn,raceKey,name,grade,outcome}] }
+             * Snapshot shape: { currentTurn:int, decisions:{turn->{type,raceKey?,name?,grade?,raceTrack?,terrain?,distanceType?,distanceMeters?,fans?,contributions?}}, results:[{turn,raceKey,name,grade,outcome,...}] }
              * @param {object|null} snapshot Calendar snapshot JSON, or null to paint the empty grid.
              */
             function renderCalendar(snapshot) {
                 snapshot = snapshot || { currentTurn: 1, decisions: {}, results: [] }
                 if (typeof snapshot !== "object") return
+                latestCalendarSnapshot = snapshot
+                latestResultsByTurn = {}
+                var resultsForIndex = Array.isArray(snapshot.results) ? snapshot.results : []
+                for (var ri = 0; ri < resultsForIndex.length; ri++) {
+                    var rr = resultsForIndex[ri]
+                    if (rr && typeof rr.turn === "number") latestResultsByTurn[rr.turn] = rr
+                }
                 var container = document.getElementById("raceHistoryYears")
                 var badgeEl = document.getElementById("raceHistoryTurnBadge")
                 if (!container || !badgeEl) return
@@ -2821,8 +2833,17 @@
                     classes.push("lose-result")
                 }
 
+                // Only race cells (with race details to show) get the hover handlers.
+                var hoverAttrs = ""
+                if (raceSrc) {
+                    hoverAttrs = ' data-turn="' + turn + '"' +
+                        ' onmouseenter="showRaceCellTooltip(event, ' + turn + ')"' +
+                        ' onmousemove="updateTooltipPosition(event)"' +
+                        ' onmouseleave="hideTooltip()"'
+                }
+
                 return '<div class="calendar-cell-wrapper">' +
-                    '<div class="' + classes.join(" ") + '">' + inner + '</div>' +
+                    '<div class="' + classes.join(" ") + '"' + hoverAttrs + '>' + inner + '</div>' +
                     '<div class="calendar-date-label">' + dateLabel + '</div>' +
                     '</div>'
             }
@@ -2833,6 +2854,82 @@
              */
             function resetCalendar() {
                 renderCalendar(null)
+            }
+
+            /**
+             * Title-cases an UPPERCASE enum-style string (e.g. "TURF" -> "Turf", "PRE_OP" -> "Pre-OP").
+             * Mirrors the popover formatting on the React Native Smart Race Solver page.
+             */
+            function calFormatEnum(raw) {
+                if (!raw) return ""
+                if (raw === "PRE_OP" || raw === "PRE-OP") return "Pre-OP"
+                return raw.charAt(0) + raw.slice(1).toLowerCase()
+            }
+
+            /**
+             * Shows the rich Race History hover tooltip for a calendar cell. Mirrors the
+             * popover on the Smart Race Solver page: turn header, race name + meta line,
+             * and the "Progresses these epithets" list with before/after counts and reward.
+             *
+             * @param {MouseEvent} event Hover event used for tooltip positioning.
+             * @param {number} turn 1..72 turn number for the hovered cell.
+             */
+            function showRaceCellTooltip(event, turn) {
+                if (!latestCalendarSnapshot) return
+                var decisions = latestCalendarSnapshot.decisions || {}
+                var decision = decisions[String(turn)]
+                var result = latestResultsByTurn[turn]
+                // Past results take precedence over the (post-result) re-planned decision.
+                var src = result || (decision && decision.type === "Race" ? decision : null)
+                if (!src) return
+
+                var yearOffset = (turn - 1) % 24
+                var yearName = turn <= 24 ? "Junior" : turn <= 48 ? "Classic" : "Senior"
+                var dateLabel = calTurnDateLabel(yearOffset)
+                // Use the same middle dot (U+00B7) the React Native Smart Race Solver
+                // popover uses as a visual separator. Kept as a literal character so the
+                // tooltip layout matches the original calendar exactly.
+                var sep = " · "
+                var title = "T" + turn + sep + yearName + " " + dateLabel
+
+                var parts = []
+                var grade = src.grade ? calFormatEnum(src.grade) : ""
+                if (grade) parts.push(grade)
+                if (src.raceTrack) parts.push(src.raceTrack)
+                if (src.terrain) parts.push(calFormatEnum(src.terrain))
+                if (src.distanceType) {
+                    var dt = calFormatEnum(src.distanceType)
+                    if (src.distanceMeters) dt += " (" + src.distanceMeters + "m)"
+                    parts.push(dt)
+                }
+                if (typeof src.fans === "number") parts.push(formatNumberWithCommas(src.fans) + " fans")
+
+                var content = '<div class="tooltip-row"><span class="tooltip-label" style="font-weight:700">' + escapeHtml(src.name || "") + '</span></div>'
+                if (parts.length > 0) {
+                    content += '<div class="tooltip-row" style="opacity:0.85"><span>' + escapeHtml(parts.join(sep)) + '</span></div>'
+                }
+
+                var contribs = (src.contributions && src.contributions.length > 0)
+                    ? src.contributions
+                    : (decision && decision.contributions ? decision.contributions : [])
+                if (result && result.outcome === "LOSE") {
+                    content += '<div class="tooltip-section" style="margin-top:6px;font-weight:700">No epithet progress (race was lost)</div>'
+                } else if (contribs && contribs.length > 0) {
+                    content += '<div class="tooltip-section" style="margin-top:6px;font-weight:700">Progresses these epithets</div>'
+                    for (var i = 0; i < contribs.length; i++) {
+                        var c = contribs[i]
+                        var prog = "(" + c.beforeCurrent + "/" + c.beforeRequired + " → " + c.afterCurrent + "/" + c.afterRequired + ") "
+                        var line = "— " + prog + c.name
+                        var conds = Array.isArray(c.conditions) ? c.conditions.filter(function (s) { return s }) : []
+                        if (conds.length > 0) line += " — " + conds.join("; ")
+                        if (c.reward) line += " — Reward: " + c.reward
+                        content += '<div class="tooltip-row">' + escapeHtml(line) + '</div>'
+                    }
+                } else {
+                    content += '<div class="tooltip-section" style="margin-top:6px;opacity:0.7;font-style:italic">No tracked epithets advance on this race.</div>'
+                }
+
+                showTooltip(event, title, content)
             }
 
             // ==============================================
