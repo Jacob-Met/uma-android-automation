@@ -147,6 +147,26 @@ data class RaceWin(
     val turnNumber: TurnNumber,
 )
 
+/** Win/lose marker for a finished race surfaced to the Remote Log Viewer calendar. */
+enum class RaceOutcome { WIN, LOSE }
+
+/**
+ * Record of a race the trainee entered but did not win. Lives outside [SolverState] (the solver
+ * itself only consumes wins for epithet eligibility) and is tracked at the integration layer so the
+ * viewer can paint LOSE pills on completed-but-not-won turns.
+ *
+ * @property raceKey Race key (matches [RaceCandidate.key]).
+ * @property name Display name of the race (matches [RaceCandidate.name]).
+ * @property classYear Class-year prefix at the time of the race.
+ * @property turnNumber Turn the loss occurred on.
+ */
+data class RaceLossRecord(
+    val raceKey: String,
+    val name: String,
+    val classYear: String,
+    val turnNumber: TurnNumber,
+)
+
 /**
  * Immutable snapshot of everything the solver needs to compute a [Schedule].
  *

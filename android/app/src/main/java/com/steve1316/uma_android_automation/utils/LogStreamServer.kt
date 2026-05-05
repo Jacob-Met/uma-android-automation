@@ -136,6 +136,12 @@ object LogStreamServer {
     /** Channel for serializing log actions to be processed by the background worker. */
     private var actionChannel: Channel<LogAction>? = null
 
+    /** Most recent Race History calendar snapshot JSON (full schedule + win/loss results),
+     *  pushed by the Smart Race Solver integration. Replayed to each new client after the
+     *  log history flush so the calendar paints immediately on connect. Null until the first
+     *  snapshot arrives this run. */
+    @Volatile private var latestCalendarSnapshot: String? = null
+
     /**
      * Represents a parsed log entry for structured transmission.
      *
@@ -191,6 +197,15 @@ object LogStreamServer {
 
         /** Clears the history buffer and resets the mute flag. */
         object Clear : LogAction()
+
+        /**
+         * Broadcasts a Race History calendar snapshot (planned schedule + win/loss results)
+         * to all connected clients. Distinct from [Broadcast] so calendar payloads never end
+         * up in the log replay buffer.
+         *
+         * @property json Pre-serialized calendar snapshot JSON sent verbatim to clients with a `CAL:` prefix.
+         */
+        data class BroadcastCalendar(val json: String) : LogAction()
     }
 
     // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -376,6 +391,16 @@ object LogStreamServer {
                 session.send(Frame.Text("HB:$jsonArray"))
             }
             session.send(Frame.Text("HISTORY_DONE"))
+
+            // Replay the most recent Race History calendar snapshot (if any) so the viewer
+            // paints its calendar panel without waiting for the next race result.
+            latestCalendarSnapshot?.let { snapshot ->
+                try {
+                    session.send(Frame.Text("CAL:$snapshot"))
+                } catch (e: Exception) {
+                    Log.w(TAG, "[WARN] handleNewClientAction:: Failed to replay calendar snapshot: ${e.message}")
+                }
+            }
 
             // Now that history is synced, add to clients for real-time broadcasts.
             clients.add(session)
@@ -715,6 +740,9 @@ object LogStreamServer {
         Log.i(TAG, "[LogStreamServer] Executing log clear action.")
         clearBuffer()
 
+        // Drop the cached calendar so the new run starts with no replay.
+        latestCalendarSnapshot = null
+
         // Ensure we are unmuted for the new run.
         isMuted = false
 
@@ -756,6 +784,39 @@ object LogStreamServer {
         // Enqueue the broadcast action to ensure it is processed chronologically relative to new sessions.
         serverScope?.launch {
             actionChannel?.send(LogAction.Broadcast(message))
+        }
+    }
+
+    /**
+     * Pushes a Race History calendar snapshot to all connected clients and caches it for
+     * replay to clients that connect later. Called by the Smart Race Solver integration
+     * after every race result and once at solver init.
+     *
+     * @param json Pre-serialized calendar snapshot JSON (`{currentTurn, decisions, results}`).
+     */
+    fun broadcastCalendarSnapshot(json: String) {
+        latestCalendarSnapshot = json
+        if (!isRunning) return
+        serverScope?.launch {
+            actionChannel?.send(LogAction.BroadcastCalendar(json))
+        }
+    }
+
+    /**
+     * Sends a calendar snapshot to all currently connected clients with the `CAL:` framing
+     * prefix the viewer uses to route the payload to its calendar renderer. Skipped silently
+     * when no clients are connected.
+     *
+     * @param json The pre-serialized calendar snapshot JSON.
+     */
+    private suspend fun handleCalendarBroadcast(json: String) {
+        if (clients.isEmpty()) return
+        val frame = "CAL:$json"
+        for (client in clients) {
+            try {
+                client.send(Frame.Text(frame))
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -833,6 +894,10 @@ object LogStreamServer {
 
                             is LogAction.Clear -> {
                                 handleClearAction()
+                            }
+
+                            is LogAction.BroadcastCalendar -> {
+                                handleCalendarBroadcast(action.json)
                             }
                         }
                     }

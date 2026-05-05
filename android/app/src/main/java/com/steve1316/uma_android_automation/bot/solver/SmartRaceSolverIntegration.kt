@@ -38,6 +38,11 @@ object SmartRaceSolverIntegration {
      *  bot and UI threads can read/write here concurrently. */
     private val raceHistory: MutableList<RaceWin> = mutableListOf()
 
+    /** Sibling collection to [raceHistory] that holds confirmed losses for the Remote Log
+     *  Viewer calendar. The solver itself never reads this list - losses do not count toward
+     *  epithet eligibility. Always synchronize on [raceLosses] before mutating or copying. */
+    private val raceLosses: MutableList<RaceLossRecord> = mutableListOf()
+
     /** Memoised result of [parseEpithets] applied to the persisted `epithetsData` setting.
      *  Populated lazily on the first solver call and reused thereafter. */
     @Volatile private var cachedEpithets: List<Epithet>? = null
@@ -65,11 +70,38 @@ object SmartRaceSolverIntegration {
     /** True after [seedHistoryFromPreview] has populated [raceHistory] for the current run. */
     @Volatile private var historySeeded: Boolean = false
 
+    /** Most recent currentTurn observed by [runStartupHooks] or [markPendingRace]. Used as the
+     *  pivot when building a calendar snapshot for the Remote Log Viewer. */
+    @Volatile private var currentRunTurn: TurnNumber = 1
+
+    /** Scenario captured at [runStartupHooks] time, fed back into the solver when re-running a
+     *  preview for the Remote Log Viewer calendar. */
+    @Volatile private var currentRunScenario: String = ""
+
     /** Clears in-memory race history and pending state. Call at the start of a fresh bot run. */
     fun reset() {
         synchronized(raceHistory) { raceHistory.clear() }
+        synchronized(raceLosses) { raceLosses.clear() }
         pendingRace = null
         historySeeded = false
+    }
+
+    /**
+     * Adds a loss to the run's race-loss collection. Used for confirmed in-run losses
+     * (the trainee finished outside 1st) and for OCR career-scrape entries with `won=false`.
+     * Idempotent on `(raceKey, turnNumber)` so retries do not duplicate.
+     *
+     * @param raceKey Race key (matches [RaceCandidate.key]).
+     * @param raceName Race name (matches [RaceCandidate.name]).
+     * @param classYear Class-year prefix at the time of the race.
+     * @param turnNumber Turn the loss occurred on.
+     */
+    fun recordRaceLost(raceKey: String, raceName: String, classYear: String, turnNumber: TurnNumber) {
+        synchronized(raceLosses) {
+            if (raceLosses.none { it.raceKey == raceKey && it.turnNumber == turnNumber }) {
+                raceLosses.add(RaceLossRecord(raceKey, raceName, classYear, turnNumber))
+            }
+        }
     }
 
     /**
@@ -102,6 +134,7 @@ object SmartRaceSolverIntegration {
      */
     fun markPendingRace(raceKey: String, raceName: String, classYear: String, turnNumber: TurnNumber) {
         pendingRace = RaceWin(raceKey, raceName, classYear, turnNumber)
+        currentRunTurn = turnNumber
     }
 
     /**
@@ -137,6 +170,9 @@ object SmartRaceSolverIntegration {
             seedHistoryFromPreview(currentTurn, scenario, epithets, racesByTurn)
         }
         historySeeded = true
+        currentRunTurn = currentTurn
+        currentRunScenario = scenario
+        broadcastCalendarSnapshot()
     }
 
     /**
@@ -149,7 +185,9 @@ object SmartRaceSolverIntegration {
         val pending = pendingRace ?: return
         pendingRace = null
         if (!won) {
-            MessageLog.i(TAG, "Race \"${pending.name}\" on turn ${pending.turnNumber} did not finish 1st; not adding to history.")
+            recordRaceLost(pending.raceKey, pending.name, pending.classYear, pending.turnNumber)
+            MessageLog.i(TAG, "Race \"${pending.name}\" on turn ${pending.turnNumber} did not finish 1st; recorded as a loss.")
+            broadcastCalendarSnapshot()
             return
         }
         val historyBefore = synchronized(raceHistory) { raceHistory.toList() }
@@ -157,6 +195,7 @@ object SmartRaceSolverIntegration {
         val historyAfter = synchronized(raceHistory) { raceHistory.toList() }
         MessageLog.i(TAG, "Race \"${pending.name}\" on turn ${pending.turnNumber} confirmed 1st; added to history.")
         logEpithetProgressAfterWin(pending.name, pending.turnNumber, historyBefore, historyAfter)
+        broadcastCalendarSnapshot()
     }
 
     /**
@@ -569,7 +608,11 @@ object SmartRaceSolverIntegration {
             val candidate = candidates.firstOrNull { it.nameFormatted == matchedFormatted } ?: continue
 
             matched.add(MatchedEntry(candidate, entry.dateString, entry.won))
-            if (entry.won) recordRaceWon(candidate.key, candidate.name, candidate.classYear, turnNumber)
+            if (entry.won) {
+                recordRaceWon(candidate.key, candidate.name, candidate.classYear, turnNumber)
+            } else {
+                recordRaceLost(candidate.key, candidate.name, candidate.classYear, turnNumber)
+            }
         }
 
         val seeded = matched.count { it.won }
@@ -1038,6 +1081,106 @@ object SmartRaceSolverIntegration {
             .put("projectedEpithets", JSONArray(schedule.projectedEpithets.toList()))
             .put("totalScore", schedule.totalScore)
             .toString()
+    }
+
+    // //////////////////////////////////////////////////////////////////////////////////////////////////
+    // //////////////////////////////////////////////////////////////////////////////////////////////////
+    // Remote Log Viewer calendar broadcasting
+
+    /**
+     * Builds a calendar snapshot from the current cached run state (turn, scenario, history)
+     * and pushes it to [com.steve1316.uma_android_automation.utils.LogStreamServer] so connected
+     * Remote Log Viewers paint the Race History panel. Runs the solver on a background thread
+     * so the bot loop is never blocked; safe to call after every race result.
+     *
+     * No-op when the Smart Race Solver feature flag is off, when required parsed data is
+     * missing, or when [LogStreamServer] is not running. Errors are logged at warn level
+     * and swallowed so a viewer hiccup never crashes the bot.
+     */
+    private fun broadcastCalendarSnapshot() {
+        if (!SettingsHelper.getBooleanSetting("racing", "enableSmartRaceSolver")) return
+        kotlin.concurrent.thread(name = "calendar-snapshot", isDaemon = true) {
+            try {
+                val json = buildCalendarSnapshotJson() ?: return@thread
+                com.steve1316.uma_android_automation.utils.LogStreamServer.broadcastCalendarSnapshot(json)
+            } catch (t: Throwable) {
+                MessageLog.w(TAG, "Calendar snapshot broadcast failed: ${t.message}")
+            }
+        }
+    }
+
+    /**
+     * Re-runs the solver with the cached run inputs and the current win/loss collections,
+     * then serializes the result into the calendar snapshot JSON consumed by `log_viewer.html`.
+     *
+     * @return JSON `{ currentTurn, decisions{turn -> entry}, results[ {turn, raceKey, name, grade, outcome} ] }`
+     *   or null when required data is unavailable.
+     */
+    private fun buildCalendarSnapshotJson(): String? {
+        val racesByTurn = loadAllRaces() ?: return null
+        val epithets = loadEpithets() ?: emptyList()
+        val state = newSolverState(currentRunTurn, currentRunScenario, epithets, racesByTurn)
+        val schedule = SmartRaceSolver.solve(state)
+
+        val decisions = JSONObject()
+        for ((turn, decision) in schedule.decisions) {
+            val entry = JSONObject()
+            when (decision) {
+                is Decision.RaceDecision -> {
+                    val race = racesByTurn[turn]?.firstOrNull { it.key == decision.raceKey }
+                    entry.put("type", "Race")
+                    entry.put("raceKey", decision.raceKey)
+                    entry.put("name", race?.name ?: decision.raceKey)
+                    entry.put("grade", race?.grade?.name ?: "")
+                }
+                Decision.Train -> entry.put("type", "Train")
+                Decision.Rest -> entry.put("type", "Rest")
+            }
+            decisions.put(turn.toString(), entry)
+        }
+
+        val results = JSONArray()
+        val winsSnapshot = synchronized(raceHistory) { raceHistory.toList() }
+        val lossesSnapshot = synchronized(raceLosses) { raceLosses.toList() }
+        for (win in winsSnapshot) {
+            results.put(buildResultEntry(win.turnNumber, win.raceKey, win.name, racesByTurn, RaceOutcome.WIN))
+        }
+        for (loss in lossesSnapshot) {
+            results.put(buildResultEntry(loss.turnNumber, loss.raceKey, loss.name, racesByTurn, RaceOutcome.LOSE))
+        }
+
+        return JSONObject()
+            .put("currentTurn", currentRunTurn)
+            .put("decisions", decisions)
+            .put("results", results)
+            .toString()
+    }
+
+    /**
+     * Builds a single race-result entry for the calendar snapshot, looking up the race grade
+     * from the candidate pool when possible.
+     *
+     * @param turn Turn number the race ran on.
+     * @param raceKey Race key.
+     * @param raceName Display name (used as fallback when no candidate is found).
+     * @param racesByTurn Candidate pool used to resolve the grade label.
+     * @param outcome Win or loss marker.
+     * @return JSON `{turn, raceKey, name, grade, outcome}`.
+     */
+    private fun buildResultEntry(
+        turn: TurnNumber,
+        raceKey: String,
+        raceName: String,
+        racesByTurn: Map<TurnNumber, List<RaceCandidate>>,
+        outcome: RaceOutcome,
+    ): JSONObject {
+        val race = racesByTurn[turn]?.firstOrNull { it.key == raceKey }
+        return JSONObject()
+            .put("turn", turn)
+            .put("raceKey", raceKey)
+            .put("name", race?.name ?: raceName)
+            .put("grade", race?.grade?.name ?: "")
+            .put("outcome", outcome.name)
     }
 
     // //////////////////////////////////////////////////////////////////////////////////////////////////
