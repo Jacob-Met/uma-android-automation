@@ -61,7 +61,9 @@ object RaceHistory {
      * to the Main Screen. ScrollList's standard scrollbar-based termination ends the scan
      * at the bottom of the list. The bottom Junior Make Debut row will appear in the
      * results but its formatted-name lookup against races.json will fail and the caller
-     * silently drops it.
+     * silently drops it. The Remote Log Viewer surfaces a separate synthetic Make Debut
+     * entry built directly inside SmartRaceSolverIntegration.buildCalendarSnapshotJson;
+     * that entry is display-only and is never recorded into raceHistory.
      *
      * @param game Active Game instance for tap/screenshot/OCR access.
      * @return Newest-first scraped entries, or null if any navigation/OCR step failed.

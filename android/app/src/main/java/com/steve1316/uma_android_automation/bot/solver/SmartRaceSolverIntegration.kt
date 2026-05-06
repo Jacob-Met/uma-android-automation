@@ -12,6 +12,7 @@ import com.steve1316.uma_android_automation.types.TrackDistance
 import com.steve1316.uma_android_automation.types.TrackSurface
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Integration layer between Racing.kt and the pure [SmartRaceSolver].
@@ -70,6 +71,15 @@ object SmartRaceSolverIntegration {
     /** True after [seedHistoryFromPreview] has populated [raceHistory] for the current run. */
     @Volatile private var historySeeded: Boolean = false
 
+    /** True after the synthetic Junior Make Debut display log line has fired for the current run. Cleared by [reset]. The synthetic
+     *  calendar entry itself is generated on-the-fly inside [buildCalendarSnapshotJson] and is not retained anywhere else. */
+    private val debutDisplayLogged: AtomicBoolean = AtomicBoolean(false)
+
+    /** OCR-scraped Junior Make Debut row, captured by [seedHistoryFromCareerScrape] when available. Null when the scrape was
+     *  skipped or the row was missing. The formatted name and won/lost outcome are surfaced in the Remote Log Viewer tooltip via the
+     *  synthetic JSON entry built in [buildCalendarSnapshotJson]. Cleared by [reset]. */
+    @Volatile private var scrapedDebutEntry: RaceHistory.RaceHistoryEntry? = null
+
     /** Most recent currentTurn observed by [runStartupHooks] or [markPendingRace]. Used as the
      *  pivot when building a calendar snapshot for the Remote Log Viewer. */
     @Volatile private var currentRunTurn: TurnNumber = 1
@@ -84,6 +94,8 @@ object SmartRaceSolverIntegration {
         synchronized(raceLosses) { raceLosses.clear() }
         pendingRace = null
         historySeeded = false
+        debutDisplayLogged.set(false)
+        scrapedDebutEntry = null
     }
 
     /**
@@ -120,6 +132,29 @@ object SmartRaceSolverIntegration {
                 raceHistory.add(RaceWin(raceKey, raceName, classYear, turnNumber))
             }
         }
+    }
+
+    // //////////////////////////////////////////////////////////////////////////////////////////////////
+    // //////////////////////////////////////////////////////////////////////////////////////////////////
+    // Junior Make Debut display-only entry
+
+    /** Calendar turn used for the synthetic Junior Make Debut display row. The viewer's date-label scheme renders this turn as "Late Jun",
+     *  matching the in-game date the Make Debut race actually occurs on. The cell sits inside the pre-debut block; the renderer suppresses
+     *  the pre-debut style when a synthetic result is attached. */
+    private const val MAKE_DEBUT_DISPLAY_TURN: TurnNumber = 12
+
+    /**
+     * Emits a single MessageLog line announcing the synthetic Junior Make Debut entry shown in the Remote Log Viewer calendar. Idempotent
+     * for the lifetime of the current run via [debutDisplayLogged]. Skips when the run is still inside the pre-debut window so brand-new
+     * runs do not log a future event. The synthetic entry is display-only and never enters [raceHistory], so it has no effect on the
+     * solver, epithets, or schedule preview.
+     *
+     * @param currentTurn The turn the bot is currently observing.
+     */
+    private fun logSyntheticDebutOnce(currentTurn: TurnNumber) {
+        if (currentTurn <= PRE_DEBUT_TURN_THRESHOLD) return
+        if (!debutDisplayLogged.compareAndSet(false, true)) return
+        MessageLog.i(TAG, "Race History: Junior Year Late Jun - Make Debut (Won)")
     }
 
     /**
@@ -173,6 +208,7 @@ object SmartRaceSolverIntegration {
         currentRunTurn = currentTurn
         currentRunScenario = scenario
         broadcastCalendarSnapshot()
+        logSyntheticDebutOnce(currentTurn)
     }
 
     /**
@@ -196,6 +232,7 @@ object SmartRaceSolverIntegration {
         MessageLog.i(TAG, "Race \"${pending.name}\" on turn ${pending.turnNumber} confirmed 1st; added to history.")
         logEpithetProgressAfterWin(pending.name, pending.turnNumber, historyBefore, historyAfter)
         broadcastCalendarSnapshot()
+        logSyntheticDebutOnce(pending.turnNumber)
     }
 
     /**
@@ -660,6 +697,15 @@ object SmartRaceSolverIntegration {
             if (turnNumber >= lastTurnSeen) continue
             lastTurnSeen = turnNumber
 
+            // The Junior Make Debut row sits on Turn 12 and never matches a races.json candidate (no
+            // real race on that turn). Capture its OCR-scraped formatted-name string so the Remote
+            // Log Viewer tooltip can surface the in-game track details, then skip the rest of the
+            // matching pipeline.
+            if (turnNumber == MAKE_DEBUT_DISPLAY_TURN) {
+                scrapedDebutEntry = entry
+                continue
+            }
+
             val candidates = racesByTurn[turnNumber] ?: continue
             val matchedFormatted =
                 TextUtils.matchStringInList(entry.nameFormatted, candidates.map { it.nameFormatted }, threshold = 0.85)
@@ -685,6 +731,16 @@ object SmartRaceSolverIntegration {
                 sb.append("\n  Turn ${m.candidate.turnNumber} (${m.dateString}): $outcome - ${m.candidate.name}")
             }
         }
+        // Append the synthetic Junior Make Debut row to the scrape recap so the operator sees a
+        // single, ordered list. Use the OCR-scraped date and outcome when [scrapedDebutEntry] was
+        // captured above; the displayed race name stays as "Make Debut" rather than the OCR'd
+        // track-formatted string for consistency with the calendar cell. Marking
+        // [debutDisplayLogged] true here prevents [logSyntheticDebutOnce] from emitting a
+        // duplicate trailing line later in [runStartupHooks].
+        val debutDate = scrapedDebutEntry?.dateString ?: "Junior Year Late Jun"
+        val debutOutcome = if (scrapedDebutEntry?.won == false) "Lost" else "Won"
+        sb.append("\n  Turn $MAKE_DEBUT_DISPLAY_TURN ($debutDate): $debutOutcome - Make Debut (Does not affect epithets)")
+        debutDisplayLogged.set(true)
         MessageLog.i(TAG, sb.toString())
         return true
     }
@@ -1227,6 +1283,31 @@ object SmartRaceSolverIntegration {
         }
         for (loss in lossesSnapshot) {
             results.put(buildResultEntry(loss.turnNumber, loss.raceKey, loss.name, racesByTurn, RaceOutcome.LOSE, null))
+        }
+
+        // Append a synthetic entry for the in-game Junior Make Debut race. This row is purely a visual breadcrumb in the Remote Log
+        // Viewer calendar. It is never part of raceHistory and therefore cannot influence epithet eligibility, the next-race decision, or
+        // schedule preview. The "synthetic" marker swaps the tooltip's epithet section for a "Does not affect solver" notice. Outcome
+        // is derived from the OCR-scraped won/lost flag when the scrape captured the row; defaults to WIN otherwise.
+        if (currentRunTurn > PRE_DEBUT_TURN_THRESHOLD) {
+            val scraped = scrapedDebutEntry
+            val debutOutcome = if (scraped?.won == false) RaceOutcome.LOSE else RaceOutcome.WIN
+            val syntheticEntry =
+                JSONObject()
+                    .put("turn", MAKE_DEBUT_DISPLAY_TURN)
+                    .put("raceKey", "synthetic-make-debut")
+                    .put("name", "Make Debut")
+                    .put("classYear", "Junior")
+                    .put("grade", "DEBUT")
+                    .put("outcome", debutOutcome.name)
+                    .put("fans", 500)
+                    .put("synthetic", true)
+            // The OCR-scraped formatted name (e.g. "Nakayama Turf 1800m (Mile) Right / Inner") is
+            // surfaced via the raceTrack field so the viewer's existing tooltip renders it in the
+            // parts row alongside the grade and fan count. Skipped when the scrape was bypassed or
+            // the row was missing.
+            scraped?.nameFormatted?.takeIf { it.isNotBlank() }?.let { syntheticEntry.put("raceTrack", it) }
+            results.put(syntheticEntry)
         }
 
         return JSONObject()

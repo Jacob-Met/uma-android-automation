@@ -2833,7 +2833,9 @@
                     classes.push("lose-result")
                 }
 
-                // Only race cells (with race details to show) get the hover handlers.
+                // Only race cells (with race details to show) get the hover handlers. Synthetic
+                // display-only cells share the same rich tooltip; showRaceCellTooltip swaps its
+                // epithet section for a "Does not affect solver" notice when src.synthetic is true.
                 var hoverAttrs = ""
                 if (raceSrc) {
                     hoverAttrs = ' data-turn="' + turn + '"' +
@@ -2912,7 +2914,9 @@
                 var contribs = (src.contributions && src.contributions.length > 0)
                     ? src.contributions
                     : (decision && decision.contributions ? decision.contributions : [])
-                if (result && result.outcome === "LOSE") {
+                if (src.synthetic) {
+                    content += '<div class="tooltip-section" style="margin-top:6px;font-weight:700">Does not affect solver</div>'
+                } else if (result && result.outcome === "LOSE") {
                     content += '<div class="tooltip-section" style="margin-top:6px;font-weight:700">No epithet progress (race was lost)</div>'
                 } else if (contribs && contribs.length > 0) {
                     content += '<div class="tooltip-section" style="margin-top:6px;font-weight:700">Progresses these epithets</div>'
