@@ -1358,10 +1358,87 @@ class EpithetScraper(BaseScraper):
             if matcher is None:
                 continue
             if isinstance(matcher, list):
-                out.extend(matcher)
+                for entry in matcher:
+                    cls._attach_display_label(entry)
+                    out.append(entry)
             else:
+                cls._attach_display_label(matcher)
                 out.append(matcher)
         return out
+
+    @classmethod
+    def _attach_display_label(cls, matcher: Dict[str, Any]) -> None:
+        """Stamps `displayLabel` / `displayLabelTemplate` onto `matcher` in place.
+
+        These fields are the canonical condition strings consumed by the React popover, the
+        Race History tooltip in `log_viewer.html`, and the Kotlin win log. Synthesizing them
+        once at scrape time means no runtime layer needs its own filter -> phrase translation,
+        so the three surfaces can no longer drift apart on wording.
+
+        Args:
+            matcher: A matcher dict freshly produced by one of the `_parse_*` helpers. The
+                relevant key is mutated in place. Dependency matchers
+                (`epithetAll`, `epithetAnyOf`) gain neither field.
+        """
+        t = matcher.get("type")
+        if t == "winRace":
+            name = matcher.get("name")
+            if name:
+                matcher["displayLabel"] = f"Win the {name}"
+        elif t == "winRaceTimes":
+            name = matcher.get("name")
+            times = matcher.get("times")
+            if name and times is not None:
+                matcher["displayLabel"] = f"Win the {name} ({times} times)"
+            elif name:
+                matcher["displayLabel"] = f"Win the {name}"
+        elif t in ("winAnyOf", "winAtLeast"):
+            matcher["displayLabelTemplate"] = "Win the {race}"
+        elif t == "winCount":
+            count = matcher.get("count", 1)
+            phrase = cls._describe_filter(matcher.get("filter") or {})
+            if count != 1:
+                phrase = re.sub(r"race$", "races", phrase)
+            matcher["displayLabel"] = f"Win {count} {phrase}"
+
+    @classmethod
+    def _describe_filter(cls, f: Dict[str, Any]) -> str:
+        """Synthesizes the noun phrase describing a `winCount` matcher's filter clause.
+
+        Field order mirrors the Kotlin / TypeScript convention: grade -> OP+ -> graded -> distanceTypes -> terrain -> nameContainsCountry -> nameContains -> raceTracks -> "race".
+        This is the only place in the codebase that turns filter shapes into English; both
+        runtimes consume the result via `displayLabel`.
+
+        Args:
+            f: The filter dict from a `winCount` matcher.
+
+        Returns:
+            A noun phrase like `"G1 Sprint/Mile Turf race"` suitable for prefixing with `"Win N "`.
+        """
+        parts: List[str] = []
+        grade = f.get("grade")
+        if grade:
+            parts.append(grade)
+        if f.get("gradeAtLeastOpen"):
+            parts.append("OP+")
+        if f.get("gradedOnly"):
+            parts.append("graded")
+        dts = f.get("distanceTypes") or []
+        if dts:
+            parts.append("/".join(d[0].upper() + d[1:].lower() for d in dts))
+        terrain = f.get("terrain")
+        if terrain:
+            parts.append(terrain[0].upper() + terrain[1:].lower())
+        if f.get("nameContainsCountry"):
+            parts.append("country-named")
+        nc = f.get("nameContains")
+        if nc:
+            parts.append(f'"{nc}"-named')
+        tracks = f.get("raceTracks") or []
+        if tracks:
+            parts.append("at " + "/".join(tracks))
+        parts.append("race")
+        return " ".join(parts)
 
     @classmethod
     def _parse_get_epithet(cls, b: str) -> Optional[Dict[str, Any]]:
