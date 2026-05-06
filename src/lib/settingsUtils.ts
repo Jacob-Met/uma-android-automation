@@ -30,16 +30,23 @@ export const deepMerge = <T extends Record<string, any>>(target: T, source: Part
  *
  * Categories of entries:
  * - `misc.formattedSettingsString` — built and persisted directly by `MessageLog`'s debounced effect.
+ * - `racing.{racesData,epithetsData,characterPresetsData}` — bundled JSON assets for the Smart Race
+ *   Solver, written once at bootstrap by `populateSolverData`; only consumed by Kotlin via
+ *   `SettingsHelper.getStringSetting`.
  * - `racing.racingPlanData` — bundled racing plan blob written by the racing-plan generator;
  *   only consumed by Kotlin via `SettingsHelper.getStringSetting`.
- * - `trainingEvent.{characterEventData,supportEventData}` — bundled JSON event data written once
- *   at bootstrap by `populateEventData`; only consumed by Kotlin.
+ * - `trainingEvent.{characterEventData,supportEventData,scenarioEventData}` — bundled JSON event data
+ *   written once at bootstrap by `populateEventData`; only consumed by Kotlin.
  */
 export const DB_OWNED_KEYS: ReadonlyArray<readonly [string, string]> = [
     ["misc", "formattedSettingsString"],
+    ["racing", "racesData"],
+    ["racing", "epithetsData"],
+    ["racing", "characterPresetsData"],
     ["racing", "racingPlanData"],
     ["trainingEvent", "characterEventData"],
     ["trainingEvent", "supportEventData"],
+    ["trainingEvent", "scenarioEventData"],
 ]
 
 const isDbOwned = (category: string, key: string): boolean => DB_OWNED_KEYS.some(([c, k]) => c === category && k === key)

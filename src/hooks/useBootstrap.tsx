@@ -48,6 +48,7 @@ export const useBootstrap = () => {
                 await populateRacesData()
                 await populateSkillsData()
                 await populateEventData()
+                await populateSolverData()
 
                 // Load settings after database initialization but before marking app as ready.
                 // Skip the initialization check since we know the database is ready.
@@ -161,6 +162,43 @@ export const useBootstrap = () => {
             logWithTimestamp(`[Bootstrap] Successfully populated ${skills.length} skills into database`)
         } catch (error) {
             logErrorWithTimestamp("[Bootstrap] Error populating skills data:", error)
+            throw error
+        }
+    }
+
+    /**
+     * Populate the Smart Race Solver's bundled JSON datasets into SQLite under the `racing` namespace.
+     * Kotlin's `SmartRaceSolverIntegration.loadEpithets` / `loadAllRaces` / `loadCharacterPresets` read
+     * these rows directly. Re-running on every app start keeps the persisted blob in sync with the
+     * bundled assets so a re-scrape (or a schema change like the `displayLabel` fields) propagates to
+     * the bot side without requiring a settings reset.
+     *
+     * @returns A promise that resolves when all three rows have been written.
+     */
+    const populateSolverData = async (): Promise<void> => {
+        try {
+            logWithTimestamp("[Bootstrap] Starting solver data population...")
+
+            const epithetsData = require("../data/epithets.json")
+            await yieldToFrame()
+            await databaseManager.saveSetting("racing", "epithetsData", epithetsData, true)
+            logWithTimestamp(`[Bootstrap] Successfully saved epithets data (${Object.keys(epithetsData).length} epithets) to SQLite`)
+            await yieldToFrame()
+
+            const racesData = require("../data/races.json")
+            await yieldToFrame()
+            await databaseManager.saveSetting("racing", "racesData", racesData, true)
+            logWithTimestamp(`[Bootstrap] Successfully saved races data (${Object.keys(racesData).length} races) to SQLite`)
+            await yieldToFrame()
+
+            const characterPresetsData = require("../data/characterPresets.json")
+            await yieldToFrame()
+            await databaseManager.saveSetting("racing", "characterPresetsData", characterPresetsData, true)
+            logWithTimestamp(`[Bootstrap] Successfully saved character presets data (${Object.keys(characterPresetsData).length} presets) to SQLite`)
+
+            logWithTimestamp("[Bootstrap] Solver data population complete")
+        } catch (error) {
+            logErrorWithTimestamp("[Bootstrap] Error populating solver data:", error)
             throw error
         }
     }
