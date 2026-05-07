@@ -982,6 +982,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
      */
     fun runRaceWithRetries(): Boolean {
         MessageLog.i(TAG, "[RACE] Proceeding to handle the race...")
+        game.wait(0.5, skipWaitingForLoading = true)
 
         // Flag used to prevent us from attempting to select a running style after we've already successfully selected a running style once.
         var bDidSelectRaceStrategy = false
