@@ -15,6 +15,12 @@ export interface DeviceCapabilities {
     cpuFeatures: string[]
     /** Primary supported ABI (`Build.SUPPORTED_ABIS[0]`). Either `arm64-v8a` on real devices or `x86_64` on the Android emulator. */
     abi: string
+    /**
+     * ABI of the APK variant the user actually installed, parsed from `applicationInfo.nativeLibraryDir`. Differs from `abi` (the device's
+     * preferred ABI) when the user installed a non-native split, e.g. running the `arm64-v8a` APK on an `x86_64` emulator via Android's
+     * binary translator.
+     */
+    installedAbi: string
 }
 
 /**
@@ -45,6 +51,7 @@ export async function loadDeviceCapabilities(): Promise<DeviceCapabilities | nul
             availRamBytes: Number(raw?.availRamBytes ?? 0),
             cpuFeatures: Array.isArray(raw?.cpuFeatures) ? raw.cpuFeatures : [],
             abi: typeof raw?.abi === "string" ? raw.abi : "unknown",
+            installedAbi: typeof raw?.installedAbi === "string" ? raw.installedAbi : "unknown",
         }
     } catch {
         return null
@@ -143,4 +150,16 @@ export function formatBytes(bytes: number): string {
     if (gb >= 1) return `${gb.toFixed(1)} GB`
     const mb = bytes / 1024 / 1024
     return `${Math.round(mb)} MB`
+}
+
+/**
+ * True when the device prefers `x86_64` (i.e. running on an Android emulator) but the user installed the `arm64-v8a` split APK.
+ * Used by the Home screen to nudge emulator users toward the native build, which avoids Android's binary translator.
+ *
+ * @param caps Device capability snapshot, or `null` when the bridge call failed.
+ * @returns Whether to suggest the `x86_64` variant.
+ */
+export function shouldSuggestX8664Variant(caps: DeviceCapabilities | null): boolean {
+    if (!caps) return false
+    return caps.abi === "x86_64" && caps.installedAbi === "arm64-v8a"
 }

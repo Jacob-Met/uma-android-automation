@@ -16,6 +16,7 @@ import PageHeader from "../../components/PageHeader"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
 import SelectButton from "../../components/SelectButton"
 import PermissionSetupDialog from "../../components/PermissionSetupDialog"
+import { loadDeviceCapabilities, shouldSuggestX8664Variant } from "../../lib/chat/deviceCapabilities"
 
 const styles = StyleSheet.create({
     root: {
@@ -72,6 +73,7 @@ const Home = () => {
     const [deviceMetrics, setDeviceMetrics] = useState<{ width: number; height: number; dpi: number } | null>(null)
     const [unsupportedReason, setUnsupportedReason] = useState<string | null>(null)
     const [showPermissionDialog, setShowPermissionDialog] = useState<boolean>(false)
+    const [abiMismatch, setAbiMismatch] = useState<boolean>(false)
 
     const { readyStatus, setReadyStatus, setAppName, setAppVersion } = useContext(BotMetaContext)
     const { general, updateGeneral } = useContext(GeneralMiscContext)
@@ -83,8 +85,8 @@ const Home = () => {
     useEffect(() => {
         let animation: Animated.CompositeAnimation | null = null
 
-        if (unsupportedReason) {
-            // Pulsate the icon to grab attention when there's an unsupported device.
+        if (unsupportedReason !== null || abiMismatch) {
+            // Pulsate the icon to grab attention when there's an unsupported device or a slow ABI variant installed.
             animation = Animated.loop(
                 Animated.sequence([
                     Animated.timing(pulseAnim, {
@@ -107,7 +109,7 @@ const Home = () => {
         return () => {
             animation?.stop()
         }
-    }, [unsupportedReason])
+    }, [unsupportedReason, abiMismatch])
 
     useEffect(() => {
         const mediaProjectionSubscription = DeviceEventEmitter.addListener("MediaProjectionService", (data) => {
@@ -122,6 +124,7 @@ const Home = () => {
 
         getVersion()
         fetchDeviceMetrics()
+        checkAbiMismatch()
 
         return () => {
             mediaProjectionSubscription.remove()
@@ -168,6 +171,15 @@ const Home = () => {
         logWithTimestamp(`Android app ${appName} version is ${version}`)
         setAppName(appName)
         setAppVersion(version)
+    }
+
+    /**
+     * One-shot mount check for the x86_64-capable-but-arm64-installed mismatch. Mirrors `fetchDeviceMetrics` - load once, set state
+     * once, never re-runs. Result is consumed by `renderStatus` (warning icon + tooltip section) and the pulse-animation effect.
+     */
+    const checkAbiMismatch = async () => {
+        const caps = await loadDeviceCapabilities()
+        if (shouldSuggestX8664Variant(caps)) setAbiMismatch(true)
     }
 
     /**
@@ -235,7 +247,7 @@ const Home = () => {
             // Must come first because we always want the button to be red
             // if the bot is running, regardless of the other conditions.
             return "error"
-        } else if (unsupportedReason !== null) {
+        } else if (unsupportedReason !== null || abiMismatch) {
             return "warning"
         } else if (deviceMetrics === null) {
             return "warning"
@@ -248,7 +260,9 @@ const Home = () => {
 
     /** Returns a status indicator based on the device state. */
     const renderStatus = (): React.ReactElement | null => {
-        const warningText = `Current Display: ${deviceMetrics?.width}x${deviceMetrics?.height} (${deviceMetrics?.dpi} DPI).
+        const warningSections: string[] = []
+        if (unsupportedReason) {
+            warningSections.push(`Current Display: ${deviceMetrics?.width}x${deviceMetrics?.height} (${deviceMetrics?.dpi} DPI).
 
 Warning: Performance may be degraded due to ${unsupportedReason}.
 
@@ -260,9 +274,19 @@ Note: Height is not as important to meet as the width. In addition, DPI is tied 
 
 DPI = sqrt(width^2 + height^2) / diagonal
 
-where width and height of the screen is in pixels, and diagonal is the diagonal size of the physical screen in inches.`
+where width and height of the screen is in pixels, and diagonal is the diagonal size of the physical screen in inches.`)
+        }
+        if (abiMismatch) {
+            warningSections.push(`Installed Build: arm64-v8a
+Device Supports: x86_64
 
-        if (unsupportedReason) {
+Warning: The arm64 build runs through Android's binary translator on this device, which is significantly slower than running natively.
+
+Note: Reinstall using the x86_64 release APK for much better performance.`)
+        }
+        const warningText = warningSections.join("\n\n----\n\n")
+
+        if (unsupportedReason || abiMismatch) {
             return (
                 <Tooltip delayDuration={150}>
                     <TooltipTrigger>

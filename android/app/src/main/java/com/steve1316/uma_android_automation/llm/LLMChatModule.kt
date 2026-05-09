@@ -226,7 +226,7 @@ class LLMChatModule(private val reactContext: ReactApplicationContext) : ReactCo
      * Drives the diagnostic + preset-recommendation row on the LLM Settings page; called once on focus, not in
      * a hot path, so the `/proc/cpuinfo` parse is acceptable.
      *
-     * @param promise Resolves with `{ totalRamBytes, availRamBytes, cpuFeatures: string[], abi: string }`.
+     * @param promise Resolves with `{ totalRamBytes, availRamBytes, cpuFeatures: string[], abi: string, installedAbi: string }`.
      */
     @ReactMethod
     fun getDeviceCapabilities(promise: Promise) {
@@ -242,6 +242,20 @@ class LLMChatModule(private val reactContext: ReactApplicationContext) : ReactCo
             for (f in features) featureArr.pushString(f)
             map.putArray("cpuFeatures", featureArr)
             map.putString("abi", android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown")
+            // The installed ABI is parsed from the native lib dir path that PackageManager extracted libs into. This tells us which split
+            // APK the user actually installed (independent of what the device prefers), so the Home banner can detect a mismatch like
+            // "device prefers x86_64 but the user installed the arm64-v8a build". Order matters: check 64-bit names before the shorter
+            // 32-bit names so /lib/arm64 isn't misclassified as armeabi-v7a.
+            val nativeLibDir = reactContext.applicationInfo.nativeLibraryDir ?: ""
+            val installedAbi =
+                when {
+                    nativeLibDir.contains("/arm64") -> "arm64-v8a"
+                    nativeLibDir.contains("/x86_64") -> "x86_64"
+                    nativeLibDir.contains("/arm") -> "armeabi-v7a"
+                    nativeLibDir.contains("/x86") -> "x86"
+                    else -> "unknown"
+                }
+            map.putString("installedAbi", installedAbi)
             promise.resolve(map)
         } catch (e: Exception) {
             Log.e(TAG, "getDeviceCapabilities:: failed: ${e.message}", e)
