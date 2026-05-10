@@ -63,6 +63,9 @@ This project is purely for educational purposes to learn about Android automatio
 > [!NOTE]
 > On newer Android versions, you're required to enable `Allow restricted settings` in the app's `App Info` settings.
 
+> [!WARNING]
+> Disable the system `Accessibility shortcut` (the floating Accessibility button or volume-key shortcut) before starting a run. Leaving it enabled and hanging out on the screen has caused problems in the past, including covering UI elements that the bot needs to read at the edges of the screen.
+
 5. Once enabled, tapping `Start` will request `MediaProjection` access (select `Entire screen` if prompted). A floating overlay button will appear that you can drag around the screen.
 6. Follow the guidance overlay when you drag the overlay button for the places on the screen to safely leave the button at to avoid covering important UI elements.
 
