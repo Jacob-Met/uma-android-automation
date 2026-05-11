@@ -1814,11 +1814,14 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
 
         // Glow Sticks Logic
-        // Day 73+: only use if we have enough to cover remaining finale days.
         val useGlowSticks =
             if (date.day >= 73) {
-                val remainingFinaleDays = listOf(73, 74, 75).count { it >= date.day }
-                fans >= 20000 && glowSticksCount >= remainingFinaleDays
+                // Reserve 1 stick for Day 75 (the Final).
+                val reserveForFinals = if (date.day < 75) 1 else 0
+                fans >= 20000 && glowSticksCount > reserveForFinals
+            } else if (fans >= 30000) {
+                // Use the last stick. Shops refresh when the Finales start so there is a chance for another Glow Stick to buy.
+                glowSticksCount > 0
             } else {
                 fans >= 20000 && glowSticksCount > 1
             }
