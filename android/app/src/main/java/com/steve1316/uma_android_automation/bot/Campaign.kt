@@ -1078,11 +1078,10 @@ abstract class Campaign(game: Game) : Task(game) {
 
                     if (IconInfirmaryEventHeader.check(game.imageUtils)) {
                         MessageLog.v(TAG, "[INJURY] Injury detected and attempted to heal.")
-                        true
                     } else {
-                        MessageLog.w(TAG, "[WARN] checkInjury:: Injury detected but failed to detect Infirmary event.")
-                        false
+                        MessageLog.v(TAG, "[INJURY] Injury detected and no follow-up Infirmary event appeared.")
                     }
+                    true
                 } else {
                     MessageLog.w(TAG, "[WARN] checkInjury:: Injury detected but failed to click Infirmary button.")
                     false
