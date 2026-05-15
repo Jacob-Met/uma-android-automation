@@ -2015,16 +2015,18 @@
             function showTrainingTooltip(event) {
                 let content = '<div style="display: flex; flex-direction: column; gap: 4px;">'
                 const stats = ["Speed", "Stamina", "Power", "Guts", "Wit"]
-                
+
                 stats.forEach(stat => {
                     const count = trainingBreakdown[stat] || 0
+                    const level = trainingLevels[stat]
+                    const levelText = level != null ? ` <span style="opacity: 0.7;">(Lvl ${level})</span>` : ""
                     content += `
                         <div class="tooltip-row">
                             <span class="tooltip-label">${stat}</span>
-                            <span class="tooltip-value">${count}</span>
+                            <span class="tooltip-value">${count}${levelText}</span>
                         </div>`
                 })
-                
+
                 content += "</div>"
                 showTooltip(event, "Training Breakdown", content)
             }
@@ -2180,6 +2182,8 @@
 
             // Granular breakdowns state.
             let trainingBreakdown = { Speed: 0, Stamina: 0, Power: 0, Guts: 0, Wit: 0 }
+            // Most-recent OCR-detected training level (1-5) per stat. null when the Weight by Training Level feature is off or before any detection.
+            let trainingLevels = { Speed: null, Stamina: null, Power: null, Guts: null, Wit: null }
             let raceBreakdown = { Finale: 0, G1: 0, G2: 0, G3: 0, OP: 0, "Pre-OP": 0, Maiden: 0, Mandatory: 0, Standalone: 0 }
             let moodBreakdown = { Standard: 0, Date: 0, Summer: 0 }
             let energyBreakdown = { Rest: 0, Date: 0, Summer: 0 }
@@ -2486,6 +2490,7 @@
                         energy: 0
                     },
                     trainingBreakdown: { Speed: 0, Stamina: 0, Power: 0, Guts: 0, Wit: 0 },
+                    trainingLevels: { Speed: null, Stamina: null, Power: null, Guts: null, Wit: null },
                     raceBreakdown: { Finale: 0, G1: 0, G2: 0, G3: 0, OP: 0, "Pre-OP": 0, Maiden: 0, Mandatory: 0, Standalone: 0 },
                     moodBreakdown: { Standard: 0, Date: 0, Summer: 0 },
                     energyBreakdown: { Rest: 0, Date: 0, Summer: 0 }
@@ -2575,11 +2580,12 @@
                         energy: 0
                     },
                     trainingBreakdown: { Speed: 0, Stamina: 0, Power: 0, Guts: 0, Wit: 0 },
+                    trainingLevels: { Speed: null, Stamina: null, Power: null, Guts: null, Wit: null },
                     raceBreakdown: { Finale: 0, G1: 0, G2: 0, G3: 0, OP: 0, "Pre-OP": 0, Maiden: 0, Mandatory: 0, Standalone: 0 },
                     moodBreakdown: { Standard: 0, Date: 0, Summer: 0 },
                     energyBreakdown: { Rest: 0, Date: 0, Summer: 0 }
                 }
-                
+
                 // allMessages is guaranteed to be in chronological order at this point.
                 allMessages.forEach(function (msg) {
                     processSpecialLogs(msg.parsed, batchState)
@@ -2798,6 +2804,7 @@
 
                 // Reset granular breakdowns.
                 trainingBreakdown = { Speed: 0, Stamina: 0, Power: 0, Guts: 0, Wit: 0 }
+                trainingLevels = { Speed: null, Stamina: null, Power: null, Guts: null, Wit: null }
                 raceBreakdown = { Finale: 0, G1: 0, G2: 0, G3: 0, OP: 0, "Pre-OP": 0, Maiden: 0, Mandatory: 0, Standalone: 0 }
                 moodBreakdown = { Standard: 0, Date: 0, Summer: 0 }
                 energyBreakdown = { Rest: 0, Date: 0, Summer: 0 }
@@ -3286,6 +3293,24 @@
                 handleTraineeUpdates(parsed, stateTarget)
                 handleDateUpdates(parsed, stateTarget)
                 handleEnergyInfo(parsed, stateTarget)
+                handleTrainingLevel(parsed, stateTarget)
+            }
+
+            /**
+             * Updates the per-stat training level state from a `parsed.trainingLevel` payload.
+             * Emitted by LogStreamServer when analyzeTrainings detects a training level via OCR.
+             */
+            function handleTrainingLevel(parsed, stateTarget) {
+                const tl = parsed.trainingLevel
+                if (!tl || !tl.stat) return
+
+                if (stateTarget) {
+                    if (stateTarget.trainingLevels && stateTarget.trainingLevels.hasOwnProperty(tl.stat)) {
+                        stateTarget.trainingLevels[tl.stat] = tl.level
+                    }
+                } else if (trainingLevels.hasOwnProperty(tl.stat)) {
+                    trainingLevels[tl.stat] = tl.level
+                }
             }
 
             /**
@@ -3502,6 +3527,12 @@
                     if (state.trainingBreakdown) {
                         for (const [stat, count] of Object.entries(state.trainingBreakdown)) {
                             trainingBreakdown[stat] = count
+                        }
+                    }
+                    // Batch update training levels.
+                    if (state.trainingLevels) {
+                        for (const [stat, level] of Object.entries(state.trainingLevels)) {
+                            trainingLevels[stat] = level
                         }
                     }
                     // Batch update race breakdown.

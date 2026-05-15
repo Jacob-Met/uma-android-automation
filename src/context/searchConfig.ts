@@ -146,6 +146,13 @@ const searchConfig: SearchOption[] = [
         page: "TrainingSettings",
     },
     {
+        id: "enable-training-level-weighting",
+        title: "Weight Score by Training Level",
+        description:
+            "When enabled (Year 2+), the bot reads each training's level (1-5) via OCR and boosts the score for trainings whose stat sits in the top 3 of your Stat Prioritization list. Helps the bot stick with stats you have invested in. OCR is skipped during Pre-Debut, Junior, and Summer.",
+        page: "TrainingSettings",
+    },
+    {
         id: "must-rest-before-summer",
         title: "Must Rest before Summer",
         description: "Forces the bot to rest during June Late Phase in Classic and Senior Years to ensure enough energy for Summer Training in July.",

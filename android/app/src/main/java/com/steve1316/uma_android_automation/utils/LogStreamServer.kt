@@ -99,6 +99,9 @@ object LogStreamServer {
     /** Regex pattern to detect the start of a training session. */
     private val actionTrainingPattern = Pattern.compile("\\[TRAINING] Now starting process to execute (\\w+) training")
 
+    /** Regex pattern to detect the OCR-derived training level (1-5) for a specific stat. Emitted by analyzeTrainings when the Weight by Training Level feature is on. */
+    private val trainingLevelPattern = Pattern.compile("\\[TRAINING] (\\w+) training level detected as Lvl ([1-5])\\.")
+
     /** Regex pattern to detect the completion of a race. */
     private val actionRacePattern = Pattern.compile("\\[RACE] Racing process for .*? is completed\\. Grade: (.*)", Pattern.CASE_INSENSITIVE)
 
@@ -158,6 +161,7 @@ object LogStreamServer {
      * @property trainee Trainee detailed info (category and raw data).
      * @property dateInfo Extracted date and turn information.
      * @property energyInfo Extracted energy level update (from/to percentages).
+     * @property trainingLevel Per-stat training level detection emitted during training analysis, shape: {stat, level}.
      */
     private data class LogEntry(
         val newline: String,
@@ -168,6 +172,7 @@ object LogStreamServer {
         val trainee: JSONObject? = null,
         val dateInfo: JSONObject? = null,
         val energyInfo: JSONObject? = null,
+        val trainingLevel: JSONObject? = null,
     ) {
         /** Converts the log entry into a JSON object for WebSocket transmission. */
         fun toJSON(): JSONObject {
@@ -180,6 +185,7 @@ object LogStreamServer {
                 trainee?.let { put("trainee", it) }
                 dateInfo?.let { put("dateInfo", it) }
                 energyInfo?.let { put("energyInfo", it) }
+                trainingLevel?.let { put("trainingLevel", it) }
             }
         }
     }
@@ -516,8 +522,9 @@ object LogStreamServer {
                 }
 
             val energyInfo = parseEnergyInfo(text)
+            val trainingLevel = parseTrainingLevel(text)
 
-            LogEntry(newline, timestamp, level, text, action, trainee, dateInfo, energyInfo).toJSON()
+            LogEntry(newline, timestamp, level, text, action, trainee, dateInfo, energyInfo, trainingLevel).toJSON()
         } else {
             // Fallback: detect level and treat entire message as text.
             val level =
@@ -719,6 +726,29 @@ object LogStreamServer {
                         put("moodTo", toMood)
                     }
                 }
+            }
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Parses a "training level detected" log line into a structured dashboard payload.
+     *
+     * Emitted by analyzeTrainings when the Weight Score by Training Level feature is enabled. The stat is normalized to title case
+     * to match the action-counter sub-type format ("Speed", "Stamina", "Power", "Guts", "Wit").
+     *
+     * @param text The log message text to check.
+     * @return A [JSONObject] with `stat` (String) and `level` (Int 1-5) if detected, otherwise null.
+     */
+    private fun parseTrainingLevel(text: String): JSONObject? {
+        val matcher = trainingLevelPattern.matcher(text)
+        return if (matcher.find()) {
+            val stat = matcher.group(1)?.lowercase()?.replaceFirstChar { it.uppercase() } ?: return null
+            val level = matcher.group(2)?.toIntOrNull() ?: return null
+            JSONObject().apply {
+                put("stat", stat)
+                put("level", level)
             }
         } else {
             null

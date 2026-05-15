@@ -22,6 +22,7 @@ import com.steve1316.uma_android_automation.components.IconTrainingHeaderPower
 import com.steve1316.uma_android_automation.components.IconTrainingHeaderSpeed
 import com.steve1316.uma_android_automation.components.IconTrainingHeaderStamina
 import com.steve1316.uma_android_automation.components.IconTrainingHeaderWit
+import com.steve1316.uma_android_automation.components.LabelEnergy
 import com.steve1316.uma_android_automation.components.LabelStatTableHeaderSkillPoints
 import com.steve1316.uma_android_automation.components.LabelTrainingCannotPerform
 import com.steve1316.uma_android_automation.components.LabelTrainingFailureChance
@@ -127,6 +128,12 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     /** Whether to prioritize skill hints. */
     private val enablePrioritizeSkillHints: Boolean = SettingsHelper.getBooleanSetting("training", "enablePrioritizeSkillHints")
 
+    /** Whether to weight training scores by the OCR-detected training level (1-5) of the priority-list stats. */
+    internal val enableTrainingLevelWeighting: Boolean = SettingsHelper.getBooleanSetting("training", "enableTrainingLevelWeighting", false)
+
+    /** Cached screen location of the Energy label, used as the anchor for training level OCR. Resolved lazily on first use, reused for the rest of the bot session. */
+    private var cachedEnergyLocation: Point? = null
+
     /** Whether to enable validation of training analysis. */
     private val enableTrainingAnalysisValidation: Boolean = SettingsHelper.getBooleanSetting("training", "enableTrainingAnalysisValidation")
 
@@ -193,6 +200,9 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         /** Total number of detected skill hints. */
         var numSkillHints: Int = 0
 
+        /** The OCR-detected training level (1-5) for this stat, or null if the feature is disabled or OCR failed. */
+        var trainingLevel: Int? = null
+
         /** Scenario-specific extra data populated by [runExtraTrainingAnalysis]. */
         val extras: MutableMap<String, Any?> = mutableMapOf()
     }
@@ -208,6 +218,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
      * @property numRainbow Total number of rainbow trainings detected.
      * @property numSkillHints Total number of detected skill hints.
      * @property extras Scenario-specific extra data from [runExtraTrainingAnalysis].
+     * @property trainingLevel OCR-detected training level (1-5) for this option's primary stat, or null if unknown.
      * @property skipReason Optional reason if this training was skipped during recommendation.
      */
     data class TrainingOption(
@@ -219,6 +230,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val numRainbow: Int,
         val numSkillHints: Int = 0,
         val extras: Map<String, Any?> = emptyMap(),
+        val trainingLevel: Int? = null,
         val skipReason: String? = null,
     ) {
         override fun equals(other: Any?): Boolean {
@@ -235,6 +247,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             if (numRainbow != other.numRainbow) return false
             if (numSkillHints != other.numSkillHints) return false
             if (extras != other.extras) return false
+            if (trainingLevel != other.trainingLevel) return false
             if (skipReason != other.skipReason) return false
 
             return true
@@ -249,6 +262,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             result = 31 * result + numRainbow
             result = 31 * result + numSkillHints
             result = 31 * result + extras.hashCode()
+            result = 31 * result + (trainingLevel ?: 0)
             result = 31 * result + (skipReason?.hashCode() ?: 0)
             return result
         }
@@ -271,6 +285,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
      * @property trainingOptions List of all analyzed training options.
      * @property skillHintsPerLocation Map of detected skill hints for each training.
      * @property enablePrioritizeSkillHints Whether to prioritize skill hints.
+     * @property enableTrainingLevelWeighting Whether to amplify priority-list stat scores by their OCR-detected training level (1-5).
      * @property statsTrainedOverBuffer Set of stats that have already exceeded their cap buffer.
      */
     data class TrainingConfig(
@@ -289,6 +304,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val trainingOptions: List<TrainingOption>,
         val skillHintsPerLocation: Map<StatName, Int> = StatName.entries.associateWith { 0 },
         val enablePrioritizeSkillHints: Boolean = false,
+        val enableTrainingLevelWeighting: Boolean = false,
         val statsTrainedOverBuffer: Set<StatName> = emptySet(),
     ) {
         override fun equals(other: Any?): Boolean {
@@ -311,6 +327,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             if (trainingOptions != other.trainingOptions) return false
             if (skillHintsPerLocation != other.skillHintsPerLocation) return false
             if (enablePrioritizeSkillHints != other.enablePrioritizeSkillHints) return false
+            if (enableTrainingLevelWeighting != other.enableTrainingLevelWeighting) return false
             if (statsTrainedOverBuffer != other.statsTrainedOverBuffer) return false
 
             return true
@@ -331,6 +348,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             result = 31 * result + trainingOptions.hashCode()
             result = 31 * result + skillHintsPerLocation.hashCode()
             result = 31 * result + enablePrioritizeSkillHints.hashCode()
+            result = 31 * result + enableTrainingLevelWeighting.hashCode()
             result = 31 * result + statsTrainedOverBuffer.hashCode()
             return result
         }
@@ -597,6 +615,32 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         }
 
         /**
+         * Compute the level-based amplifier for a stat's priority weight.
+         *
+         * Returns 1.0 when the feature is disabled or has no effect; values > 1.0 amplify the priority weight of stats that are both
+         * high in the user's priority list and have a high training level (1-5). Only ranks 1-3 receive any boost; rank 4-5 and
+         * training level 1 always return 1.0. At Lvl 5: rank 1 = 1.75x, rank 2 = 1.25x, rank 3 = 1.10x. The fade keeps the boost
+         * heavily concentrated on the user's top priority while still rewarding investment in their secondary.
+         *
+         * @param priorityRank The 1-indexed position of the stat in the active priority list (1 = highest priority).
+         * @param trainingLevel The detected training level (1-5), or null if OCR was unavailable.
+         * @return Multiplier in [1.0, 1.75].
+         */
+        fun levelBoostMultiplier(priorityRank: Int, trainingLevel: Int?): Double {
+            val level = trainingLevel ?: 1
+            if (level <= 1) return 1.0
+            val priorityFactor =
+                when (priorityRank) {
+                    1 -> 0.75
+                    2 -> 0.25
+                    3 -> 0.10
+                    else -> 0.0
+                }
+            val levelFactor = (level - 1) / 4.0
+            return 1.0 + priorityFactor * levelFactor
+        }
+
+        /**
          * Calculate the stat efficiency score based on the ratio completion toward targets.
          *
          * This method treats stat targets as desired ratios and scores training based on how well it balances the overall stat distribution.
@@ -666,6 +710,15 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                             1.0
                         }
 
+                    // Level-based amplifier: when the feature is enabled, scale up the contribution from this training's primary stat
+                    // based on its OCR-detected training level (1-5) and its position in the priority list. See [levelBoostMultiplier].
+                    val levelMultiplier =
+                        if (config.enableTrainingLevelWeighting && statName == training.name && priorityIndex != -1) {
+                            levelBoostMultiplier(priorityIndex + 1, training.trainingLevel)
+                        } else {
+                            1.0
+                        }
+
                     // Main stat gain bonus: If training improves its MAIN stat by a large amount, it is most likely an undetected rainbow.
                     val isMainStat = training.name == statName
                     val mainStatBonus =
@@ -688,19 +741,21 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
                     val bonusNote = if (isMainStat && statGain >= 30) " [HIGH MAIN STAT]" else ""
                     val sparkNote = if (isSparkStat && canTriggerSpark) " [SPARK PRIORITY]" else ""
+                    val levelNote = if (levelMultiplier > 1.0) " [LVL ${training.trainingLevel} BOOST ${String.format("%.2f", levelMultiplier)}x]" else ""
                     val completionString: String = String.format("%.2f", completionPercent)
                     val ratioMultiplierString: String = String.format("%.2f", ratioMultiplier)
                     val priorityMultiplierString: String = String.format("%.2f", priorityMultiplier)
                     Log.d(
                         TAG,
                         "$statName: gain=$statGain, completion=$completionString%, " +
-                            "ratioMultiplierString=$ratioMultiplierString, priorityMultiplierString=${priorityMultiplierString}$bonusNote$sparkNote",
+                            "ratioMultiplierString=$ratioMultiplierString, priorityMultiplierString=${priorityMultiplierString}$bonusNote$sparkNote$levelNote",
                     )
 
                     // Calculate final score for this stat.
                     var statScore = statGain.toDouble()
                     statScore *= ratioMultiplier
                     statScore *= priorityMultiplier
+                    statScore *= levelMultiplier
                     statScore *= mainStatBonus
                     statScore *= sparkBonus
 
@@ -1278,6 +1333,31 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 // In parallel mode, this runs synchronously. In singleTraining mode, the scenario may start a thread.
                 runExtraTrainingAnalysis(result, sourceBitmap, singleTraining)
 
+                // OCR the displayed training level (1-5) for this stat while its panel is on screen.
+                // Skipped during Pre-Debut, Junior, and Summer since the level boost only fires in Year 2+ Stat Efficiency scoring,
+                // and Summer forces every training to Lvl 5 (the boost would equalize across stats).
+                if (enableTrainingLevelWeighting && !campaign.date.bIsPreDebut && campaign.date.year != DateYear.JUNIOR && !campaign.date.isSummer()) {
+                    val energyAnchor =
+                        cachedEnergyLocation ?: run {
+                            val located = LabelEnergy.find(game.imageUtils).first
+                            if (located != null) {
+                                cachedEnergyLocation = located
+                            }
+                            located
+                        }
+                    if (energyAnchor != null) {
+                        val detectedLevel = game.imageUtils.extractTrainingLevel(sourceBitmap, energyAnchor)
+                        result.trainingLevel = detectedLevel
+                        if (detectedLevel == null) {
+                            MessageLog.w(TAG, "[WARN] analyzeTrainings:: Training level OCR failed for $statName. Falling back to no level boost.")
+                        } else {
+                            MessageLog.i(TAG, "[TRAINING] $statName training level detected as Lvl $detectedLevel.")
+                        }
+                    } else {
+                        MessageLog.w(TAG, "[WARN] analyzeTrainings:: Failed to locate Energy label anchor for training level OCR. Falling back to no level boost.")
+                    }
+                }
+
                 // Check if bot is still running before starting parallel threads.
                 if (!BotService.isRunning) {
                     return
@@ -1434,6 +1514,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                             numRainbow = result.numRainbow,
                             extras = result.extras,
                             numSkillHints = result.numSkillHints,
+                            trainingLevel = result.trainingLevel,
                         )
                     trainingMap[result.name] = newTraining
                     break
@@ -1564,6 +1645,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                         numRainbow = result.numRainbow,
                         extras = result.extras,
                         numSkillHints = result.numSkillHints,
+                        trainingLevel = result.trainingLevel,
                         skipReason = skipReason,
                     )
                 skippedTrainingMap[result.name] = skippedTraining
@@ -1587,6 +1669,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                         numRainbow = result.numRainbow,
                         extras = result.extras,
                         numSkillHints = result.numSkillHints,
+                        trainingLevel = result.trainingLevel,
                         skipReason = "low gain with charm",
                     )
                 skippedTrainingMap[result.name] = skippedTraining
@@ -1608,6 +1691,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                             numRainbow = result.numRainbow,
                             extras = result.extras,
                             numSkillHints = result.numSkillHints,
+                            trainingLevel = result.trainingLevel,
                             skipReason = "low irregular gain",
                         )
                     skippedTrainingMap[result.name] = skippedTraining
@@ -1625,6 +1709,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     numRainbow = result.numRainbow,
                     extras = result.extras,
                     numSkillHints = result.numSkillHints,
+                    trainingLevel = result.trainingLevel,
                 )
             trainingMap[result.name] = newTraining
         }
@@ -1961,6 +2046,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 trainingOptions = trainingMap.values.toList(),
                 skillHintsPerLocation = skillHintsPerLocation,
                 enablePrioritizeSkillHints = enablePrioritizeSkillHints,
+                enableTrainingLevelWeighting = enableTrainingLevelWeighting,
                 statsTrainedOverBuffer = statsTrainedOverBuffer,
             )
 
@@ -2301,7 +2387,8 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 }
             }.joinToString(", ", "{", "}")
 
-        val basicInfo = "${training.name} Training: stats=$formattedStatGains, fail=${training.failureChance}%, rainbows=${training.numRainbow}$skippedIndicator$selectedIndicator"
+        val levelInfo = training.trainingLevel?.let { ", level=Lvl $it" } ?: ""
+        val basicInfo = "${training.name} Training: stats=$formattedStatGains, fail=${training.failureChance}%, rainbows=${training.numRainbow}$levelInfo$skippedIndicator$selectedIndicator"
         sb.appendLine(basicInfo)
 
         // Print relationship bars if any.

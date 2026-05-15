@@ -116,14 +116,15 @@ export function buildSettingsBanner(settings: Settings): string {
 📏 Preferred Distance Override: ${settings.training.preferredDistanceOverride === "Default" ? "Default" : settings.training.preferredDistanceOverride}
 🌈 Enable Rainbow Training Bonus: ${settings.training.enableRainbowTrainingBonus ? "✅" : "❌"}
 💡 Prioritize Skill Hints: ${settings.training.enablePrioritizeSkillHints ? "✅" : "❌"}
+📈 Weight Score by Training Level: ${settings.training.enableTrainingLevelWeighting ? "✅" : "❌"}
 ☀️ Must Rest Before Summer: ${settings.training.mustRestBeforeSummer ? "✅" : "❌"}
 🎯 Train Wit During Finale: ${settings.training.trainWitDuringFinale ? "✅" : "❌"}
 🔍 Training Analysis Validation: ${settings.training.enableTrainingAnalysisValidation ? "✅" : "❌"}
 🤖 Enable YOLO Stat Detection: ${settings.training.enableYoloStatDetection ? "✅" : "❌"}
-🎯 Classic Year Milestone: ${settings.training.classicMilestonePercent}%
-🎯 Senior Year Milestone: ${settings.training.seniorMilestonePercent}%
 
 ---------- Training Stat Targets by Distance ----------
+🎯 Classic Year Milestone: ${settings.training.classicMilestonePercent}%
+🎯 Senior Year Milestone: ${settings.training.seniorMilestonePercent}%
 ${sprintTargetsString}
 ${mileTargetsString}
 ${mediumTargetsString}
