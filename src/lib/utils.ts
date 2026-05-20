@@ -1,6 +1,5 @@
 import { clsx, type ClassValue } from "clsx"
 import * as Clipboard from "expo-clipboard"
-import { ToastAndroid } from "react-native"
 import { twMerge } from "tailwind-merge"
 
 export function cn(...inputs: ClassValue[]) {
@@ -24,11 +23,9 @@ export function shallowArrayEqual<T>(a: readonly T[] | undefined | null, b: read
 }
 
 /**
- * Copy text to the clipboard and show a brief Android toast.
+ * Copy text to the clipboard.
  * @param text The text to copy.
  */
 export async function copyToClipboard(text: string): Promise<void> {
-    const displayText = text.length > 40 ? text.substring(0, 37) + "..." : text
     await Clipboard.setStringAsync(text)
-    ToastAndroid.show(`Copied "${displayText}"`, ToastAndroid.SHORT)
 }
