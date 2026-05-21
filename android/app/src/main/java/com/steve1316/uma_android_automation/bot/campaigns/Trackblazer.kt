@@ -218,6 +218,12 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Number of Master Cleat Hammers held back for the Finale days (73-75). 0 = no reserve, spend freely on G1/G2 races. */
     private val masterHammerFinaleReserve: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerMasterHammerFinaleReserve", 2)
 
+    /** Minimum Artisan Cleat Hammer stock required before the bot will spend one on a G3 race. 0 = always allowed when stock > 0. */
+    private val artisanMinStockForG3: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerArtisanHammerMinStockForG3", 3)
+
+    /** Minimum Artisan Cleat Hammer stock required before the bot will spend one on a G2 race. 0 = always allowed when stock > 0. G1 is always allowed. */
+    private val artisanMinStockForG2: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerArtisanHammerMinStockForG2", 2)
+
     /** Whether the Reset Whistle forces training. */
     private val whistleForcesTraining: Boolean = SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerWhistleForcesTraining", true)
 
@@ -2090,18 +2096,18 @@ class Trackblazer(game: Game) : Campaign(game) {
                 hasEnough && grade == RaceGrade.G1
             }
 
-        // Artisan Hammer Logic
-        // Grade priority: G1 > G2 > G3, with G3 only allowed if 3+ artisan hammers.
+        // Artisan Hammer Logic. User-configured per-grade stock floors:
+        // - G3 requires `artisanMinStockForG3` (default 3) units before the bot will spend one.
+        // - G2 requires `artisanMinStockForG2` (default 2) units before the bot will spend one.
+        // - G1 only requires at least 1 in stock. Threshold of 0 means "always allowed (as long as stock > 0)".
         val canUseArtisanHammer =
-            if (artisanHammerCount >= 3) {
-                true
-            } else if (artisanHammerCount >= 2) {
-                grade == RaceGrade.G1 || grade == RaceGrade.G2
-            } else if (artisanHammerCount == 1) {
-                grade == RaceGrade.G1
-            } else {
-                false
-            }
+            artisanHammerCount > 0 &&
+                when (grade) {
+                    RaceGrade.G1 -> true
+                    RaceGrade.G2 -> artisanHammerCount >= maxOf(1, artisanMinStockForG2)
+                    RaceGrade.G3 -> artisanHammerCount >= maxOf(1, artisanMinStockForG3)
+                    else -> false
+                }
 
         // Master takes priority at the finale since it provides a higher bonus (35% vs 20%).
         val hammerToUse =
