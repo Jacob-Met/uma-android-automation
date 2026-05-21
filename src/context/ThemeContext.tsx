@@ -51,9 +51,9 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     const systemColorScheme = useColorScheme()
     const [theme, setTheme] = useState<Theme>("light")
 
-    // Initialize theme based on system preference.
+    // Initialize theme based on system preference. RN 0.85 added "unspecified" to ColorSchemeName, which we treat as no preference and leave the default.
     useEffect(() => {
-        if (systemColorScheme) {
+        if (systemColorScheme === "light" || systemColorScheme === "dark") {
             setTheme(systemColorScheme)
         }
     }, [systemColorScheme])
