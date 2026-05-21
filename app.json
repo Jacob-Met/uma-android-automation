@@ -2,6 +2,7 @@
   "expo": {
     "name": "Uma Android Automation",
     "slug": "uma-android-automation",
+    "userInterfaceStyle": "automatic",
     "platforms": [
       "android"
     ],
