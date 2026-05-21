@@ -257,6 +257,13 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** The frequency to check the shop after a race. */
     private val shopCheckFrequency: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerShopCheckFrequency", 3)
 
+    /**
+     * Turn (a.k.a. `date.day`) at which Hammer/Glow Stick conservation rules start applying. Turn 65 is the turn right after Senior Year Summer training. Before this turn the bot uses Hammers freely
+     * on every race it takes and uses Glow Sticks on any race awarding at least 20,000 fans (the only race-item floor that still applies pre-conservation). From this turn onward the existing finale
+     * reserves and Artisan Hammer stock floors are enforced.
+     */
+    private val raceItemConservationStartDay: Int = 65
+
     /** Tracks the number of days since the last race for shop check frequency. */
     private var shopCheckCounter: Int = 0
 
@@ -1081,6 +1088,7 @@ class Trackblazer(game: Game) : Campaign(game) {
             )
             .add("Energy Item Reserve", energyItemReserveCount)
             .add("Cupcake Reserve", cupcakeReserveCount)
+            .add("Race Item Conservation Start Turn", raceItemConservationStartDay)
             .add("Master Hammer Finale Reserve", masterHammerFinaleReserve)
             .add("Artisan Hammer Min Stock G3", artisanMinStockForG3)
             .add("Artisan Hammer Min Stock G2", artisanMinStockForG2)
@@ -2093,23 +2101,33 @@ class Trackblazer(game: Game) : Campaign(game) {
         val artisanHammerCount = currentInventory["Artisan Cleat Hammer"] ?: 0
         val glowSticksCount = currentInventory["Glow Sticks"] ?: 0
 
+        // Conservation thresholds activate at `raceItemConservationStartDay` (Turn 65, right after Senior Year Summer training). Before that, the bot uses race items freely.
+        val conservationActive = date.day >= raceItemConservationStartDay
+
         // Reserve `masterHammerFinaleReserve` master hammers for the finale (days 73-75). Pre-finale days only spend the surplus above that reserve.
         val spareMasterHammers = (masterHammerCount - masterHammerFinaleReserve).coerceAtLeast(0)
 
         // Master Hammer Logic
         val canUseMasterHammer =
-            if (date.day < 73) {
-                // Only use spare masters beyond the reserve for the finale.
-                spareMasterHammers > 0 && (grade == RaceGrade.G1 || grade == RaceGrade.G2)
-            } else {
-                // Ensure we still have enough for remaining finale days. Reserve count caps the per-day allowance.
-                val remainingFinaleDays = listOf(73, 74, 75).count { it >= date.day }
-                val effectiveReserve = remainingFinaleDays.coerceAtMost(masterHammerCount - 1).coerceAtLeast(0)
-                val hasEnough = masterHammerCount > effectiveReserve
-                hasEnough && grade == RaceGrade.G1
+            when {
+                !conservationActive -> {
+                    // Pre-conservation: spend on any G1/G2 race without honoring the finale reserve.
+                    masterHammerCount > 0 && (grade == RaceGrade.G1 || grade == RaceGrade.G2)
+                }
+                date.day < 73 -> {
+                    // Mid-game conservation: only use spare masters beyond the finale reserve.
+                    spareMasterHammers > 0 && (grade == RaceGrade.G1 || grade == RaceGrade.G2)
+                }
+                else -> {
+                    // Finale: ration the reserve so we still have enough for remaining finale days. Reserve count caps the per-day allowance.
+                    val remainingFinaleDays = listOf(73, 74, 75).count { it >= date.day }
+                    val effectiveReserve = remainingFinaleDays.coerceAtMost(masterHammerCount - 1).coerceAtLeast(0)
+                    val hasEnough = masterHammerCount > effectiveReserve
+                    hasEnough && grade == RaceGrade.G1
+                }
             }
 
-        // Artisan Hammer Logic. User-configured per-grade stock floors:
+        // Artisan Hammer Logic. User-configured per-grade stock floors apply only from Turn `raceItemConservationStartDay` onward:
         // - G3 requires `artisanMinStockForG3` (default 3) units before the bot will spend one.
         // - G2 requires `artisanMinStockForG2` (default 2) units before the bot will spend one.
         // - G1 only requires at least 1 in stock. Threshold of 0 means "always allowed (as long as stock > 0)".
@@ -2117,8 +2135,8 @@ class Trackblazer(game: Game) : Campaign(game) {
             artisanHammerCount > 0 &&
                 when (grade) {
                     RaceGrade.G1 -> true
-                    RaceGrade.G2 -> artisanHammerCount >= maxOf(1, artisanMinStockForG2)
-                    RaceGrade.G3 -> artisanHammerCount >= maxOf(1, artisanMinStockForG3)
+                    RaceGrade.G2 -> !conservationActive || artisanHammerCount >= maxOf(1, artisanMinStockForG2)
+                    RaceGrade.G3 -> !conservationActive || artisanHammerCount >= maxOf(1, artisanMinStockForG3)
                     else -> false
                 }
 
@@ -2139,9 +2157,9 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
 
         // Glow Sticks Logic. User-configured controls:
-        // - `glowStickFinalReserve` holds N sticks back for Day 75 (the Final). Pre-Day-75 races only spend the surplus.
-        // - `glowStickMinFans` is the per-race fan floor. Applies on standard and finale days.
-        val effectiveReserve = if (date.day < 75) glowStickFinalReserve else 0
+        // - `glowStickFinalReserve` holds N sticks back for Day 75 (the Final). Pre-Day-75 races only spend the surplus. Only honored from Turn `raceItemConservationStartDay` onward.
+        // - `glowStickMinFans` is the per-race fan floor. Applies at all times (pre-conservation, mid-game, and finale).
+        val effectiveReserve = if (conservationActive && date.day < 75) glowStickFinalReserve else 0
         val useGlowSticks = fans >= glowStickMinFans && glowSticksCount > effectiveReserve
 
         if (hammerToUse != null || useGlowSticks) {
