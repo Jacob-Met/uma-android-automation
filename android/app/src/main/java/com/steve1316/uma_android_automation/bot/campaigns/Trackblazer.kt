@@ -209,6 +209,9 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Threshold for energy level to use energy items. */
     private var energyThresholdToUseEnergyItems: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerEnergyThreshold", 40)
 
+    /** Number of energy items (lowest-tier first across `energyItemConservationOrder`) held back as the emergency-race-recovery reserve. 0 = no reserve. */
+    private val energyItemReserveCount: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerEnergyItemReserve", 1)
+
     /** Whether the Reset Whistle forces training. */
     private val whistleForcesTraining: Boolean = SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerWhistleForcesTraining", true)
 
@@ -2489,14 +2492,12 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         // Energy Items Check.
         if (!charmBeingUsedThisTurn && passStartEnergy <= energyThresholdToUseEnergyItems && shopList.energyItemNames.contains(itemName)) {
-            // Conservation: always keep the last unit of the lowest-level energy item for emergency race recovery.
-            if (!bForceUseReservedItem) {
-                val conserveItem = energyItemConservationOrder.firstOrNull { (nextInventory[it] ?: 0) > 0 }
-                if (conserveItem == itemName && (nextInventory[itemName] ?: 0) <= 1) {
-                    MessageLog.i(TAG, "[TRACKBLAZER] Conserving last $itemName for emergency race recovery.")
-                    decisionTracer.recordItemDecision(itemName, DecisionTracer.ItemVerdict.CONSERVED, "Last unit reserved for emergency race recovery")
-                    return null
-                }
+            // Conservation: hold back up to `energyItemReserveCount` units across the conservation order (lowest-tier first) for emergency race recovery.
+            val reservedHere = reservedEnergyUnitsFor(itemName, nextInventory)
+            if (reservedHere > 0 && (nextInventory[itemName] ?: 0) <= reservedHere) {
+                MessageLog.i(TAG, "[TRACKBLAZER] Conserving $itemName for emergency race recovery (reserve floor: $energyItemReserveCount).")
+                decisionTracer.recordItemDecision(itemName, DecisionTracer.ItemVerdict.CONSERVED, "Within emergency reserve floor of $energyItemReserveCount")
+                return null
             }
 
             if (isBestEnergyItemToUse(trainee, itemName, nextInventory, remainingItemsOfInterest)) {
@@ -2619,6 +2620,27 @@ class Trackblazer(game: Game) : Campaign(game) {
     }
 
     /**
+     * Returns how many units of `itemName` are currently being held back as part of the energy reserve floor.
+     * Reserves are allocated across `energyItemConservationOrder` lowest-tier-first up to `energyItemReserveCount` total units.
+     *
+     * @param itemName The energy item name to inspect.
+     * @param inventory The inventory snapshot to evaluate against.
+     * @return The number of units of `itemName` that are reserved (0 if `itemName` is not in the order, the reserve is disabled, or the higher-priority tiers already absorbed the full budget).
+     */
+    private fun reservedEnergyUnitsFor(itemName: String, inventory: Map<String, Int>): Int {
+        if (bForceUseReservedItem || energyItemReserveCount <= 0) return 0
+        var remaining = energyItemReserveCount
+        for (name in energyItemConservationOrder) {
+            if (remaining <= 0) break
+            val count = inventory[name] ?: 0
+            val reservedHere = minOf(count, remaining)
+            if (name == itemName) return reservedHere
+            remaining -= reservedHere
+        }
+        return 0
+    }
+
+    /**
      * Returns the energy item name currently being conserved as the last-resort emergency-race-recovery stash.
      *
      * Mirrors the conservation logic inside `isBestEnergyItemToUse` so the dialog-open gate predicts the same outcome the dialog scan would reach.
@@ -2627,7 +2649,7 @@ class Trackblazer(game: Game) : Campaign(game) {
      * @return The conserved item name, or `null` if conservation is bypassed or no conservable item is in inventory.
      */
     private fun getConservedEnergyItem(inventory: Map<String, Int>): String? {
-        if (bForceUseReservedItem) return null
+        if (bForceUseReservedItem || energyItemReserveCount <= 0) return null
         return energyItemConservationOrder.firstOrNull { (inventory[it] ?: 0) > 0 }
     }
 
@@ -2840,23 +2862,17 @@ class Trackblazer(game: Game) : Campaign(game) {
         }
 
         // Collect all available energy items from this scan pass.
-        // Always reserve one unit of the lowest-tier item for emergency race recovery, unless force-override is active.
+        // Subtract any units that fall inside the user-configured emergency reserve (lowest-tier first across `energyItemConservationOrder`).
         val availableEnergyItems = mutableListOf<Int>()
-        val conserveItem = if (!bForceUseReservedItem) energyItemConservationOrder.firstOrNull { (nextInventory[it] ?: 0) > 0 } else null
         remainingItemsOfInterest.forEach { name ->
             val gain = energyGains[name]
             if (gain != null) {
                 // If this is Kale Juice, only include it if it's usable.
                 if (name == "Royal Kale Juice" && !isKaleJuiceUsable) return@forEach
 
-                var count = (nextInventory[name] ?: 0)
-
-                // Exclude one unit of the conserved item from the greedy pool.
-                if (name == conserveItem && count > 0) {
-                    count--
-                }
-
-                repeat(count) { availableEnergyItems.add(gain) }
+                val rawCount = nextInventory[name] ?: 0
+                val available = (rawCount - reservedEnergyUnitsFor(name, nextInventory)).coerceAtLeast(0)
+                repeat(available) { availableEnergyItems.add(gain) }
             }
         }
 
