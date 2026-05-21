@@ -596,6 +596,10 @@ const ScenarioOverridesSettings = () => {
                                                 </View>
 
                                                 <Text style={styles.conservationCategoryLabel}>RACE ITEMS</Text>
+                                                <Text style={styles.conservationSectionIntro}>
+                                                    Reserves and stock floors below take effect starting Turn 65 (right after Senior Year Summer training). Before Turn 65, the bot uses Hammers freely
+                                                    on every race it takes. The Glow Stick Min Fans floor is the only race-item threshold that applies before Turn 65.
+                                                </Text>
 
                                                 <View style={styles.section}>
                                                     <CustomSlider
