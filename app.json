@@ -1,16 +1,29 @@
 {
-    "expo": {
-        "name": "Uma Android Automation",
-        "slug": "uma-android-automation",
-        "platforms": ["android"],
-        "plugins": [
-            [
-                "llama.rn",
-                {
-                    "forceCxx20": true,
-                    "enableOpenCLAndHexagon": true
-                }
-            ]
-        ]
-    }
+  "expo": {
+    "name": "Uma Android Automation",
+    "slug": "uma-android-automation",
+    "platforms": [
+      "android"
+    ],
+    "plugins": [
+      [
+        "llama.rn",
+        {
+          "forceCxx20": true,
+          "enableOpenCLAndHexagon": true
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usePrecompiledHeaders": true
+          }
+        }
+      ],
+      "expo-sharing",
+      "expo-sqlite",
+      "expo-status-bar"
+    ]
+  }
 }
