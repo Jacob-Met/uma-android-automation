@@ -177,6 +177,7 @@ const EventLogVisualizer: React.FC = () => {
     return (
         <View style={styles.root}>
             <View style={styles.content}>
+                {/* FlashList doesn't support sticky headers the same way as ScrollView, so PageHeader stays a sibling above the list (non-sticky). */}
                 <PageHeader title="Event Log Visualizer" style={{ marginBottom: 12 }} />
 
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 8 }}>

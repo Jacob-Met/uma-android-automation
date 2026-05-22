@@ -461,9 +461,16 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
 
     return (
         <View style={styles.root}>
-            <PageHeader title={`${title} Plan`} />
             <SearchPageProvider page={name} scrollViewRef={scrollViewRef}>
-                <ScrollView ref={scrollViewRef} nestedScrollEnabled={true} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
+                <ScrollView
+                    ref={scrollViewRef}
+                    stickyHeaderIndices={[0]}
+                    nestedScrollEnabled={true}
+                    showsVerticalScrollIndicator={false}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ flexGrow: 1 }}
+                >
+                    <PageHeader title={`${title} Plan`} />
                     <View className="m-1">
                         <Text style={styles.description}>{description}</Text>
                         <Divider style={{ marginBottom: 16 }} />

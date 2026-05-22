@@ -332,6 +332,7 @@ Note: Reinstall using the x86_64 release APK for much better performance.`)
 
     return (
         <View style={styles.root}>
+            {/* MessageLog uses FlashList, which doesn't support sticky headers the same way as ScrollView, so PageHeader stays a sibling above (non-sticky). */}
             <PageHeader
                 title=""
                 showHomeButton={false}

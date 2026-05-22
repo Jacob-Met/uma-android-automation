@@ -1018,10 +1018,15 @@ const SmartRaceSolverSettings = () => {
 
     return (
         <View style={styles.root}>
-            <PageHeader title="Smart Race Solver" />
-
             <SearchPageProvider page="SmartRaceSolverSettings" scrollViewRef={scrollViewRef}>
-                <ScrollView ref={scrollViewRef} nestedScrollEnabled={true} showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: dirty ? 80 : 24 }}>
+                <ScrollView
+                    ref={scrollViewRef}
+                    stickyHeaderIndices={[0]}
+                    nestedScrollEnabled={true}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ flexGrow: 1, paddingBottom: dirty ? 80 : 24 }}
+                >
+                    <PageHeader title="Smart Race Solver" />
                     <View className="m-1">
                         {/* Master toggle */}
                         <SearchableItem

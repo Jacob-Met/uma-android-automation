@@ -6,6 +6,7 @@ import { useTheme } from "../../context/ThemeContext"
 import { useSearchRegistry } from "../../context/SearchRegistryContext"
 import { Portal } from "@rn-primitives/portal"
 import { circularPress } from "../../lib/pressSurface"
+import { StickyPageHeader } from "../ui/sticky-page-header"
 
 interface PageHeaderProps {
     /** The title to display in the header. */
@@ -219,7 +220,6 @@ const PageHeader = ({ title, showHomeButton = true, titleComponent, leftComponen
                     flexDirection: "row",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    marginBottom: 12,
                 },
                 headerLeft: {
                     flexDirection: "row",
@@ -308,7 +308,7 @@ const PageHeader = ({ title, showHomeButton = true, titleComponent, leftComponen
     )
 
     return (
-        <View style={[{ zIndex: isSearching ? 100 : 1 }, style]}>
+        <StickyPageHeader style={[{ zIndex: isSearching ? 100 : 1 }, style]}>
             <View style={styles.header}>
                 <View style={[styles.headerLeft, { flex: 1, minWidth: 0 }]}>
                     {/* Hamburger menu button */}
@@ -394,7 +394,7 @@ const PageHeader = ({ title, showHomeButton = true, titleComponent, leftComponen
                     </View>
                 </Portal>
             )}
-        </View>
+        </StickyPageHeader>
     )
 }
 

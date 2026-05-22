@@ -164,10 +164,16 @@ const ScenarioOverridesSettings = () => {
 
     return (
         <View style={styles.root}>
-            <PageHeader title="Scenario Overrides Settings" />
-
             <SearchPageProvider page="ScenarioOverridesSettings" scrollViewRef={scrollViewRef}>
-                <ScrollView ref={scrollViewRef} nestedScrollEnabled={true} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
+                <ScrollView
+                    ref={scrollViewRef}
+                    stickyHeaderIndices={[0]}
+                    nestedScrollEnabled={true}
+                    showsVerticalScrollIndicator={false}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ flexGrow: 1 }}
+                >
+                    <PageHeader title="Scenario Overrides Settings" />
                     <View className="m-1">
                         {showBody && (
                             <CustomAccordion

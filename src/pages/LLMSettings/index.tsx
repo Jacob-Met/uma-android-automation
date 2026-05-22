@@ -491,8 +491,8 @@ const LLMSettings = () => {
 
     return (
         <View style={styles.root}>
-            <PageHeader title="LLM Settings" />
-            <ScrollView>
+            <ScrollView stickyHeaderIndices={[0]}>
+                <PageHeader title="LLM Settings" />
                 <InfoContainer>Retrieve-only search always works. The options below add optional natural-language answers backed by an on-device model.</InfoContainer>
 
                 <View style={styles.section}>

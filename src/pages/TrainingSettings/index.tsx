@@ -486,10 +486,16 @@ const TrainingSettings = () => {
 
     return (
         <View style={styles.root}>
-            <PageHeader title="Training Settings" />
-
             <SearchPageProvider page="TrainingSettings" scrollViewRef={scrollViewRef}>
-                <ScrollView ref={scrollViewRef} nestedScrollEnabled={true} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
+                <ScrollView
+                    ref={scrollViewRef}
+                    stickyHeaderIndices={[0]}
+                    nestedScrollEnabled={true}
+                    showsVerticalScrollIndicator={false}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ flexGrow: 1 }}
+                >
+                    <PageHeader title="Training Settings" />
                     <View className="m-1">
                         <SearchableItem
                             id="training-settings-profile-selector"

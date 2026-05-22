@@ -129,10 +129,16 @@ const DiscordSettings = () => {
 
     return (
         <View style={styles.root}>
-            <PageHeader title="Discord Settings" />
-
             <SearchPageProvider page="DiscordSettings" scrollViewRef={scrollViewRef}>
-                <ScrollView ref={scrollViewRef} nestedScrollEnabled={true} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
+                <ScrollView
+                    ref={scrollViewRef}
+                    stickyHeaderIndices={[0]}
+                    nestedScrollEnabled={true}
+                    showsVerticalScrollIndicator={false}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ flexGrow: 1 }}
+                >
+                    <PageHeader title="Discord Settings" />
                     <View className="m-1">
                         {/* Enable Discord Notifications */}
                         <View style={styles.section}>

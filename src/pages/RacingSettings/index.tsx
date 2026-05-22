@@ -114,10 +114,16 @@ const RacingSettings = () => {
 
     return (
         <View style={styles.root}>
-            <PageHeader title="Racing Settings" />
-
             <SearchPageProvider page="RacingSettings" scrollViewRef={scrollViewRef}>
-                <ScrollView ref={scrollViewRef} nestedScrollEnabled={true} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
+                <ScrollView
+                    ref={scrollViewRef}
+                    stickyHeaderIndices={[0]}
+                    nestedScrollEnabled={true}
+                    showsVerticalScrollIndicator={false}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ flexGrow: 1 }}
+                >
+                    <PageHeader title="Racing Settings" />
                     <View className="m-1">
                         <View style={styles.section}>
                             <CustomCheckbox
