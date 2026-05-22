@@ -26,8 +26,8 @@ const YearSummaryCard: React.FC<Props> = ({ summary }) => {
                     borderRadius: 8,
                     borderWidth: 1,
                     marginBottom: 12,
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
+                    backgroundColor: colors.surface,
+                    borderColor: colors.borderHair,
                 },
                 headerRow: {
                     flexDirection: "row",
@@ -39,7 +39,7 @@ const YearSummaryCard: React.FC<Props> = ({ summary }) => {
                     fontSize: 20,
                     fontWeight: "bold",
                     flex: 1,
-                    color: colors.foreground,
+                    color: colors.text,
                 },
                 timeContainer: {
                     alignItems: "flex-end",
@@ -48,11 +48,11 @@ const YearSummaryCard: React.FC<Props> = ({ summary }) => {
                     fontSize: 18,
                     fontWeight: "600",
                     marginBottom: 2,
-                    color: colors.foreground,
+                    color: colors.text,
                 },
                 timeHuman: {
                     fontSize: 12,
-                    color: colors.lightlyMuted,
+                    color: colors.textMuted,
                 },
                 section: {
                     marginBottom: 12,
@@ -61,7 +61,7 @@ const YearSummaryCard: React.FC<Props> = ({ summary }) => {
                     fontSize: 16,
                     fontWeight: "600",
                     marginBottom: 8,
-                    color: colors.foreground,
+                    color: colors.text,
                 },
                 actionRow: {
                     gap: 8,
@@ -75,12 +75,12 @@ const YearSummaryCard: React.FC<Props> = ({ summary }) => {
                     fontSize: 14,
                     marginRight: 8,
                     minWidth: 120,
-                    color: colors.lightlyMuted,
+                    color: colors.textMuted,
                 },
                 actionValue: {
                     fontSize: 14,
                     fontWeight: "600",
-                    color: colors.foreground,
+                    color: colors.text,
                 },
                 statRow: {
                     gap: 8,
@@ -94,12 +94,12 @@ const YearSummaryCard: React.FC<Props> = ({ summary }) => {
                     fontSize: 14,
                     marginRight: 8,
                     minWidth: 110,
-                    color: colors.lightlyMuted,
+                    color: colors.textMuted,
                 },
                 statValue: {
                     fontSize: 14,
                     fontWeight: "600",
-                    color: colors.foreground,
+                    color: colors.text,
                 },
             }),
         [colors]
@@ -116,8 +116,8 @@ const YearSummaryCard: React.FC<Props> = ({ summary }) => {
                     {summary.traineeNames && summary.traineeNames.length > 0 && (
                         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                             {summary.traineeNames.map((name, idx) => (
-                                <View key={idx} style={{ backgroundColor: colors.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                                    <Text style={{ fontSize: 10, fontWeight: "bold", color: colors.primaryForeground }}>{name}</Text>
+                                <View key={idx} style={{ backgroundColor: colors.brand, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                    <Text style={{ fontSize: 10, fontWeight: "bold", color: colors.onBrand }}>{name}</Text>
                                 </View>
                             ))}
                         </View>

@@ -54,7 +54,7 @@ const ProfileCreationModal: React.FC<ProfileCreationModalProps> = ({ visible, on
                     backgroundColor: "rgba(70, 70, 70, 0.5)",
                 },
                 modalContent: {
-                    backgroundColor: colors.background,
+                    backgroundColor: colors.surface,
                     borderRadius: 12,
                     padding: 20,
                     width: "90%",
@@ -69,7 +69,7 @@ const ProfileCreationModal: React.FC<ProfileCreationModalProps> = ({ visible, on
                 title: {
                     fontSize: 20,
                     fontWeight: "bold",
-                    color: colors.foreground,
+                    color: colors.text,
                 },
                 closeButton: {
                     padding: 4,
@@ -81,19 +81,19 @@ const ProfileCreationModal: React.FC<ProfileCreationModalProps> = ({ visible, on
                     marginTop: 16,
                     marginBottom: 16,
                     padding: 12,
-                    backgroundColor: colors.secondary,
+                    backgroundColor: colors.surfaceRaised,
                     borderRadius: 8,
                     height: 200,
                 },
                 previewTitle: {
                     fontSize: 14,
                     fontWeight: "600",
-                    color: colors.foreground,
+                    color: colors.text,
                     marginBottom: 8,
                 },
                 previewText: {
                     fontSize: 12,
-                    color: colors.foreground,
+                    color: colors.text,
                     opacity: 0.7,
                 },
                 tableContainer: {
@@ -102,38 +102,38 @@ const ProfileCreationModal: React.FC<ProfileCreationModalProps> = ({ visible, on
                 tableTitle: {
                     fontSize: 12,
                     fontWeight: "600",
-                    color: colors.foreground,
+                    color: colors.text,
                     marginBottom: 8,
                 },
                 table: {
                     borderWidth: 1,
-                    borderColor: colors.foreground + "40",
+                    borderColor: colors.borderHair,
                     borderRadius: 4,
                     overflow: "hidden",
-                    backgroundColor: colors.secondary,
+                    backgroundColor: colors.surfaceRaised,
                 },
                 tableRow: {
                     flexDirection: "row",
                     borderBottomWidth: 1,
-                    borderBottomColor: colors.foreground + "30",
+                    borderBottomColor: colors.borderHair,
                 },
                 tableCell: {
                     flex: 1,
                     padding: 8,
                     borderRightWidth: 1,
-                    borderRightColor: colors.foreground + "30",
+                    borderRightColor: colors.borderHair,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: colors.secondary,
+                    backgroundColor: colors.surfaceRaised,
                 },
                 tableHeaderText: {
                     fontSize: 9,
                     fontWeight: "600",
-                    color: colors.foreground,
+                    color: colors.text,
                 },
                 tableCellText: {
                     fontSize: 9,
-                    color: colors.foreground,
+                    color: colors.text,
                     opacity: 0.8,
                 },
                 buttonRow: {
@@ -244,13 +244,13 @@ const ProfileCreationModal: React.FC<ProfileCreationModalProps> = ({ visible, on
                     <View style={styles.header}>
                         <Text style={styles.title}>Create New Profile</Text>
                         <Pressable style={styles.closeButton} onPress={handleClose} android_ripple={{ color: colors.ripple, foreground: true }}>
-                            <X size={24} color={colors.foreground} />
+                            <X size={24} color={colors.text} />
                         </Pressable>
                     </View>
 
                     {/* Profile name input */}
                     <View style={styles.input}>
-                        <Input placeholder="Profile name" value={profileName} onChangeText={setProfileName} style={{ color: colors.foreground, backgroundColor: colors.secondary }} />
+                        <Input placeholder="Profile name" value={profileName} onChangeText={setProfileName} style={{ color: colors.text, backgroundColor: colors.surfaceRaised }} />
                     </View>
 
                     {/* Training settings preview */}

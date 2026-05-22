@@ -74,7 +74,7 @@ const ProfileComparison: React.FC<ProfileComparisonProps> = ({ comparison, onCon
                 title: {
                     fontSize: 16,
                     fontWeight: "bold",
-                    color: colors.foreground,
+                    color: colors.text,
                     marginBottom: 12,
                 },
                 section: {
@@ -83,24 +83,24 @@ const ProfileComparison: React.FC<ProfileComparisonProps> = ({ comparison, onCon
                 sectionTitle: {
                     fontSize: 14,
                     fontWeight: "600",
-                    color: colors.foreground,
+                    color: colors.text,
                     marginBottom: 8,
                 },
                 changeItem: {
                     marginBottom: 8,
                     padding: 8,
-                    backgroundColor: colors.background,
+                    backgroundColor: colors.bg,
                     borderRadius: 4,
                 },
                 changeKey: {
                     fontSize: 12,
                     fontWeight: "600",
-                    color: colors.foreground,
+                    color: colors.text,
                     marginBottom: 4,
                 },
                 changeValue: {
                     fontSize: 11,
-                    color: colors.foreground,
+                    color: colors.text,
                     marginLeft: 8,
                 },
                 changeRow: {
@@ -134,7 +134,7 @@ const ProfileComparison: React.FC<ProfileComparisonProps> = ({ comparison, onCon
                             <Text style={[styles.changeValue, { color: colors.destructive }]}>Current: {formatValue(current)}</Text>
                         </View>
                         <View style={styles.changeRow}>
-                            <Text style={[styles.changeValue, { color: colors.primary }]}>→ Profile: {formatValue(profile)}</Text>
+                            <Text style={[styles.changeValue, { color: colors.brand }]}>→ Profile: {formatValue(profile)}</Text>
                         </View>
                     </View>
                 ))}

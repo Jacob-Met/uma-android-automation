@@ -19,7 +19,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({ style }) => {
 
     return (
         <Pressable onPress={toggleTheme} style={[circularPress(40), style]} android_ripple={{ color: colors.ripple, foreground: true }}>
-            {theme === "light" ? <Moon size={24} color={colors.secondaryForeground} /> : <Sun size={24} color={colors.secondaryForeground} />}
+            {theme === "light" ? <Moon size={24} color={colors.text} /> : <Sun size={24} color={colors.text} />}
         </Pressable>
     )
 }

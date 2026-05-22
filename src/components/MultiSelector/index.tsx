@@ -172,12 +172,12 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                 title: {
                     fontSize: 18,
                     fontWeight: "600",
-                    color: colors.foreground,
+                    color: colors.text,
                     marginBottom: 12,
                 },
                 description: {
                     fontSize: 14,
-                    color: colors.foreground,
+                    color: colors.text,
                     opacity: 0.7,
                     marginBottom: 16,
                     lineHeight: 20,
@@ -194,7 +194,7 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                 multiSelectorButton: {
                     flexDirection: "row",
                     alignItems: "center",
-                    backgroundColor: colors.primary,
+                    backgroundColor: colors.brand,
                     paddingHorizontal: 16,
                     paddingVertical: 12,
                     borderRadius: 8,
@@ -204,7 +204,7 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                 multiSelectorButtonDisabled: {
                     flexDirection: "row",
                     alignItems: "center",
-                    backgroundColor: colors.muted || colors.border,
+                    backgroundColor: colors.surfaceRaised,
                     paddingHorizontal: 16,
                     paddingVertical: 12,
                     borderRadius: 8,
@@ -213,23 +213,23 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                     opacity: 0.6,
                 },
                 multiSelectorButtonText: {
-                    color: colors.background,
+                    color: colors.onBrand,
                     fontWeight: "600",
                     marginLeft: 8,
                 },
                 multiSelectorButtonTextDisabled: {
-                    color: colors.foreground,
+                    color: colors.text,
                     fontWeight: "600",
                     marginLeft: 8,
                 },
                 selectedCount: {
                     fontSize: 12,
-                    color: colors.foreground,
+                    color: colors.text,
                     opacity: 0.6,
                 },
                 disabledNote: {
                     fontSize: 12,
-                    color: colors.foreground,
+                    color: colors.text,
                     opacity: 0.5,
                     fontStyle: "italic",
                 },
@@ -240,7 +240,7 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                     alignItems: "center",
                 },
                 modalContent: {
-                    backgroundColor: colors.background,
+                    backgroundColor: colors.surface,
                     borderRadius: 16,
                     padding: 20,
                     width: "90%",
@@ -255,7 +255,7 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                 modalTitle: {
                     fontSize: 20,
                     fontWeight: "bold",
-                    color: colors.foreground,
+                    color: colors.text,
                 },
                 closeButton: {
                     padding: 8,
@@ -263,9 +263,9 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                 searchContainer: {
                     flexDirection: "row",
                     alignItems: "center",
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.bg,
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                     borderRadius: 8,
                     paddingHorizontal: 12,
                     marginBottom: 20,
@@ -273,7 +273,7 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                 searchInput: {
                     flex: 1,
                     paddingVertical: 12,
-                    color: colors.foreground,
+                    color: colors.text,
                     fontSize: 16,
                     backgroundColor: "transparent",
                 },
@@ -284,12 +284,12 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                     marginBottom: 8,
                     paddingLeft: 8,
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                     borderRadius: 8,
                 },
                 noResults: {
                     textAlign: "center",
-                    color: colors.foreground,
+                    color: colors.text,
                     opacity: 0.6,
                     padding: 20,
                 },
@@ -324,7 +324,7 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                     disabled={selectAll}
                     android_ripple={{ color: colors.ripple, foreground: true }}
                 >
-                    <Search size={20} color={selectAll ? colors.foreground : colors.background} />
+                    <Search size={20} color={selectAll ? colors.text : colors.onBrand} />
                     <Text style={selectAll ? styles.multiSelectorButtonTextDisabled : styles.multiSelectorButtonText}>{selectAll ? "All Selected" : selectIndividualLabel}</Text>
                 </Pressable>
             </View>
@@ -346,17 +346,17 @@ const MultiSelector: React.FC<MultiSelectorProps> = ({
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>{title}</Text>
                             <Pressable style={styles.closeButton} onPress={() => setModalVisible(false)} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                <X size={24} color={colors.foreground} />
+                                <X size={24} color={colors.text} />
                             </Pressable>
                         </View>
 
                         {/* Search Container */}
                         <View style={styles.searchContainer}>
-                            <Search size={20} color={colors.foreground} />
-                            <TextInput style={styles.searchInput} placeholder="Search..." placeholderTextColor={colors.foreground + "80"} value={searchQuery} onChangeText={setSearchQuery} />
+                            <Search size={20} color={colors.text} />
+                            <TextInput style={styles.searchInput} placeholder="Search..." placeholderTextColor={colors.textMuted} value={searchQuery} onChangeText={setSearchQuery} />
                             {searchQuery.length > 0 && (
                                 <Pressable style={styles.clearSearchButton} onPress={() => setSearchQuery("")} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                    <X size={16} color={colors.foreground} />
+                                    <X size={16} color={colors.text} />
                                 </Pressable>
                             )}
                         </View>

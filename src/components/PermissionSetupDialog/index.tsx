@@ -98,15 +98,15 @@ const PermissionSetupDialog = ({ open, onOpenChange, onAllGranted }: PermissionS
 
     const renderRow = (index: number, granted: boolean, title: string, description: string, onOpenPress: () => void) => (
         <View style={styles.row}>
-            <View style={[styles.numberBadge, { backgroundColor: granted ? colors.success : colors.muted, borderColor: granted ? colors.success : colors.border }]}>
-                <Text style={[styles.numberText, { color: granted ? "#ffffff" : colors.foreground }]}>{index}</Text>
+            <View style={[styles.numberBadge, { backgroundColor: granted ? colors.success : colors.surfaceRaised, borderColor: granted ? colors.success : colors.borderHair }]}>
+                <Text style={[styles.numberText, { color: granted ? "#ffffff" : colors.text }]}>{index}</Text>
             </View>
             <View style={styles.rowBody}>
                 <View style={styles.rowHeader}>
-                    <Text style={[styles.rowTitle, { color: colors.foreground }]}>{title}</Text>
+                    <Text style={[styles.rowTitle, { color: colors.text }]}>{title}</Text>
                     <Ionicons name={granted ? "checkmark-circle" : "close-circle"} size={20} color={granted ? colors.success : colors.error} style={styles.statusIcon} />
                 </View>
-                <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>{description}</Text>
+                <Text style={[styles.rowDescription, { color: colors.textMuted }]}>{description}</Text>
                 <CustomButton variant={granted ? "outline" : "default"} onPress={onOpenPress} style={styles.rowButton} disabled={granted}>
                     {granted ? "Granted" : "Open Settings"}
                 </CustomButton>
@@ -129,7 +129,7 @@ const PermissionSetupDialog = ({ open, onOpenChange, onAllGranted }: PermissionS
                     {renderRow(1, accessibilityGranted, "Accessibility Service", "Lets the bot perform clicks and gestures on your behalf.", () => StartModule.openAccessibilitySettings())}
                     {!accessibilityGranted && (
                         <View style={styles.restrictedHint}>
-                            <Text style={[styles.restrictedHintText, { color: colors.mutedForeground }]}>
+                            <Text style={[styles.restrictedHintText, { color: colors.textMuted }]}>
                                 On newer Android versions, you must first open App Info → 3-dot menu → "Allow restricted settings" in order to enable the service.
                             </Text>
                             <CustomButton variant="ghost" onPress={() => StartModule.openAppInfoSettings()} style={styles.restrictedHintButton}>

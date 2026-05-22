@@ -28,13 +28,13 @@ const FileDivider: React.FC<Props> = ({ divider }) => {
                 line: {
                     flex: 1,
                     height: 1,
-                    backgroundColor: colors.lightlyMuted,
+                    backgroundColor: colors.borderHair,
                 },
                 text: {
                     marginHorizontal: 12,
                     fontSize: 12,
                     fontWeight: "500",
-                    color: colors.lightlyMuted,
+                    color: colors.textMuted,
                 },
             }),
         [colors]
@@ -46,8 +46,8 @@ const FileDivider: React.FC<Props> = ({ divider }) => {
             <View style={{ alignItems: "center" }}>
                 <Text style={[styles.text, { marginBottom: 2 }]}>{divider.fileName}</Text>
                 {divider.traineeName && (
-                    <View style={{ backgroundColor: colors.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                        <Text style={{ fontSize: 10, fontWeight: "bold", color: colors.primaryForeground }}>{divider.traineeName}</Text>
+                    <View style={{ backgroundColor: colors.brand, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ fontSize: 10, fontWeight: "bold", color: colors.onBrand }}>{divider.traineeName}</Text>
                     </View>
                 )}
             </View>

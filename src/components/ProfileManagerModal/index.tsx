@@ -133,7 +133,7 @@ const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                  * flexShrink: 1 allows it to grow with content but stay within screen limits.
                  */
                 modalContent: {
-                    backgroundColor: colors.background,
+                    backgroundColor: colors.surface,
                     borderRadius: 12,
                     padding: 20,
                     width: "90%",
@@ -150,7 +150,7 @@ const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                 title: {
                     fontSize: 20,
                     fontWeight: "bold",
-                    color: colors.foreground,
+                    color: colors.text,
                 },
                 closeButton: {
                     padding: 4,
@@ -178,12 +178,12 @@ const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                     alignItems: "center",
                     padding: 12,
                     marginBottom: 8,
-                    backgroundColor: colors.secondary,
+                    backgroundColor: colors.surfaceRaised,
                     borderRadius: 8,
                 },
                 profileName: {
                     fontSize: 16,
-                    color: colors.foreground,
+                    color: colors.text,
                     flex: 1,
                 },
                 profileNameInput: {
@@ -209,7 +209,7 @@ const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                 },
                 emptyText: {
                     fontSize: 14,
-                    color: colors.foreground,
+                    color: colors.text,
                     opacity: 0.6,
                 },
             }),
@@ -394,7 +394,7 @@ const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                         <View style={styles.header}>
                             <Text style={styles.title}>Manage Profiles</Text>
                             <Pressable style={styles.closeButton} onPress={onClose} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                <X size={24} color={colors.foreground} />
+                                <X size={24} color={colors.text} />
                             </Pressable>
                         </View>
 
@@ -435,7 +435,7 @@ const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                                                             value={profileName}
                                                             onChangeText={setProfileName}
                                                             onSubmitEditing={handleUpdateProfile}
-                                                            style={[styles.profileNameInput, { color: colors.foreground, backgroundColor: colors.background || "#ffffff" }]}
+                                                            style={[styles.profileNameInput, { color: colors.text, backgroundColor: colors.bg }]}
                                                             autoFocus
                                                         />
                                                     ) : (
@@ -446,11 +446,11 @@ const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                                                             <>
                                                                 {/* Save button */}
                                                                 <Pressable style={styles.actionButton} onPress={handleUpdateProfile} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                                                    <Check size={18} color={colors.primary} />
+                                                                    <Check size={18} color={colors.brand} />
                                                                 </Pressable>
                                                                 {/* Cancel button */}
                                                                 <Pressable style={styles.actionButton} onPress={handleCancelEdit} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                                                    <X size={18} color={colors.foreground} />
+                                                                    <X size={18} color={colors.text} />
                                                                 </Pressable>
                                                             </>
                                                         ) : (
@@ -461,7 +461,7 @@ const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                                                                     onPress={() => handleEditProfile(profile.id)}
                                                                     android_ripple={{ color: colors.ripple, foreground: true }}
                                                                 >
-                                                                    <Edit2 size={18} color={colors.primary} />
+                                                                    <Edit2 size={18} color={colors.brand} />
                                                                 </Pressable>
                                                                 {/* Delete button */}
                                                                 <Pressable
@@ -480,7 +480,7 @@ const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                                                                 onPress={() => handleSaveClick(profile.id)}
                                                                 android_ripple={{ color: colors.ripple, foreground: true }}
                                                             >
-                                                                <Save size={18} color={colors.primary} />
+                                                                <Save size={18} color={colors.brand} />
                                                             </Pressable>
                                                         )}
                                                     </View>
@@ -514,10 +514,10 @@ const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                             <Text style={styles.title}>Delete Profile</Text>
                             {/* Close button */}
                             <Pressable style={styles.closeButton} onPress={handleDeleteCancel} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                <X size={24} color={colors.foreground} />
+                                <X size={24} color={colors.text} />
                             </Pressable>
                         </View>
-                        <Text style={{ color: colors.foreground, marginBottom: 20 }}>Are you sure you want to delete this profile? This action cannot be undone.</Text>
+                        <Text style={{ color: colors.text, marginBottom: 20 }}>Are you sure you want to delete this profile? This action cannot be undone.</Text>
                         <View style={styles.buttonRow}>
                             <CustomButton onPress={handleDeleteCancel} variant="outline">
                                 Cancel

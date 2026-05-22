@@ -149,7 +149,7 @@ const DraggablePriorityList: React.FC<DraggablePriorityListProps> = ({ items, se
         return (
             <View key={item.id} style={{ marginVertical: 1 }} className={`mb-2 ${className}`}>
                 <Pressable
-                    style={{ justifyContent: "space-between", backgroundColor: colors.input }}
+                    style={{ justifyContent: "space-between", backgroundColor: colors.surfaceRaised }}
                     android_ripple={{ color: colors.ripple, foreground: true }}
                     className="flex flex-row items-center gap-2 border border-border rounded-lg p-2"
                 >
@@ -165,7 +165,7 @@ const DraggablePriorityList: React.FC<DraggablePriorityListProps> = ({ items, se
                         <Checkbox id={`priority-${item.id}`} checked={isSelected} onCheckedChange={() => toggleItem(item.id)} className="dark:border-gray-400" />
 
                         <View className="flex-1 gap-1">
-                            <Label style={{ color: colors.foreground }} className="text-sm" onPress={() => toggleItem(item.id)}>
+                            <Label style={{ color: colors.text }} className="text-sm" onPress={() => toggleItem(item.id)}>
                                 {item.label}
                             </Label>
                             {item.description && <UIText className="text-muted-foreground text-xs">{item.description}</UIText>}
@@ -175,7 +175,7 @@ const DraggablePriorityList: React.FC<DraggablePriorityListProps> = ({ items, se
                     {/* Drag Handle */}
                     {isSelected && (
                         <View>
-                            <Grip size={18} color={colors.primary} onPressIn={isSelected ? onDragStart : undefined} onPressOut={isSelected ? onDragEnd : undefined} />
+                            <Grip size={18} color={colors.brand} onPressIn={isSelected ? onDragStart : undefined} onPressOut={isSelected ? onDragEnd : undefined} />
                         </View>
                     )}
                 </Pressable>
@@ -185,7 +185,7 @@ const DraggablePriorityList: React.FC<DraggablePriorityListProps> = ({ items, se
 
     return (
         <View style={style}>
-            <Text style={{ fontSize: 12, color: colors.mutedForeground, paddingBottom: 10 }}>Drag items to reorder. Top to bottom = highest to lowest priority.</Text>
+            <Text style={{ fontSize: 12, color: colors.textMuted, paddingBottom: 10 }}>Drag items to reorder. Top to bottom = highest to lowest priority.</Text>
 
             {/* Always show the DragList, regardless of selection state */}
             <ScrollView scrollEnabled={true}>
@@ -205,13 +205,13 @@ const DraggablePriorityList: React.FC<DraggablePriorityListProps> = ({ items, se
                 {/* Scroll helper buttons for very long lists */}
                 {contentHeight > containerHeight && (
                     <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 10 }}>
-                        <Pressable style={{ borderColor: colors.primary }} className="px-3 py-1 border rounded" onPress={scrollToTop} android_ripple={{ color: colors.ripple, foreground: true }}>
-                            <Text style={{ color: colors.foreground }} className="text-xs">
+                        <Pressable style={{ borderColor: colors.brand }} className="px-3 py-1 border rounded" onPress={scrollToTop} android_ripple={{ color: colors.ripple, foreground: true }}>
+                            <Text style={{ color: colors.text }} className="text-xs">
                                 ↑ Scroll Up
                             </Text>
                         </Pressable>
-                        <Pressable style={{ borderColor: colors.primary }} className="px-3 py-1 border rounded" onPress={scrollToBottom} android_ripple={{ color: colors.ripple, foreground: true }}>
-                            <Text style={{ color: colors.foreground }} className="text-xs">
+                        <Pressable style={{ borderColor: colors.brand }} className="px-3 py-1 border rounded" onPress={scrollToBottom} android_ripple={{ color: colors.ripple, foreground: true }}>
+                            <Text style={{ color: colors.text }} className="text-xs">
                                 ↓ Scroll Down
                             </Text>
                         </Pressable>
@@ -220,7 +220,7 @@ const DraggablePriorityList: React.FC<DraggablePriorityListProps> = ({ items, se
             </ScrollView>
 
             {/* Show message below the list when no items are selected */}
-            {selectedItems.length === 0 && <Text style={{ fontSize: 12, color: colors.mutedForeground, paddingTop: 10 }}>No stats selected. Select stats to set priority order.</Text>}
+            {selectedItems.length === 0 && <Text style={{ fontSize: 12, color: colors.textMuted, paddingTop: 10 }}>No stats selected. Select stats to set priority order.</Text>}
         </View>
     )
 }
