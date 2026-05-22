@@ -4,6 +4,9 @@ import Slider from "@react-native-community/slider"
 import { useTheme } from "../../context/ThemeContext"
 import { copyToClipboard } from "../../lib/utils"
 import { pressSurfaceInner } from "../../lib/pressSurface"
+import { RADII } from "../../lib/radii"
+import { TYPE } from "../../lib/type"
+import { SPACING } from "../../lib/spacing"
 import { Input } from "../ui/input"
 import SearchableItem from "../SearchableItem"
 
@@ -116,13 +119,12 @@ const CustomSlider: React.FC<CustomSliderProps> = ({
         () =>
             StyleSheet.create({
                 container: {
-                    marginVertical: 16,
+                    marginVertical: SPACING.lg,
                 },
                 label: {
-                    fontSize: 16,
-                    fontWeight: "600",
+                    ...TYPE.h2,
                     color: colors.text,
-                    marginBottom: 12,
+                    marginBottom: SPACING.md,
                 },
                 sliderContainer: {
                     marginHorizontal: 20,
@@ -130,20 +132,20 @@ const CustomSlider: React.FC<CustomSliderProps> = ({
                 },
                 valueContainer: {
                     alignItems: "center",
-                    marginTop: 8,
+                    marginTop: SPACING.sm,
                     flexDirection: "row",
                     justifyContent: "space-between",
                     marginHorizontal: 20,
                 },
                 labelText: {
-                    fontSize: 12,
+                    ...TYPE.caption,
                     color: colors.brand,
                 },
                 descriptionText: {
-                    fontSize: 14,
+                    ...TYPE.body,
                     color: colors.text,
                     opacity: 0.7,
-                    marginBottom: 8,
+                    marginBottom: SPACING.sm,
                     marginTop: -4,
                 },
                 customThumb: {
@@ -158,9 +160,9 @@ const CustomSlider: React.FC<CustomSliderProps> = ({
                 tooltip: {
                     position: "absolute",
                     backgroundColor: colors.brand,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 6,
+                    paddingHorizontal: SPACING.md,
+                    paddingVertical: SPACING.sm,
+                    borderRadius: RADII.sm,
                     top: -45,
                     transform: [{ translateX: -20 }],
                     zIndex: 50,
@@ -174,8 +176,8 @@ const CustomSlider: React.FC<CustomSliderProps> = ({
                     elevation: 5,
                 },
                 tooltipText: {
+                    ...TYPE.caption,
                     color: colors.onBrand,
-                    fontSize: 12,
                     fontWeight: "600",
                     textAlign: "center",
                 },
@@ -197,7 +199,7 @@ const CustomSlider: React.FC<CustomSliderProps> = ({
                     fontSize: 18,
                     fontWeight: "600",
                     color: colors.text,
-                    marginLeft: 4,
+                    marginLeft: SPACING.xs,
                 },
             }),
         [colors]

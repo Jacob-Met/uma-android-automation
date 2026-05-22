@@ -4,6 +4,8 @@ import { Text } from "../ui/text"
 import { useTheme } from "../../context/ThemeContext"
 import { copyToClipboard } from "../../lib/utils"
 import { pressSurfaceInner, pressSurfaceOuter } from "../../lib/pressSurface"
+import { TYPE } from "../../lib/type"
+import { SPACING } from "../../lib/spacing"
 import { Option, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, NativeSelectScrollView } from "../ui/select"
 import SearchableItem from "../SearchableItem"
 
@@ -135,13 +137,13 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
         <View style={[pressSurfaceOuter, style]}>
             <Pressable style={pressSurfaceInner} onLongPress={label ? () => copyToClipboard(label) : undefined} android_ripple={label ? { color: colors.ripple, foreground: true } : undefined}>
                 {label && (
-                    <View style={{ marginBottom: 4 }}>
-                        <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text }}>{label}</Text>
+                    <View style={{ marginBottom: SPACING.xs }}>
+                        <Text style={{ ...TYPE.h2, color: colors.text }}>{label}</Text>
                     </View>
                 )}
                 {description && (
                     <View>
-                        <Text style={{ fontSize: 14, color: colors.text, opacity: 0.7, marginBottom: 4 }}>{description}</Text>
+                        <Text style={{ ...TYPE.body, color: colors.text, opacity: 0.7, marginBottom: SPACING.xs }}>{description}</Text>
                     </View>
                 )}
                 <Select onValueChange={handleValueChange} value={value as any} defaultValue={defaultValue as any} disabled={disabled}>
