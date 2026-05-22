@@ -6,123 +6,125 @@ import { databaseManager } from "../../lib/database"
 import { buildSettingsBanner } from "../../lib/messageLog/buildSettingsBanner"
 import { StyleSheet, Text, View, TextInput, Pressable, Animated } from "react-native"
 import { useTheme } from "../../context/ThemeContext"
+import type { ThemeColors } from "../../lib/theme"
 import * as Clipboard from "expo-clipboard"
 import { Copy, Plus, Minus, Type, X, ArrowUp, ArrowDown, ArrowUpAZ, ArrowDownZA } from "lucide-react-native"
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover"
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../ui/alert-dialog"
 import { CustomScrollView } from "../CustomScrollView"
 
-const styles = StyleSheet.create({
-    logInnerContainer: {
-        flex: 1,
-        width: "100%",
-        backgroundColor: "#2f2f2f",
-        borderStyle: "solid",
-        borderRadius: 25,
-        marginBottom: 10,
-        elevation: 10,
-        position: "relative",
-    },
-    searchContainer: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 15,
-        paddingVertical: 10,
-        backgroundColor: "#3a3a3a",
-        borderTopLeftRadius: 25,
-        borderTopRightRadius: 25,
-    },
-    searchInput: {
-        flex: 1,
-        backgroundColor: "transparent",
-        color: "white",
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        fontSize: 12,
-    },
-    searchInputContainer: {
-        flex: 1,
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: "#4a4a4a",
-        borderRadius: 8,
-        marginRight: 8,
-    },
-    clearButton: {
-        padding: 4,
-        marginRight: 8,
-    },
-    actionButton: {
-        padding: 8,
-        borderRadius: 6,
-        backgroundColor: "#5a5a5a",
-        marginLeft: 4,
-    },
-    logContainer: {
-        flex: 1,
-        paddingHorizontal: 15,
-        paddingBottom: 10,
-        marginTop: 10,
-    },
-    logText: {
-        color: "white",
-        fontFamily: "monospace",
-    },
-    logTextWarning: {
-        color: "#ffa500",
-        fontFamily: "monospace",
-    },
-    logTextError: {
-        color: "#ff4444",
-        fontFamily: "monospace",
-    },
-    logItem: {
-        paddingVertical: 1,
-        paddingHorizontal: 2,
-    },
-    popoverContentContainer: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 12,
-    },
-    popoverButtonContainer: {
-        flexDirection: "row",
-        gap: 8,
-    },
-    popoverButton: {
-        alignItems: "center",
-        justifyContent: "center",
-        paddingVertical: 6,
-        paddingHorizontal: 8,
-        borderRadius: 4,
-        backgroundColor: "#5a5a5a",
-        width: 28,
-        height: 28,
-    },
-    fontSizeDisplay: {
-        color: "white",
-        fontSize: 12,
-        fontWeight: "600",
-    },
-    floatingButtonContainer: {
-        position: "absolute",
-        bottom: 15,
-        right: 15,
-        flexDirection: "column",
-        gap: 6,
-        zIndex: 1000,
-    },
-    floatingButton: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: "#5a5a5a",
-        alignItems: "center",
-        justifyContent: "center",
-        elevation: 3,
-        opacity: 0.7,
-    },
-})
+const createStyles = (colors: ThemeColors) =>
+    StyleSheet.create({
+        logInnerContainer: {
+            flex: 1,
+            width: "100%",
+            backgroundColor: colors.surface,
+            borderStyle: "solid",
+            borderRadius: 25,
+            marginBottom: 10,
+            elevation: 10,
+            position: "relative",
+        },
+        searchContainer: {
+            flexDirection: "row",
+            alignItems: "center",
+            paddingHorizontal: 15,
+            paddingVertical: 10,
+            backgroundColor: colors.surfaceRaised,
+            borderTopLeftRadius: 25,
+            borderTopRightRadius: 25,
+        },
+        searchInput: {
+            flex: 1,
+            backgroundColor: "transparent",
+            color: colors.text,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            fontSize: 12,
+        },
+        searchInputContainer: {
+            flex: 1,
+            flexDirection: "row",
+            alignItems: "center",
+            backgroundColor: colors.bg,
+            borderRadius: 8,
+            marginRight: 8,
+        },
+        clearButton: {
+            padding: 4,
+            marginRight: 8,
+        },
+        actionButton: {
+            padding: 8,
+            borderRadius: 6,
+            backgroundColor: colors.surfaceRaised,
+            marginLeft: 4,
+        },
+        logContainer: {
+            flex: 1,
+            paddingHorizontal: 15,
+            paddingBottom: 10,
+            marginTop: 10,
+        },
+        logText: {
+            color: colors.text,
+            fontFamily: "monospace",
+        },
+        logTextWarning: {
+            color: colors.warning,
+            fontFamily: "monospace",
+        },
+        logTextError: {
+            color: colors.error,
+            fontFamily: "monospace",
+        },
+        logItem: {
+            paddingVertical: 1,
+            paddingHorizontal: 2,
+        },
+        popoverContentContainer: {
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+        },
+        popoverButtonContainer: {
+            flexDirection: "row",
+            gap: 8,
+        },
+        popoverButton: {
+            alignItems: "center",
+            justifyContent: "center",
+            paddingVertical: 6,
+            paddingHorizontal: 8,
+            borderRadius: 4,
+            backgroundColor: colors.surfaceRaised,
+            width: 28,
+            height: 28,
+        },
+        fontSizeDisplay: {
+            color: colors.text,
+            fontSize: 12,
+            fontWeight: "600",
+        },
+        floatingButtonContainer: {
+            position: "absolute",
+            bottom: 15,
+            right: 15,
+            flexDirection: "column",
+            gap: 6,
+            zIndex: 1000,
+        },
+        floatingButton: {
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: colors.surfaceRaised,
+            alignItems: "center",
+            justifyContent: "center",
+            elevation: 3,
+            opacity: 0.7,
+        },
+    })
 
 interface LogMessage {
     /** Unique identifier for the log message. */
@@ -145,6 +147,7 @@ interface LogMessage {
  */
 const LogItem = memo(({ item, fontSize, onLongPress, enableMessageIdDisplay }: { item: LogMessage; fontSize: number; onLongPress: (message: string) => void; enableMessageIdDisplay: boolean }) => {
     const { colors } = useTheme()
+    const styles = useMemo(() => createStyles(colors), [colors])
     /**
      * Returns the style for the log message based on its type.
      * @returns The style for the log message.
@@ -163,7 +166,7 @@ const LogItem = memo(({ item, fontSize, onLongPress, enableMessageIdDisplay }: {
             default:
                 return { ...styles.logText, ...baseStyle }
         }
-    }, [item.type, fontSize])
+    }, [item.type, fontSize, styles])
 
     /**
      * Trim leading newlines when message ID is present to maintain alignment.
@@ -180,7 +183,7 @@ const LogItem = memo(({ item, fontSize, onLongPress, enableMessageIdDisplay }: {
     return (
         <Pressable style={styles.logItem} onLongPress={() => onLongPress(item.text)} delayLongPress={500} android_ripple={{ color: colors.ripple, foreground: true }}>
             <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-                {enableMessageIdDisplay && item.messageId !== undefined && <Text style={[getTextStyle(), { color: "gray", minWidth: 40 }]}>[{item.messageId}]</Text>}
+                {enableMessageIdDisplay && item.messageId !== undefined && <Text style={[getTextStyle(), { color: colors.textSubtle, minWidth: 40 }]}>[{item.messageId}]</Text>}
                 <Text style={[getTextStyle(), { flex: 1, flexShrink: 1 }]}>{displayText}</Text>
             </View>
         </Pressable>
@@ -195,6 +198,7 @@ const LogItem = memo(({ item, fontSize, onLongPress, enableMessageIdDisplay }: {
  */
 const MessageLog = () => {
     const { colors } = useTheme()
+    const styles = useMemo(() => createStyles(colors), [colors])
     const mlc = useContext(MessageLogDataContext)
     const { appName, appVersion, setSettings } = useContext(BotMetaContext)
     const settings = useSettingsSnapshot()
@@ -625,7 +629,7 @@ const MessageLog = () => {
                     <TextInput
                         style={styles.searchInput}
                         placeholder="Search messages..."
-                        placeholderTextColor="#888"
+                        placeholderTextColor={colors.textMuted}
                         value={searchQuery}
                         onChangeText={setSearchQuery}
                         autoCorrect={false}
@@ -633,20 +637,20 @@ const MessageLog = () => {
                     />
                     {searchQuery.length > 0 && (
                         <Pressable style={styles.clearButton} onPress={clearSearch} android_ripple={{ color: colors.ripple, foreground: true }}>
-                            <X size={16} color="#888" />
+                            <X size={16} color={colors.textMuted} />
                         </Pressable>
                     )}
                 </View>
                 <Pressable style={styles.actionButton} onPress={copyToClipboard} android_ripple={{ color: colors.ripple, foreground: true }}>
-                    <Copy size={16} color="white" />
+                    <Copy size={16} color={colors.text} />
                 </Pressable>
                 <Pressable style={styles.actionButton} onPress={toggleSortOrder} android_ripple={{ color: colors.ripple, foreground: true }}>
-                    {sortOrder === "asc" ? <ArrowUpAZ size={16} color="white" /> : <ArrowDownZA size={16} color="white" />}
+                    {sortOrder === "asc" ? <ArrowUpAZ size={16} color={colors.text} /> : <ArrowDownZA size={16} color={colors.text} />}
                 </Pressable>
                 <Popover>
                     <PopoverTrigger asChild>
                         <Pressable style={styles.actionButton} android_ripple={{ color: colors.ripple, foreground: true }}>
-                            <Type size={16} color="white" />
+                            <Type size={16} color={colors.text} />
                         </Pressable>
                     </PopoverTrigger>
                     <PopoverContent className="bg-black w-auto p-2" align="end" side="bottom">
@@ -654,10 +658,10 @@ const MessageLog = () => {
                             <Text style={styles.fontSizeDisplay}>Font Size: {fontSize}pt</Text>
                             <View style={styles.popoverButtonContainer}>
                                 <Pressable style={styles.popoverButton} onPress={decreaseFontSize} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                    <Minus size={16} color="white" />
+                                    <Minus size={16} color={colors.text} />
                                 </Pressable>
                                 <Pressable style={styles.popoverButton} onPress={increaseFontSize} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                    <Plus size={16} color="white" />
+                                    <Plus size={16} color={colors.text} />
                                 </Pressable>
                             </View>
                         </View>
@@ -696,7 +700,7 @@ const MessageLog = () => {
                         }}
                     >
                         <Pressable style={styles.floatingButton} onPress={scrollToTop} android_ripple={{ color: colors.ripple, foreground: true }}>
-                            <ArrowUp size={16} color="white" />
+                            <ArrowUp size={16} color={colors.text} />
                         </Pressable>
                     </Animated.View>
                     <Animated.View
@@ -706,7 +710,7 @@ const MessageLog = () => {
                         }}
                     >
                         <Pressable style={styles.floatingButton} onPress={scrollToBottom} android_ripple={{ color: colors.ripple, foreground: true }}>
-                            <ArrowDown size={16} color="white" />
+                            <ArrowDown size={16} color={colors.text} />
                         </Pressable>
                     </Animated.View>
                 </View>
