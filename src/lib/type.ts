@@ -4,7 +4,8 @@ import type { TextStyle } from "react-native"
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Type scale
 //
-// Geist Sans for prose, Geist Mono for numerics and uppercase micro-labels. Tokens are partial `TextStyle`s so consumers can spread them into `StyleSheet.create` blocks without re-typing the font family.
+// Geist Sans for prose, Geist Mono for numerics and uppercase micro-labels.
+// Tokens are partial `TextStyle`s so consumers can spread them into `StyleSheet.create` blocks without re-typing the font family.
 
 export const TYPE = {
     /** Page titles, hero stat values. */
