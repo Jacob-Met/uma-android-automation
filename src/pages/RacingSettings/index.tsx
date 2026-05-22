@@ -1,18 +1,21 @@
 import { useMemo, useContext, useRef, useCallback } from "react"
 import { View, Text, TextInput, ScrollView, StyleSheet } from "react-native"
 import { useNavigation } from "@react-navigation/native"
+import { Ionicons } from "@react-native-vector-icons/ionicons"
 import { useTheme } from "../../context/ThemeContext"
 import { RacingContext, defaultSettings, Settings } from "../../context/BotStateContext"
 import { SearchPageProvider } from "../../context/SearchPageContext"
 import CustomCheckbox from "../../components/CustomCheckbox"
 import CustomSelect from "../../components/CustomSelect"
-import CustomTitle from "../../components/CustomTitle"
 import { Input } from "../../components/ui/input"
-import NavigationLink from "../../components/NavigationLink"
 import PageHeader from "../../components/PageHeader"
 import WarningContainer from "../../components/WarningContainer"
 import SearchableItem from "../../components/SearchableItem"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
+import { Row } from "../../components/ui/row"
+import { Section } from "../../components/ui/section"
+import { TYPE } from "../../lib/type"
+import { SPACING } from "../../lib/spacing"
 
 /**
  * The Racing Settings page.
@@ -176,7 +179,7 @@ const RacingSettings = () => {
                             />
                         </View>
 
-                        <CustomTitle title="Mandatory Race Settings" />
+                        <Text style={[TYPE.h2, { color: colors.text, marginBottom: SPACING.md }]}>Mandatory Race Settings</Text>
 
                         <View style={styles.inputContainer}>
                             <CustomCheckbox
@@ -427,14 +430,20 @@ const RacingSettings = () => {
                             style={{ marginBottom: 16 }}
                         />
 
-                        <NavigationLink
-                            title="Go to Smart Race Solver Settings"
-                            description="Plans every turn of the career to maximize score by targeting epithet rewards. The bot only races when the solver picks a race; other turns become training or rest, even when Farming Fans would otherwise add an extra race."
-                            disabled={enableForceRacing || enableUserInGameRaceAgenda}
-                            disabledDescription="Force Racing and User In-Game Race Agenda settings must be disabled in order to use the Smart Race Solver."
-                            onPress={() => navigation.navigate("SmartRaceSolverSettings" as never)}
-                            style={{ ...styles.section, marginTop: 0 }}
-                        />
+                        <Section label="Smart Race Solver">
+                            <Row
+                                title="Go to Smart Race Solver Settings"
+                                description="Plans every turn of the career to maximize score by targeting epithet rewards. The bot only races when the solver picks a race; other turns become training or rest, even when Farming Fans would otherwise add an extra race."
+                                disabled={enableForceRacing || enableUserInGameRaceAgenda}
+                                right={<Ionicons name="chevron-forward" size={20} color={colors.textMuted} />}
+                                onPress={() => navigation.navigate("SmartRaceSolverSettings" as never)}
+                            />
+                            {(enableForceRacing || enableUserInGameRaceAgenda) && (
+                                <View style={{ paddingHorizontal: SPACING.lg, paddingBottom: SPACING.md }}>
+                                    <WarningContainer>⚠️ Force Racing and User In-Game Race Agenda settings must be disabled in order to use the Smart Race Solver.</WarningContainer>
+                                </View>
+                            )}
+                        </Section>
                     </View>
                 </ScrollView>
             </SearchPageProvider>

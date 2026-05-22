@@ -37,7 +37,6 @@ import { RacingContext, GeneralMiscContext, defaultSettings } from "../../contex
 import { SearchPageProvider } from "../../context/SearchPageContext"
 import CustomCheckbox from "../../components/CustomCheckbox"
 import CustomButton from "../../components/CustomButton"
-import CustomAccordion from "../../components/CustomAccordion"
 import InfoContainer from "../../components/InfoContainer"
 import WarningContainer from "../../components/WarningContainer"
 import { Input } from "../../components/ui/input"
@@ -51,6 +50,9 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native"
 import { AptitudeRow, EpithetChip } from "./components/Helpers"
 import { GlassFab } from "../../components/ui/glass-fab"
 import { RefreshCw } from "lucide-react-native"
+import { Section } from "../../components/ui/section"
+import { TYPE } from "../../lib/type"
+import { SPACING } from "../../lib/spacing"
 
 // Stringify the bundled JSON once at module load so we don't pay the serialisation cost on every debounced preview call.
 const RACES_DATA_JSON = JSON.stringify(racesData)
@@ -1221,7 +1223,9 @@ const SmartRaceSolverSettings = () => {
                                     style={styles.section}
                                 >
                                     <View style={sectionsDisabledStyle}>
-                                        <Text style={styles.sectionTitle}>Target Epithets ({targetEpithets.length} selected)</Text>
+                                        <Text style={styles.sectionTitle}>
+                                            Target Epithets (<Text style={[TYPE.monoValue, { color: colors.text }]}>{targetEpithets.length}</Text> selected)
+                                        </Text>
                                         <Text style={styles.description}>
                                             Epithets the solver will pursue if doing so improves the schedule. The solver may pick smaller races (G2/G3/OP) just to complete a targeted epithet, even
                                             when those races wouldn't otherwise be worth racing. The schedule is still allowed to skip a target if it would hurt overall score — for guaranteed
@@ -1249,7 +1253,9 @@ const SmartRaceSolverSettings = () => {
                                     style={styles.section}
                                 >
                                     <View style={sectionsDisabledStyle}>
-                                        <Text style={styles.sectionTitle}>Forced Epithets ({forcedEpithets.length} selected)</Text>
+                                        <Text style={styles.sectionTitle}>
+                                            Forced Epithets (<Text style={[TYPE.monoValue, { color: colors.text }]}>{forcedEpithets.length}</Text> selected)
+                                        </Text>
                                         <Text style={styles.description}>
                                             Epithets the solver MUST complete. If a forced epithet becomes impossible (e.g. a required race is already lost), the solver fails and falls back. Use
                                             sparingly — every forced epithet shrinks the search space and may push the solver to skip otherwise-valuable races just to satisfy the constraint.
@@ -1315,15 +1321,10 @@ const SmartRaceSolverSettings = () => {
                                             Advanced settings that fine-tune how the solver values races vs. epithets and what it penalizes. Defaults work for most runs — only change these if you know
                                             how they interact.
                                         </Text>
-                                        <CustomAccordion
-                                            sections={[
-                                                {
-                                                    value: "weights",
-                                                    title: "Show advanced weights",
-                                                    children: (
-                                                        <View>
-                                                            <Pressable android_ripple={{ color: colors.ripple, foreground: true }}>
-                                                                <Text style={styles.inputLabel}>Race Value Weight</Text>
+                                        <Section label="Show advanced weights" collapsible defaultOpen={false}>
+                                            <View style={{ padding: SPACING.md }}>
+                                                <Pressable android_ripple={{ color: colors.ripple, foreground: true }}>
+                                                    <Text style={styles.inputLabel}>Race Value Weight</Text>
                                                                 <Input
                                                                     style={styles.input}
                                                                     value={raceValueInput}
@@ -1449,13 +1450,8 @@ const SmartRaceSolverSettings = () => {
                                                                     score zero net and only get raced when they progress an epithet. Lower this to schedule more races.
                                                                 </Text>
                                                             </Pressable>
-                                                        </View>
-                                                    ),
-                                                },
-                                            ]}
-                                            type="single"
-                                            defaultValue={[]}
-                                        />
+                                            </View>
+                                        </Section>
                                     </View>
                                 </SearchableItem>
 

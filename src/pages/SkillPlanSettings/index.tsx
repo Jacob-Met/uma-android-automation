@@ -16,6 +16,7 @@ import { CircleCheckBig, Trash2 } from "lucide-react-native"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
 import skillsData from "../../data/skills.json"
 import icons from "../SkillSettings/icons"
+import { TYPE } from "../../lib/type"
 
 /**
  * Represents a skill entry from the `skills.json` data file.
@@ -349,7 +350,7 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
             return (
                 <>
                     <Text style={styles.summary}>
-                        {header} ({ids.length}):
+                        {header} (<Text style={[TYPE.monoValue, { color: colors.text }]}>{ids.length}</Text>):
                     </Text>
                     {names.length === 0 ? (
                         <Text style={styles.summaryBullet}>- None</Text>
@@ -385,7 +386,7 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
                     <View style={{ flex: 1 }}>
                         <Text style={styles.sectionTitle}>{sectionTitle}</Text>
                         <Text style={[styles.inputDescription, { marginTop: 0 }]}>
-                            Selected {activeIds.length} / {filteredSkills.length} skills
+                            Selected <Text style={[TYPE.monoValue, { color: colors.text }]}>{activeIds.length}</Text> / <Text style={[TYPE.monoValue, { color: colors.text }]}>{filteredSkills.length}</Text> skills
                         </Text>
                     </View>
                     <View style={{ flexDirection: "row", gap: 8 }}>
@@ -397,10 +398,14 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
 
                 <View style={{ flexDirection: "row", marginBottom: 12, gap: 8 }}>
                     <Pressable onPress={() => setSelectionMode("plan")} style={[styles.modeTab, isPlanMode && styles.modeTabActive]} android_ripple={{ color: colors.ripple, foreground: true }}>
-                        <Text style={[styles.modeTabLabel, isPlanMode && styles.modeTabLabelActive]}>Plan ({planIds.length})</Text>
+                        <Text style={[styles.modeTabLabel, isPlanMode && styles.modeTabLabelActive]}>
+                            Plan (<Text style={TYPE.monoValue}>{planIds.length}</Text>)
+                        </Text>
                     </Pressable>
                     <Pressable onPress={() => setSelectionMode("blacklist")} style={[styles.modeTab, !isPlanMode && styles.modeTabActive]} android_ripple={{ color: colors.ripple, foreground: true }}>
-                        <Text style={[styles.modeTabLabel, !isPlanMode && styles.modeTabLabelActive]}>Blacklist ({blacklistIds.length})</Text>
+                        <Text style={[styles.modeTabLabel, !isPlanMode && styles.modeTabLabelActive]}>
+                            Blacklist (<Text style={TYPE.monoValue}>{blacklistIds.length}</Text>)
+                        </Text>
                     </Pressable>
                 </View>
 
@@ -433,7 +438,9 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
                                             <View style={{ flex: 1 }}>
                                                 <Text style={styles.skillName}>{skill.name_en}</Text>
                                                 <Text style={styles.skillDescription}>{skill.desc_en}</Text>
-                                                <Text style={styles.skillSubtext}>ID: {skill.id}</Text>
+                                                <Text style={styles.skillSubtext}>
+                                                    ID: <Text style={TYPE.monoValue}>{skill.id}</Text>
+                                                </Text>
                                             </View>
                                             {activeIds.includes(skill.id) && <CircleCheckBig size={18} color={selectionMode === "plan" ? "green" : "red"} />}
                                         </View>
