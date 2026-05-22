@@ -90,7 +90,7 @@ function MainDrawer() {
                 },
                 drawerActiveTintColor: colors.primary,
                 drawerInactiveTintColor: colors.foreground,
-                overlayColor: "rgba(0, 0, 0, 0.5)",
+                overlayColor: colors.glassBackdrop,
             }}
         >
             <Drawer.Screen name="Home" component={Home} />
