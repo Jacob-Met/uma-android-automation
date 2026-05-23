@@ -1,16 +1,23 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { View, ScrollView, StyleSheet, Text, TextInput, NativeModules, NativeEventEmitter, Alert, Linking, Pressable } from "react-native"
 import { Check, Trash2 } from "lucide-react-native"
+import Ionicons from "@react-native-vector-icons/ionicons"
 import { useTheme } from "../../context/ThemeContext"
 import { ChatContext } from "../../context/BotStateContext"
 import CustomButton from "../../components/CustomButton"
-import CustomCheckbox from "../../components/CustomCheckbox"
 import CustomSlider from "../../components/CustomSlider"
 import PageHeader from "../../components/PageHeader"
+import SearchableItem from "../../components/SearchableItem"
 import WarningContainer from "../../components/WarningContainer"
 import InfoContainer from "../../components/InfoContainer"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
+import { GlassSurface } from "../../components/ui/glass-surface"
+import RamGauge from "../../components/ui/ram-gauge"
+import { Row } from "../../components/ui/row"
 import { Section } from "../../components/ui/section"
+import { SectionLabel } from "../../components/ui/section-label"
+import { Switch } from "../../components/ui/switch"
+import { RADII } from "../../lib/radii"
 import { TYPE } from "../../lib/type"
 import { SPACING } from "../../lib/spacing"
 import { databaseManager } from "../../lib/database"
@@ -484,7 +491,6 @@ const LLMSettings = () => {
                 modelActionText: { color: colors.text, fontSize: 12 },
                 modelActionActiveText: { color: colors.brand, fontSize: 12, fontWeight: "600" as const },
                 activeBadge: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4, paddingHorizontal: 4 },
-                tuningHeader: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const },
                 warningHint: { fontSize: 11, color: colors.warningBorder ?? colors.text, marginTop: 6 },
                 buttonRow: { flexDirection: "row", gap: 8, marginTop: 8 },
             }),
@@ -498,35 +504,47 @@ const LLMSettings = () => {
                 <InfoContainer>Retrieve-only search always works. The options below add optional natural-language answers backed by an on-device model.</InfoContainer>
 
                 <View style={styles.section}>
-                    <CustomCheckbox
-                        checked={enableAskTheDocs}
-                        onCheckedChange={(checked) => updateChat({ enableAskTheDocs: checked })}
-                        label="Enable Ask the Docs feature"
-                        description="Show the Ask the Docs page in the navigation drawer and reveal the rest of these LLM options. Off by default."
-                        searchId="llm-enable-ask-the-docs"
-                    />
+                    <SearchableItem id="llm-enable-ask-the-docs" title="Enable Ask the Docs feature" description="Show the Ask the Docs page in the navigation drawer and reveal the rest of these LLM options. Off by default.">
+                        <Row
+                            title="Ask the Docs"
+                            description="On-device LLM that summarizes docs"
+                            right={<Switch checked={enableAskTheDocs} onCheckedChange={(checked) => updateChat({ enableAskTheDocs: checked })} />}
+                        />
+                    </SearchableItem>
                 </View>
 
                 {enableAskTheDocs && (
                     <>
                         <Section label="Device Fitness">
-                            <View style={{ paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md }}>
-                                {deviceCaps ? (
-                                    <>
-                                        <Text style={styles.statusRow}>
-                                            RAM: <Text style={[TYPE.monoValue, { color: colors.text }]}>{formatBytes(deviceCaps.totalRamBytes)}</Text> (
-                                            <Text style={[TYPE.monoValue, { color: colors.text }]}>{formatBytes(deviceCaps.availRamBytes)}</Text> free) · Acceleration: {accelerationTierLabel(tier)}
-                                        </Text>
-                                        <Text style={styles.hint}>
+                            {deviceCaps ? (() => {
+                                const totalRamGb = deviceCaps.totalRamBytes / 1024 / 1024 / 1024
+                                const freeRamGb = deviceCaps.availRamBytes / 1024 / 1024 / 1024
+                                const fillRatio = totalRamGb > 0 ? Math.min(1, Math.max(0, freeRamGb / totalRamGb)) : 0
+                                return (
+                                    <View style={{ paddingHorizontal: SPACING.md, paddingVertical: SPACING.md }}>
+                                        <RamGauge
+                                            label="Free RAM headroom"
+                                            verdict={`${freeRamGb.toFixed(1)} GB`}
+                                            fillRatio={fillRatio}
+                                            markers={[
+                                                { label: "0.5B", position: 0.07 },
+                                                { label: "1.5B", position: 0.17 },
+                                                { label: "3B", position: 0.32 },
+                                                { label: "7B", position: 0.7 },
+                                            ]}
+                                        />
+                                        <Text style={[styles.hint, { marginTop: SPACING.sm }]}>
                                             {recommended
                                                 ? `Recommended preset based on free RAM: ${recommended.label}.`
                                                 : "Free RAM is below the threshold for any preset. Generation may crash; consider closing background apps before downloading."}
                                         </Text>
-                                    </>
-                                ) : (
+                                    </View>
+                                )
+                            })() : (
+                                <View style={{ paddingHorizontal: SPACING.md, paddingVertical: SPACING.md }}>
                                     <Text style={styles.hint}>Reading device capabilities...</Text>
-                                )}
-                            </View>
+                                </View>
+                            )}
                         </Section>
 
                         <Section label="Ask the Docs Engine">
@@ -535,33 +553,30 @@ const LLMSettings = () => {
                                     The MiniLM embedder (~<Text style={[TYPE.monoValue, { color: colors.text }]}>{Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)}</Text> MB) powers documentation
                                     retrieval. It is downloaded on demand to keep the APK small; both retrieve-only search and the chat model require it. Hosted on Hugging Face; no token required.
                                 </Text>
-                                <Text style={styles.statusRow}>
-                                    {embedderReady ? (
-                                        <>
-                                            ✅ Installed (~<Text style={[TYPE.monoValue, { color: colors.text }]}>{Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)}</Text> MB)
-                                        </>
-                                    ) : (
-                                        "❌ Not installed"
-                                    )}
-                                </Text>
-                                {embedderProgressText && <Text style={styles.hint}>{embedderProgressText}</Text>}
-                                <View style={styles.buttonRow}>
-                                    {!embedderReady && !isEmbedderDownloading && (
-                                        <CustomButton variant="primary" onPress={handleDownloadEmbedder}>
-                                            Download engine
-                                        </CustomButton>
-                                    )}
-                                    {isEmbedderDownloading && (
-                                        <CustomButton variant="destructive" onPress={handleCancel}>
-                                            Cancel
-                                        </CustomButton>
-                                    )}
-                                    {embedderReady && !isEmbedderDownloading && (
-                                        <CustomButton variant="destructive" onPress={handleDeleteEmbedder}>
-                                            Delete engine
-                                        </CustomButton>
-                                    )}
-                                </View>
+                                {!embedderReady ? (
+                                    <GlassSurface>
+                                        <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.md, padding: SPACING.md }}>
+                                            <View style={{ width: 38, height: 38, borderRadius: 999, backgroundColor: colors.brandSubtle, alignItems: "center", justifyContent: "center" }}>
+                                                <Ionicons name="download-outline" size={20} color={colors.brand} />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={{ ...TYPE.body, color: colors.text, fontWeight: "600" }}>Engine not installed</Text>
+                                                <Text style={{ ...TYPE.caption, color: colors.textMuted }}>{Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)} MB · One-time download · Free</Text>
+                                            </View>
+                                            {!isEmbedderDownloading ? (
+                                                <CustomButton variant="primary" onPress={handleDownloadEmbedder}>Download</CustomButton>
+                                            ) : (
+                                                <CustomButton variant="destructive" onPress={handleCancel}>Cancel</CustomButton>
+                                            )}
+                                        </View>
+                                    </GlassSurface>
+                                ) : (
+                                    <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm }}>
+                                        <Text style={{ ...TYPE.caption, color: colors.textMuted, flex: 1 }}>Engine installed · {Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)} MB</Text>
+                                        <CustomButton variant="destructive" onPress={handleDeleteEmbedder}>Delete</CustomButton>
+                                    </View>
+                                )}
+                                {embedderProgressText && <Text style={[styles.hint, { paddingHorizontal: SPACING.md, marginTop: SPACING.xs }]}>{embedderProgressText}</Text>}
                             </View>
                         </Section>
 
@@ -698,14 +713,21 @@ const LLMSettings = () => {
                             </Section>
                         )}
 
-                        <Section label="Generation Tuning">
-                            <View style={{ paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md }}>
-                                <View style={styles.tuningHeader}>
-                                    <Text style={[TYPE.body, { color: colors.text }]}>Tune defaults</Text>
-                                    <Pressable onPress={handleResetTuning} style={styles.linkRow} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                        <Text style={styles.link}>Reset to defaults</Text>
+                        <View style={styles.section}>
+                            <SectionLabel
+                                label="Generation Tuning"
+                                right={
+                                    <Pressable
+                                        onPress={handleResetTuning}
+                                        android_ripple={{ color: colors.ripple, foreground: true }}
+                                        style={{ marginLeft: "auto", paddingHorizontal: SPACING.sm, paddingVertical: 2, backgroundColor: colors.brandSubtle, borderColor: colors.brandBorder, borderWidth: 1, borderRadius: RADII.pill }}
+                                        hitSlop={6}
+                                    >
+                                        <Text style={{ ...TYPE.caption, color: colors.brand }}>Reset</Text>
                                     </Pressable>
-                                </View>
+                                }
+                            />
+                            <View style={{ paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md }}>
                                 <Text style={styles.hint}>Bigger numbers = longer, slower answers. Changes apply to the next chat call. Engine context window changes reload the loaded model.</Text>
                                 <CustomSlider
                                     label="Max output tokens"
@@ -739,7 +761,7 @@ const LLMSettings = () => {
                                 />
                                 {ekvCapWarning && <Text style={styles.warningHint}>{ekvCapWarning}</Text>}
                             </View>
-                        </Section>
+                        </View>
 
                         <WarningContainer>
                             Generated answers may occasionally be wrong or phrased imprecisely. A verifier guards against clear hallucinations by falling back to showing the source text verbatim, but
