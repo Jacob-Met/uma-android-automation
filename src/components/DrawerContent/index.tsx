@@ -52,6 +52,7 @@ const SECTIONS: DrawerSection[] = [
         label: "Overview",
         items: [
             { label: "Home", icon: "home-outline", route: "Home" },
+            { label: "Settings", icon: "settings-outline", route: "SettingsMain" },
             { label: "Ask the Docs", icon: "chatbubble-outline", route: "Chat" },
         ],
     },
@@ -169,26 +170,11 @@ const DrawerContent: React.FC<DrawerContentComponentProps> = (props) => {
                     fontSize: 14,
                     color: colors.textMuted,
                 },
-                searchRow: {
-                    flexDirection: "row",
-                    alignItems: "center",
-                    backgroundColor: colors.surfaceRaised,
-                    borderRadius: 12,
-                    marginHorizontal: SPACING.md,
-                    marginTop: SPACING.md,
-                    paddingHorizontal: SPACING.md,
-                    paddingVertical: SPACING.sm + 2,
-                    overflow: "hidden",
-                },
-                searchPlaceholder: {
-                    ...TYPE.body,
-                    color: colors.textMuted,
-                    marginLeft: SPACING.sm,
-                    flex: 1,
-                },
                 recentStrip: {
                     paddingHorizontal: SPACING.md,
                     paddingVertical: SPACING.sm,
+                    flexGrow: 0,
+                    flexShrink: 0,
                 },
                 recentChip: {
                     backgroundColor: colors.surfaceRaised,
@@ -401,14 +387,6 @@ const DrawerContent: React.FC<DrawerContentComponentProps> = (props) => {
     )
 
     /**
-     * Dispatches a navigation to Home with a fresh `openSearch` token. PageHeader watches this token
-     * and opens its search input when it changes.
-     */
-    const handleSearchPress = useCallback(() => {
-        handleNavigation("Home", { openSearch: Date.now() })
-    }, [handleNavigation])
-
-    /**
      * Checks whether a route is the currently visible screen.
      * @param routeName The route to check.
      * @returns True if the route matches the current visible screen.
@@ -488,11 +466,6 @@ const DrawerContent: React.FC<DrawerContentComponentProps> = (props) => {
                         <AvatarImage source={require("../../assets/app_icon.png")} />
                     </Avatar>
                 </View>
-
-                <Pressable style={styles.searchRow} android_ripple={{ color: colors.ripple, foreground: true }} onPress={handleSearchPress}>
-                    <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-                    <Text style={styles.searchPlaceholder}>Search settings...</Text>
-                </Pressable>
 
                 {visibleRecent.length > 0 && (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recentStrip} contentContainerStyle={{ alignItems: "center" }}>
