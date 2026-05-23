@@ -1,26 +1,36 @@
-import { useMemo, useContext, useRef, useCallback } from "react"
-import { View, Text, TextInput, ScrollView, StyleSheet } from "react-native"
+import { useMemo, useContext, useRef, useCallback, useState } from "react"
+import { View, Text, TextInput, ScrollView, StyleSheet, Pressable } from "react-native"
 import { useNavigation } from "@react-navigation/native"
-import { Ionicons } from "@react-native-vector-icons/ionicons"
+import { Cpu, ChevronRight } from "lucide-react-native"
 import { useTheme } from "../../context/ThemeContext"
 import { RacingContext, defaultSettings, Settings } from "../../context/BotStateContext"
 import { SearchPageProvider } from "../../context/SearchPageContext"
 import CustomCheckbox from "../../components/CustomCheckbox"
 import CustomSelect from "../../components/CustomSelect"
-import { Input } from "../../components/ui/input"
+import CustomSlider from "../../components/CustomSlider"
+import CustomButton from "../../components/CustomButton"
 import PageHeader from "../../components/PageHeader"
 import WarningContainer from "../../components/WarningContainer"
 import SearchableItem from "../../components/SearchableItem"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
 import { Row } from "../../components/ui/row"
 import { Section } from "../../components/ui/section"
+import { SectionLabel } from "../../components/ui/section-label"
+import { Switch } from "../../components/ui/switch"
+import { GlassSurface } from "../../components/ui/glass-surface"
+import { GlassModal } from "../../components/ui/glass-modal"
 import { TYPE } from "../../lib/type"
 import { SPACING } from "../../lib/spacing"
+import { RADII } from "../../lib/radii"
+
+/** Available race strategy values for both Junior Year and Original strategy pickers. */
+const RACE_STRATEGY_OPTIONS = ["Default", "Auto", "Front", "Pace", "Late", "End"] as const
+
+type RaceStrategy = (typeof RACE_STRATEGY_OPTIONS)[number]
 
 /**
  * The Racing Settings page.
- * Provides configuration for fan farming, race retries, mandatory race handling, race strategies (Junior vs. Original),
- * force racing, in-game race agenda, and navigation to the Smart Race Solver Settings sub-page.
+ * Provides configuration for fan farming, race behavior, race strategies, force racing, in-game race agenda, and navigation to the Smart Race Solver Settings sub-page.
  */
 const RacingSettings = () => {
     usePerformanceLogging("RacingSettings")
@@ -28,6 +38,10 @@ const RacingSettings = () => {
     const navigation = useNavigation()
     const { racing, updateRacing } = useContext(RacingContext)
     const scrollViewRef = useRef<ScrollView>(null)
+
+    // Modal state for the Junior / Original strategy pickers (nav-row + chip pattern).
+    const [juniorPickerOpen, setJuniorPickerOpen] = useState(false)
+    const [originalPickerOpen, setOriginalPickerOpen] = useState(false)
 
     // Merge current racing settings with defaults to handle missing properties.
     const racingSettings = { ...defaultSettings.racing, ...racing }
@@ -111,8 +125,78 @@ const RacingSettings = () => {
                     opacity: 0.7,
                     marginTop: 4,
                 },
+                pickerModal: {
+                    padding: SPACING.lg,
+                    minWidth: 260,
+                },
+                pickerTitle: {
+                    ...TYPE.h2,
+                    color: colors.text,
+                    marginBottom: SPACING.md,
+                },
+                pickerOption: {
+                    paddingVertical: SPACING.md,
+                    paddingHorizontal: SPACING.md,
+                    borderRadius: RADII.md,
+                },
+                pickerOptionSelected: {
+                    backgroundColor: colors.brandSubtle,
+                },
+                pickerOptionText: {
+                    ...TYPE.body,
+                    color: colors.text,
+                },
+                pickerOptionTextSelected: {
+                    color: colors.brand,
+                    fontWeight: "600",
+                },
             }),
         [colors]
+    )
+
+    /**
+     * Render a small cyan pill displaying the current strategy value (for nav rows).
+     * @param label The strategy value to render inside the pill.
+     * @returns A styled `Text` node sized to fit the value.
+     */
+    const renderStrategyPill = (label: string) => (
+        <Text
+            style={{
+                ...TYPE.monoLabel,
+                color: colors.brand,
+                paddingHorizontal: SPACING.sm,
+                paddingVertical: 2,
+                backgroundColor: colors.brandSubtle,
+                borderRadius: RADII.pill,
+                overflow: "hidden",
+            }}
+        >
+            {label}
+        </Text>
+    )
+
+    /**
+     * Render the modal contents for a strategy picker.
+     * @param current The currently selected strategy.
+     * @param onSelect Called when the user picks a new value (the modal close is handled by the caller).
+     * @returns A list of pressable option rows.
+     */
+    const renderStrategyOptions = (current: string, onSelect: (value: RaceStrategy) => void) => (
+        <View>
+            {RACE_STRATEGY_OPTIONS.map((option) => {
+                const selected = option === current
+                return (
+                    <Pressable
+                        key={option}
+                        onPress={() => onSelect(option)}
+                        android_ripple={{ color: colors.ripple, foreground: true }}
+                        style={[styles.pickerOption, selected && styles.pickerOptionSelected]}
+                    >
+                        <Text style={[styles.pickerOptionText, selected && styles.pickerOptionTextSelected]}>{option}</Text>
+                    </Pressable>
+                )
+            })}
+        </View>
     )
 
     return (
@@ -128,218 +212,233 @@ const RacingSettings = () => {
                 >
                     <PageHeader title="Racing Settings" />
                     <View className="m-1">
-                        <View style={styles.section}>
-                            <CustomCheckbox
-                                searchId="enable-farming-fans"
-                                checked={enableFarmingFans}
-                                onCheckedChange={(checked) => updateRacingSetting("enableFarmingFans", checked)}
-                                label="Enable Farming Fans"
+                        {/* //////////////////////////////////////////////////////////////////////////////////////////////////
+                            //////////////////////////////////////////////////////////////////////////////////////////////////
+                            Fan Farming */}
+                        <Section label="Fan Farming">
+                            <SearchableItem
+                                id="enable-farming-fans"
+                                title="Enable Farming Fans"
                                 description="When enabled, the bot will start running extra races to gain fans."
-                                className="my-2"
-                            />
-                        </View>
+                            >
+                                <Row
+                                    title="Enable Farming Fans"
+                                    description="When enabled, the bot will start running extra races to gain fans."
+                                    right={<Switch checked={enableFarmingFans} onCheckedChange={(checked) => updateRacingSetting("enableFarmingFans", checked)} />}
+                                />
+                            </SearchableItem>
+                            <View style={{ paddingHorizontal: SPACING.md, paddingVertical: SPACING.md }}>
+                                <CustomSlider
+                                    searchId="days-to-run-extra-races"
+                                    value={daysToRunExtraRaces}
+                                    placeholder={defaultSettings.racing.daysToRunExtraRaces}
+                                    onValueChange={(value) => updateRacingSetting("daysToRunExtraRaces", value)}
+                                    min={1}
+                                    max={15}
+                                    step={1}
+                                    label="Days to Run Extra Races"
+                                    showValue={true}
+                                    showLabels={true}
+                                    description="Extra races are eligible only on days where current day % value == 0. For example, 5 means days 5, 10, 15, etc. Has no effect when Smart Race Solver is enabled."
+                                />
+                            </View>
+                        </Section>
 
-                        <SearchableItem id="days-to-run-extra-races" title="Days to Run Extra Races" description="Controls when extra races can be run using modulo arithmetic." style={styles.section}>
-                            <Text style={styles.inputLabel}>Days to Run Extra Races</Text>
-                            <Input
-                                style={styles.input}
-                                value={daysToRunExtraRaces.toString()}
-                                onChangeText={(text) => {
-                                    const value = parseInt(text) || 1
-                                    updateRacingSetting("daysToRunExtraRaces", value)
-                                }}
-                                keyboardType="numeric"
-                                placeholder="5"
-                            />
-                            <Text style={styles.inputDescription}>
-                                Controls when extra races can be run using modulo arithmetic. For example, if set to 5, extra races will only be available on days 5, 10, 15, etc. (when current day % 5
-                                = 0). Note: This setting has no effect when Smart Race Solver is enabled, as the solver controls race scheduling based on epithet completion analysis.
-                            </Text>
-                        </SearchableItem>
-
-                        <View style={styles.section}>
-                            <CustomCheckbox
-                                searchId="ignore-consecutive-race-warning"
-                                checked={ignoreConsecutiveRaceWarning}
-                                onCheckedChange={(checked) => updateRacingSetting("ignoreConsecutiveRaceWarning", checked)}
-                                label="Ignore Consecutive Race Warning"
+                        {/* //////////////////////////////////////////////////////////////////////////////////////////////////
+                            //////////////////////////////////////////////////////////////////////////////////////////////////
+                            Race Behavior */}
+                        <Section label="Race Behavior">
+                            <SearchableItem
+                                id="ignore-consecutive-race-warning"
+                                title="Ignore Consecutive Race Warning"
                                 description="When enabled, the bot will ignore the warning popup about consecutive races and continue racing."
-                                className="my-2"
-                            />
-                        </View>
-
-                        <View style={styles.section}>
-                            <CustomCheckbox
-                                searchId="ignore-low-energy-racing-block"
-                                checked={ignoreLowEnergyRacingBlock}
-                                onCheckedChange={(checked) => updateRacingSetting("ignoreLowEnergyRacingBlock", checked)}
-                                label="Ignore Low Energy Racing Block"
-                                description="When enabled, the Trackblazer bot will not block racing when energy is critically low (<=1%) with 3+ consecutive races. Useful to avoid the larger -80 penalty from skipping derby races."
-                                className="my-2"
-                            />
-                        </View>
-
-                        <Text style={[TYPE.h2, { color: colors.text, marginBottom: SPACING.md }]}>Mandatory Race Settings</Text>
-
-                        <View style={styles.inputContainer}>
-                            <CustomCheckbox
-                                searchId="disable-race-retries"
-                                checked={disableRaceRetries}
-                                onCheckedChange={(checked) => updateRacingSetting("disableRaceRetries", checked)}
-                                label="Disable Race Retries"
+                            >
+                                <Row
+                                    title="Ignore Consecutive Race Warning"
+                                    description="When enabled, the bot will ignore the warning popup about consecutive races and continue racing."
+                                    right={
+                                        <Switch
+                                            checked={ignoreConsecutiveRaceWarning}
+                                            onCheckedChange={(checked) => updateRacingSetting("ignoreConsecutiveRaceWarning", checked)}
+                                        />
+                                    }
+                                />
+                            </SearchableItem>
+                            <SearchableItem
+                                id="ignore-low-energy-racing-block"
+                                title="Ignore Low Energy Racing Block"
+                                description="When enabled, the Trackblazer bot will not block racing when energy is critically low (<=1%) with 3+ consecutive races."
+                            >
+                                <Row
+                                    title="Ignore Low Energy Racing Block"
+                                    description="Skip the safety check that prevents racing at <=1% energy after 3+ consecutive races. Useful to avoid the larger -80 penalty from skipping derby races."
+                                    right={
+                                        <Switch
+                                            checked={ignoreLowEnergyRacingBlock}
+                                            onCheckedChange={(checked) => updateRacingSetting("ignoreLowEnergyRacingBlock", checked)}
+                                        />
+                                    }
+                                />
+                            </SearchableItem>
+                            <SearchableItem
+                                id="disable-race-retries"
+                                title="Disable Race Retries"
                                 description="When enabled, the bot will not retry mandatory races if they fail and will stop."
-                                className="my-2"
-                            />
-                            <CustomCheckbox
-                                searchId="enable-free-race-retry"
-                                searchCondition={disableRaceRetries}
-                                parentId="disable-race-retries"
-                                checked={enableFreeRaceRetry}
-                                onCheckedChange={(checked) => updateRacingSetting("enableFreeRaceRetry", checked)}
-                                label="Allow Daily Free Race Retry"
+                            >
+                                <Row
+                                    title="Disable Race Retries"
+                                    description="When enabled, the bot will not retry mandatory races if they fail and will stop."
+                                    right={<Switch checked={disableRaceRetries} onCheckedChange={(checked) => updateRacingSetting("disableRaceRetries", checked)} />}
+                                />
+                            </SearchableItem>
+                            <SearchableItem
+                                id="enable-free-race-retry"
+                                title="Allow Daily Free Race Retry"
                                 description="When enabled, the bot will attempt to retry a failed mandatory race only if the daily free race retry is available."
-                                className="my-2"
-                            />
-                            <CustomCheckbox
-                                searchId="enable-complete-career-on-failure"
-                                checked={enableCompleteCareerOnFailure}
-                                onCheckedChange={(checked) => updateRacingSetting("enableCompleteCareerOnFailure", checked)}
-                                label="Complete Career on Failure"
-                                description="When enabled, the bot will proceed to the career completion screen when a mandatory race is failed and it has run out of retries (or if retries are disabled). This is as opposed to the bot stopping at the Try Again dialog."
-                                className="my-2"
-                            />
-                            <CustomCheckbox
-                                searchId="enable-stop-on-mandatory-races"
-                                checked={enableStopOnMandatoryRaces}
-                                onCheckedChange={(checked) => updateRacingSetting("enableStopOnMandatoryRaces", checked)}
-                                label="Stop on Mandatory Races"
+                                condition={disableRaceRetries}
+                                parentId="disable-race-retries"
+                            >
+                                <Row
+                                    title="Allow Daily Free Race Retry"
+                                    description="When enabled, the bot will retry a failed mandatory race only if the daily free retry is still available."
+                                    right={<Switch checked={enableFreeRaceRetry} onCheckedChange={(checked) => updateRacingSetting("enableFreeRaceRetry", checked)} />}
+                                />
+                            </SearchableItem>
+                            <SearchableItem
+                                id="enable-complete-career-on-failure"
+                                title="Complete Career on Failure"
+                                description="When enabled, the bot will proceed to the career completion screen when a mandatory race fails and retries are exhausted."
+                            >
+                                <Row
+                                    title="Complete Career on Failure"
+                                    description="Proceed to the career completion screen when a mandatory race fails after retries are exhausted, instead of stopping at the Try Again dialog."
+                                    right={
+                                        <Switch
+                                            checked={enableCompleteCareerOnFailure}
+                                            onCheckedChange={(checked) => updateRacingSetting("enableCompleteCareerOnFailure", checked)}
+                                        />
+                                    }
+                                />
+                            </SearchableItem>
+                            <SearchableItem
+                                id="enable-stop-on-mandatory-races"
+                                title="Stop on Mandatory Races"
                                 description="When enabled, the bot will automatically stop when it encounters a mandatory race, allowing you to manually handle them."
-                                className="my-2"
-                            />
-                            <CustomCheckbox
-                                searchId="enable-per-distance-strategy"
-                                checked={enablePerDistanceStrategy}
-                                onCheckedChange={(checked) => updateRacingSetting("enablePerDistanceStrategy", checked)}
-                                label="Per-Distance Strategy"
-                                description="When enabled, allows setting different race strategies for each track distance (Short, Mile, Medium, Long) instead of a single strategy for all races."
-                                className="my-2"
-                            />
-                        </View>
+                            >
+                                <Row
+                                    title="Stop on Mandatory Races"
+                                    description="When enabled, the bot will automatically stop when it encounters a mandatory race, allowing you to handle them manually."
+                                    right={
+                                        <Switch
+                                            checked={enableStopOnMandatoryRaces}
+                                            onCheckedChange={(checked) => updateRacingSetting("enableStopOnMandatoryRaces", checked)}
+                                        />
+                                    }
+                                />
+                            </SearchableItem>
+                        </Section>
 
-                        {!enablePerDistanceStrategy ? (
-                            <>
-                                <View style={styles.inputContainer}>
-                                    <Text style={styles.inputLabel}>Junior Year Race Strategy</Text>
-                                    <CustomSelect
-                                        searchId="junior-year-race-strategy"
-                                        searchTitle="Junior Year Race Strategy"
-                                        searchDescription="The race strategy to use for all races during Junior Year."
-                                        options={[
-                                            { value: "Default", label: "Default" },
-                                            { value: "Auto", label: "Auto" },
-                                            { value: "Front", label: "Front" },
-                                            { value: "Pace", label: "Pace" },
-                                            { value: "Late", label: "Late" },
-                                            { value: "End", label: "End" },
-                                        ]}
-                                        value={juniorYearRaceStrategy}
-                                        onValueChange={(value) => updateRacingSetting("juniorYearRaceStrategy", value)}
-                                        placeholder="Select strategy"
-                                    />
-                                    <Text style={styles.inputDescription}>
-                                        The race strategy to use for all races during Junior Year. If Auto is selected, the bot will auto-select the best strategy that puts them closest to the front
-                                        of the pack.
-                                    </Text>
-                                </View>
-                                <View style={styles.inputContainer}>
-                                    <Text style={styles.inputLabel}>Original Race Strategy</Text>
-                                    <CustomSelect
-                                        searchId="original-race-strategy"
-                                        searchTitle="Original Race Strategy"
-                                        searchDescription="The race strategy to reset to after Junior Year. The bot will use this strategy for races in Year 2 and beyond."
-                                        options={[
-                                            { value: "Default", label: "Default" },
-                                            { value: "Auto", label: "Auto" },
-                                            { value: "Front", label: "Front" },
-                                            { value: "Pace", label: "Pace" },
-                                            { value: "Late", label: "Late" },
-                                            { value: "End", label: "End" },
-                                        ]}
-                                        value={originalRaceStrategy}
-                                        onValueChange={(value) => updateRacingSetting("originalRaceStrategy", value)}
-                                        placeholder="Select strategy"
-                                    />
-                                    <Text style={styles.inputDescription}>
-                                        The race strategy to reset to after Junior Year. The bot will use this strategy for races in Year 2 and beyond. If Auto is selected, the bot will auto-select
-                                        the best strategy that puts them closest to the front of the pack. If Default is selected, the bot will not change whatever strategy is currently in effect.
-                                    </Text>
-                                </View>
-                            </>
-                        ) : (
-                            <>
-                                <View style={styles.inputContainer}>
+                        {/* //////////////////////////////////////////////////////////////////////////////////////////////////
+                            //////////////////////////////////////////////////////////////////////////////////////////////////
+                            Strategy */}
+                        <Section label="Strategy">
+                            <SearchableItem
+                                id="enable-per-distance-strategy"
+                                title="Per-Distance Strategy"
+                                description="When enabled, allows setting different race strategies for each track distance."
+                            >
+                                <Row
+                                    title="Per-Distance Strategy"
+                                    description="Set different race strategies per track distance (Short, Mile, Medium, Long) instead of a single strategy for all races."
+                                    right={
+                                        <Switch
+                                            checked={enablePerDistanceStrategy}
+                                            onCheckedChange={(checked) => updateRacingSetting("enablePerDistanceStrategy", checked)}
+                                        />
+                                    }
+                                />
+                            </SearchableItem>
+
+                            {!enablePerDistanceStrategy ? (
+                                <>
+                                    <SearchableItem
+                                        id="junior-year-race-strategy"
+                                        title="Junior Year Race Strategy"
+                                        description="The race strategy to use for all races during Junior Year."
+                                    >
+                                        <Row
+                                            title="Junior Year Strategy"
+                                            description="Strategy used for all races during Junior Year. Auto picks the strategy closest to the front of the pack."
+                                            onPress={() => setJuniorPickerOpen(true)}
+                                            right={renderStrategyPill(juniorYearRaceStrategy)}
+                                        />
+                                    </SearchableItem>
+                                    <SearchableItem
+                                        id="original-race-strategy"
+                                        title="Original Race Strategy"
+                                        description="The race strategy to reset to after Junior Year. The bot will use this strategy for races in Year 2 and beyond."
+                                    >
+                                        <Row
+                                            title="Original Strategy"
+                                            description="Strategy used for races in Year 2 and beyond. Default leaves the current in-game strategy alone."
+                                            onPress={() => setOriginalPickerOpen(true)}
+                                            right={renderStrategyPill(originalRaceStrategy)}
+                                        />
+                                    </SearchableItem>
+                                </>
+                            ) : (
+                                <View style={{ padding: SPACING.md }}>
                                     <Text style={styles.inputDescription}>
                                         Set a different race strategy for each track distance. If Auto is selected, the bot will auto-select the best strategy. If Default is selected, the bot will not
                                         change whatever strategy is currently in effect.
                                     </Text>
+                                    <View style={styles.inputContainer}>
+                                        <Text style={styles.inputLabel}>Junior Year Per-Distance Strategy</Text>
+                                        {(["Short", "Mile", "Medium", "Long"] as const).map((distance) => (
+                                            <View key={`junior-${distance}`} style={{ marginBottom: 8 }}>
+                                                <Text style={[styles.inputDescription, { marginBottom: 4 }]}>{distance}</Text>
+                                                <CustomSelect
+                                                    searchId={`junior-strategy-${distance.toLowerCase()}`}
+                                                    searchTitle={`Junior Year ${distance} Distance Strategy`}
+                                                    searchDescription={`The race strategy to use for ${distance.toLowerCase()} distance races during Junior Year.`}
+                                                    options={RACE_STRATEGY_OPTIONS.map((value) => ({ value, label: value }))}
+                                                    value={juniorYearPerDistanceStrategies?.[distance] ?? "Default"}
+                                                    onValueChange={(value) => {
+                                                        const updated = { ...juniorYearPerDistanceStrategies, [distance]: value }
+                                                        updateRacingSetting("juniorYearPerDistanceStrategies", updated)
+                                                    }}
+                                                    placeholder="Select strategy"
+                                                />
+                                            </View>
+                                        ))}
+                                    </View>
+                                    <View style={styles.inputContainer}>
+                                        <Text style={styles.inputLabel}>Original Per-Distance Strategy</Text>
+                                        {(["Short", "Mile", "Medium", "Long"] as const).map((distance) => (
+                                            <View key={`original-${distance}`} style={{ marginBottom: 8 }}>
+                                                <Text style={[styles.inputDescription, { marginBottom: 4 }]}>{distance}</Text>
+                                                <CustomSelect
+                                                    searchId={`original-strategy-${distance.toLowerCase()}`}
+                                                    searchTitle={`Original ${distance} Distance Strategy`}
+                                                    searchDescription={`The race strategy to use for ${distance.toLowerCase()} distance races in Year 2 and beyond.`}
+                                                    options={RACE_STRATEGY_OPTIONS.map((value) => ({ value, label: value }))}
+                                                    value={originalPerDistanceStrategies?.[distance] ?? "Default"}
+                                                    onValueChange={(value) => {
+                                                        const updated = { ...originalPerDistanceStrategies, [distance]: value }
+                                                        updateRacingSetting("originalPerDistanceStrategies", updated)
+                                                    }}
+                                                    placeholder="Select strategy"
+                                                />
+                                            </View>
+                                        ))}
+                                    </View>
                                 </View>
-                                <View style={styles.inputContainer}>
-                                    <Text style={styles.inputLabel}>Junior Year Per-Distance Strategy</Text>
-                                    {(["Short", "Mile", "Medium", "Long"] as const).map((distance) => (
-                                        <View key={`junior-${distance}`} style={{ marginBottom: 8 }}>
-                                            <Text style={[styles.inputDescription, { marginBottom: 4 }]}>{distance}</Text>
-                                            <CustomSelect
-                                                searchId={`junior-strategy-${distance.toLowerCase()}`}
-                                                searchTitle={`Junior Year ${distance} Distance Strategy`}
-                                                searchDescription={`The race strategy to use for ${distance.toLowerCase()} distance races during Junior Year.`}
-                                                options={[
-                                                    { value: "Default", label: "Default" },
-                                                    { value: "Auto", label: "Auto" },
-                                                    { value: "Front", label: "Front" },
-                                                    { value: "Pace", label: "Pace" },
-                                                    { value: "Late", label: "Late" },
-                                                    { value: "End", label: "End" },
-                                                ]}
-                                                value={juniorYearPerDistanceStrategies?.[distance] ?? "Default"}
-                                                onValueChange={(value) => {
-                                                    const updated = { ...juniorYearPerDistanceStrategies, [distance]: value }
-                                                    updateRacingSetting("juniorYearPerDistanceStrategies", updated)
-                                                }}
-                                                placeholder="Select strategy"
-                                            />
-                                        </View>
-                                    ))}
-                                </View>
-                                <View style={styles.inputContainer}>
-                                    <Text style={styles.inputLabel}>Original Per-Distance Strategy</Text>
-                                    {(["Short", "Mile", "Medium", "Long"] as const).map((distance) => (
-                                        <View key={`original-${distance}`} style={{ marginBottom: 8 }}>
-                                            <Text style={[styles.inputDescription, { marginBottom: 4 }]}>{distance}</Text>
-                                            <CustomSelect
-                                                searchId={`original-strategy-${distance.toLowerCase()}`}
-                                                searchTitle={`Original ${distance} Distance Strategy`}
-                                                searchDescription={`The race strategy to use for ${distance.toLowerCase()} distance races in Year 2 and beyond.`}
-                                                options={[
-                                                    { value: "Default", label: "Default" },
-                                                    { value: "Auto", label: "Auto" },
-                                                    { value: "Front", label: "Front" },
-                                                    { value: "Pace", label: "Pace" },
-                                                    { value: "Late", label: "Late" },
-                                                    { value: "End", label: "End" },
-                                                ]}
-                                                value={originalPerDistanceStrategies?.[distance] ?? "Default"}
-                                                onValueChange={(value) => {
-                                                    const updated = { ...originalPerDistanceStrategies, [distance]: value }
-                                                    updateRacingSetting("originalPerDistanceStrategies", updated)
-                                                }}
-                                                placeholder="Select strategy"
-                                            />
-                                        </View>
-                                    ))}
-                                </View>
-                            </>
-                        )}
+                            )}
+                        </Section>
 
+                        {/* //////////////////////////////////////////////////////////////////////////////////////////////////
+                            //////////////////////////////////////////////////////////////////////////////////////////////////
+                            Force Racing + In-Game Race Agenda (legacy controls preserved) */}
                         <View style={styles.section}>
                             <CustomCheckbox
                                 searchId="enable-force-racing"
@@ -349,7 +448,7 @@ const RacingSettings = () => {
                                 description="When enabled, the bot will skip all training, rest, and mood recovery activities and focus exclusively on racing every day."
                                 className="my-2"
                             />
-                            {enableForceRacing && <WarningContainer>⚠️ Warning: Enabling this will override all other racing settings and they will be ignored.</WarningContainer>}
+                            {enableForceRacing && <WarningContainer>Warning: Enabling this will override all other racing settings and they will be ignored.</WarningContainer>}
                         </View>
 
                         <CustomCheckbox
@@ -357,9 +456,7 @@ const RacingSettings = () => {
                             checked={enableUserInGameRaceAgenda}
                             onCheckedChange={(checked) => updateRacingSetting("enableUserInGameRaceAgenda", checked)}
                             label="Enable User In-Game Race Agenda"
-                            description={
-                                "When enabled, the bot will load your selected in-game race agenda instead of using the racing plan settings. Note that this will disable the farming fans and racing plan settings."
-                            }
+                            description="When enabled, the bot will load your selected in-game race agenda instead of using the racing plan settings. Note that this will disable the farming fans and racing plan settings."
                             style={{ marginBottom: 16 }}
                         />
 
@@ -430,22 +527,73 @@ const RacingSettings = () => {
                             style={{ marginBottom: 16 }}
                         />
 
-                        <Section label="Smart Race Solver">
-                            <Row
-                                title="Go to Smart Race Solver Settings"
-                                description="Plans every turn of the career to maximize score by targeting epithet rewards. The bot only races when the solver picks a race; other turns become training or rest, even when Farming Fans would otherwise add an extra race."
-                                disabled={enableForceRacing || enableUserInGameRaceAgenda}
-                                right={<Ionicons name="chevron-forward" size={20} color={colors.textMuted} />}
-                                onPress={() => navigation.navigate("SmartRaceSolverSettings" as never)}
-                            />
-                            {(enableForceRacing || enableUserInGameRaceAgenda) && (
-                                <View style={{ paddingHorizontal: SPACING.lg, paddingBottom: SPACING.md }}>
-                                    <WarningContainer>⚠️ Force Racing and User In-Game Race Agenda settings must be disabled in order to use the Smart Race Solver.</WarningContainer>
+                        {/* //////////////////////////////////////////////////////////////////////////////////////////////////
+                            //////////////////////////////////////////////////////////////////////////////////////////////////
+                            Advanced */}
+                        <SectionLabel label="Advanced" />
+                        <Pressable
+                            onPress={() => navigation.navigate("SmartRaceSolverSettings" as never)}
+                            android_ripple={{ color: colors.ripple, foreground: true }}
+                            accessibilityRole="button"
+                            disabled={enableForceRacing || enableUserInGameRaceAgenda}
+                            style={{ opacity: enableForceRacing || enableUserInGameRaceAgenda ? 0.5 : 1, marginBottom: SPACING.md }}
+                        >
+                            <GlassSurface style={{ borderRadius: RADII.lg }}>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.md, padding: SPACING.md }}>
+                                    <View
+                                        style={{
+                                            width: 36,
+                                            height: 36,
+                                            borderRadius: 999,
+                                            backgroundColor: colors.brandSubtle,
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                        }}
+                                    >
+                                        <Cpu size={18} color={colors.brand} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ ...TYPE.body, color: colors.brand, fontWeight: "600" }}>Smart Race Solver</Text>
+                                        <Text style={{ ...TYPE.caption, color: colors.textMuted }}>Let the solver pick races automatically</Text>
+                                    </View>
+                                    <ChevronRight size={16} color={colors.brand} />
                                 </View>
-                            )}
-                        </Section>
+                            </GlassSurface>
+                        </Pressable>
+                        {(enableForceRacing || enableUserInGameRaceAgenda) && (
+                            <WarningContainer>Force Racing and User In-Game Race Agenda settings must be disabled in order to use the Smart Race Solver.</WarningContainer>
+                        )}
                     </View>
                 </ScrollView>
+
+                {/* //////////////////////////////////////////////////////////////////////////////////////////////////
+                    //////////////////////////////////////////////////////////////////////////////////////////////////
+                    Strategy picker modals */}
+                <GlassModal visible={juniorPickerOpen} onRequestClose={() => setJuniorPickerOpen(false)} contentStyle={styles.pickerModal}>
+                    <Text style={styles.pickerTitle}>Junior Year Strategy</Text>
+                    {renderStrategyOptions(juniorYearRaceStrategy, (value) => {
+                        updateRacingSetting("juniorYearRaceStrategy", value)
+                        setJuniorPickerOpen(false)
+                    })}
+                    <View style={{ marginTop: SPACING.md, alignItems: "flex-end" }}>
+                        <CustomButton onPress={() => setJuniorPickerOpen(false)} variant="outline" size="sm">
+                            Cancel
+                        </CustomButton>
+                    </View>
+                </GlassModal>
+
+                <GlassModal visible={originalPickerOpen} onRequestClose={() => setOriginalPickerOpen(false)} contentStyle={styles.pickerModal}>
+                    <Text style={styles.pickerTitle}>Original Strategy</Text>
+                    {renderStrategyOptions(originalRaceStrategy, (value) => {
+                        updateRacingSetting("originalRaceStrategy", value)
+                        setOriginalPickerOpen(false)
+                    })}
+                    <View style={{ marginTop: SPACING.md, alignItems: "flex-end" }}>
+                        <CustomButton onPress={() => setOriginalPickerOpen(false)} variant="outline" size="sm">
+                            Cancel
+                        </CustomButton>
+                    </View>
+                </GlassModal>
             </SearchPageProvider>
         </View>
     )
