@@ -211,8 +211,7 @@ const PageHeader = ({ title, showHomeButton = true, titleComponent, leftComponen
             "DebugSettings",
         ]
 
-        // Check if the target page is a regular Settings page or a dynamic Skill Plan Settings page.
-        const isSettingsPage = settingsPages.includes(item.page) || item.page.startsWith("SkillPlanSettings")
+        const isSettingsPage = settingsPages.includes(item.page)
 
         if (isSettingsPage) {
             // Use nested navigation to reach settings from outside the stack (e.g., from Home).
