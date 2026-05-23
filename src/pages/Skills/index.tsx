@@ -1,10 +1,11 @@
-import React, { useState, useCallback } from "react"
-import { View, ScrollView, StyleSheet } from "react-native"
+import React, { useState, useCallback, useMemo } from "react"
+import { View, Text, ScrollView, StyleSheet } from "react-native"
 import PageHeader from "../../components/PageHeader"
 import { SectionLabel } from "../../components/ui/section-label"
 import InfoCallout from "../../components/ui/info-callout"
 import TabStrip, { TabStripItem } from "../../components/ui/tab-strip"
 import { useTheme } from "../../context/ThemeContext"
+import { TYPE } from "../../lib/type"
 import { SPACING } from "../../lib/spacing"
 import { skillPlanSettingsPages } from "../SkillPlanSettings/config"
 import PlanTab from "./PlanTab"
@@ -34,18 +35,26 @@ const Skills: React.FC<{ route?: { params?: SkillsRouteParams } }> = ({ route })
     const [activeKey, setActiveKey] = useState<string>(initialTab)
     const onChange = useCallback((key: string) => setActiveKey(key), [])
 
-    const styles = StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
-        scroll: { padding: SPACING.md, gap: SPACING.sm },
-    })
+    const styles = useMemo(
+        () =>
+            StyleSheet.create({
+                container: { flex: 1, backgroundColor: colors.background },
+                scroll: { padding: SPACING.md, gap: SPACING.sm },
+                intro: { ...TYPE.body, color: colors.text, marginBottom: SPACING.sm },
+            }),
+        [colors]
+    )
 
     return (
         <View style={styles.container}>
             <PageHeader title="Skills" />
             <ScrollView contentContainerStyle={styles.scroll}>
                 <InfoCallout title="How skill spending works">
-                    {/* Body content migrates here in the follow-up task. */}
-                    <View />
+                    <Text style={styles.intro}>Allows configuration of automated skill point spending.</Text>
+                    <Text style={[styles.intro, { marginBottom: 0 }]}>
+                        This feature is not made of magic. If you wish to train an uma up for TT or CM, then you should buy your skills manually. The main purpose of this feature is to make the
+                        process of farming rank in events less of a hassle.
+                    </Text>
                 </InfoCallout>
                 <StyleSection />
                 <SectionLabel label="Skill Plans" />
