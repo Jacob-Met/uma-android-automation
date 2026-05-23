@@ -2,6 +2,7 @@ import { useMemo, useContext, useEffect, useState, useRef, useCallback } from "r
 import { SearchPageProvider } from "../../context/SearchPageContext"
 import { BotMetaContext, GeneralMiscContext } from "../../context/BotStateContext"
 import { InteractionManager, ScrollView, StyleSheet, Text, View } from "react-native"
+import { Snackbar } from "react-native-paper"
 import { useNavigation } from "@react-navigation/native"
 import { Ionicons } from "@react-native-vector-icons/ionicons"
 import ThemeToggle from "../../components/ThemeToggle"
@@ -72,11 +73,17 @@ const Settings = () => {
         return () => handle.cancel()
     }, [])
 
+    const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null)
+
     /**
      * Reset the settings to their default values.
      */
     const handleResetSettings = async () => {
-        await resetSettings()
+        const success = await resetSettings()
+        if (success) {
+            setSnackbarMessage("Settings reset to defaults")
+            setTimeout(() => setSnackbarMessage(null), 2500)
+        }
     }
 
     //////////////////////////////////////////////////
@@ -461,6 +468,14 @@ const Settings = () => {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <Snackbar
+                visible={snackbarMessage !== null}
+                onDismiss={() => setSnackbarMessage(null)}
+                style={{ backgroundColor: colors.surfaceRaised, borderRadius: 10 }}
+            >
+                {snackbarMessage ?? ""}
+            </Snackbar>
         </View>
     )
 }
