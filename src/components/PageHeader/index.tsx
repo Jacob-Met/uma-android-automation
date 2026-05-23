@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from "react"
 import { View, Text, StyleSheet, Pressable, ViewStyle, TextInput, Animated, Keyboard, ScrollView } from "react-native"
-import { useNavigation, DrawerActions } from "@react-navigation/native"
+import { useNavigation, DrawerActions, useRoute } from "@react-navigation/native"
 import Ionicons from "@react-native-vector-icons/ionicons"
 import { useTheme } from "../../context/ThemeContext"
 import { useSearchRegistry } from "../../context/SearchRegistryContext"
@@ -88,11 +88,13 @@ const HighlightedText = ({ text, query, style, highlightColor }: { text: string;
 const PageHeader = ({ title, showHomeButton = true, titleComponent, leftComponent, centerComponent, rightComponent, style }: PageHeaderProps) => {
     const { colors } = useTheme()
     const navigation = useNavigation()
+    const route = useRoute()
 
     const [isSearching, setIsSearching] = useState(false)
     const [searchQuery, setSearchQuery] = useState("")
     const searchInputRef = useRef<TextInput>(null)
     const fadeAnim = useRef(new Animated.Value(0)).current
+    const lastOpenSearchToken = useRef<number | null>(null)
 
     const { searchIndex } = useSearchRegistry()
 
@@ -112,6 +114,17 @@ const PageHeader = ({ title, showHomeButton = true, titleComponent, leftComponen
             }).start()
         }
     }, [searchQuery, fadeAnim])
+
+    // Watch for fresh `openSearch` tokens dispatched by the drawer search shortcut. A new token
+    // (different from the last one we saw) flips the search input open and focuses it.
+    useEffect(() => {
+        const token = (route.params as { openSearch?: number } | undefined)?.openSearch
+        if (typeof token !== "number") return
+        if (lastOpenSearchToken.current === token) return
+        lastOpenSearchToken.current = token
+        setIsSearching(true)
+        setTimeout(() => searchInputRef.current?.focus(), 100)
+    }, [route.params])
 
     /**
      * Opens the drawer navigation.
