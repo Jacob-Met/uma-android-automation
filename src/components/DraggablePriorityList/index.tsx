@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from "react"
+import React, { useEffect, useState, useMemo } from "react"
 import { View, Text, Pressable, StyleSheet, ViewStyle } from "react-native"
 import DragList, { DragListRenderItemInfo } from "react-native-draglist"
 import Ionicons from "@react-native-vector-icons/ionicons"
@@ -45,11 +45,9 @@ interface DraggablePriorityListProps {
 const DraggablePriorityList = ({ items, selectedItems, onSelectionChange, onOrderChange, style }: DraggablePriorityListProps) => {
     const { colors } = useTheme()
     const [orderedSelected, setOrderedSelected] = useState<string[]>(selectedItems)
-    const dragOrderRef = useRef<string[]>(selectedItems)
 
     useEffect(() => {
         setOrderedSelected(selectedItems)
-        dragOrderRef.current = selectedItems
     }, [selectedItems])
 
     const styles = useMemo(
@@ -102,7 +100,7 @@ const DraggablePriorityList = ({ items, selectedItems, onSelectionChange, onOrde
                     <Text style={styles.badgeText}>{priorityNumber}</Text>
                 </View>
                 <Text style={styles.selectedLabel}>{item.label}</Text>
-                <Pressable onPressIn={onDragStart} onPressOut={onDragEnd} style={styles.grip} accessibilityLabel="Drag to reorder">
+                <Pressable onPress={() => {}} onPressIn={onDragStart} onPressOut={onDragEnd} style={styles.grip} accessibilityLabel="Drag to reorder">
                     <Ionicons name="reorder-three" size={20} color={colors.brand} />
                 </Pressable>
             </Pressable>
@@ -114,7 +112,6 @@ const DraggablePriorityList = ({ items, selectedItems, onSelectionChange, onOrde
         const [removed] = copy.splice(fromIndex, 1)
         copy.splice(toIndex, 0, removed)
         setOrderedSelected(copy)
-        dragOrderRef.current = copy
         onOrderChange(copy)
     }
 
