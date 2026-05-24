@@ -3,6 +3,7 @@ import { StyleSheet } from "react-native"
 import { useTheme } from "../../context/ThemeContext"
 import { TYPE } from "../../lib/type"
 import { SPACING } from "../../lib/spacing"
+import { RADII } from "../../lib/radii"
 
 /**
  * Style helpers shared by every SheetModal-based settings modal in the app. Returns the four canonical
@@ -20,7 +21,7 @@ export const useModalShellStyles = () => {
                 modalCloseChip: {
                     width: 36,
                     height: 36,
-                    borderRadius: 8,
+                    borderRadius: RADII.md,
                     overflow: "hidden",
                     alignItems: "center",
                     justifyContent: "center",
