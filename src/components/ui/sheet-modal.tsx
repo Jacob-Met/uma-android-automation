@@ -36,7 +36,7 @@ export interface SheetModalProps {
  * @param dismissOnBackdropPress Set false to disable tap-outside-to-dismiss. Default true.
  * @returns A full-screen `Modal` with a centered card whose layout is header / scrollable body / footer.
  */
-export const SheetModal = ({ visible, onRequestClose, header, children, footer, heightFraction = 0.82, dismissOnBackdropPress = true }: SheetModalProps) => {
+const SheetModalImpl = ({ visible, onRequestClose, header, children, footer, heightFraction = 0.82, dismissOnBackdropPress = true }: SheetModalProps) => {
     const { colors } = useTheme()
     const clamped = Math.max(0.4, Math.min(0.95, heightFraction))
     const cardHeight = Math.round(Dimensions.get("window").height * clamped)
@@ -76,4 +76,5 @@ export const SheetModal = ({ visible, onRequestClose, header, children, footer, 
     )
 }
 
-export default React.memo(SheetModal)
+export const SheetModal = React.memo(SheetModalImpl)
+export default SheetModal
