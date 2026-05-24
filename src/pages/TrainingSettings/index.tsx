@@ -426,7 +426,16 @@ const TrainingSettings = () => {
                                     }
                                 }}
                             />
-                            <ModalFooterChip label="Select All" onPress={() => selectAll(setSelectedStats, selectedStats)} />
+                            <ModalFooterChip
+                                label="Select All"
+                                onPress={() => {
+                                    if (mode === "priority") {
+                                        setSelectedStats(defaultSettings.training.statPrioritization)
+                                    } else {
+                                        selectAll(setSelectedStats, selectedStats)
+                                    }
+                                }}
+                            />
                         </View>
                     }
                 >
