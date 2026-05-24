@@ -1,10 +1,11 @@
 import React, { useMemo, useContext, useEffect, useState, useRef, useCallback } from "react"
 import { View, Text, ScrollView, StyleSheet, Pressable, Dimensions, InteractionManager } from "react-native"
-import { GlassModal } from "../../components/ui/glass-modal"
+import { SheetModal } from "../../components/ui/sheet-modal"
+import { ModalCheckRow, ModalFooterChip } from "../../components/ui/modal-list"
+import Ionicons from "@react-native-vector-icons/ionicons"
 import { Snackbar } from "react-native-paper"
 import { useTheme } from "../../context/ThemeContext"
 import { TrainingContext, GeneralMiscContext, BotMetaContext, defaultSettings, Settings } from "../../context/BotStateContext"
-import CustomButton from "../../components/CustomButton"
 import CustomSlider from "../../components/CustomSlider"
 import CustomCheckbox from "../../components/CustomCheckbox"
 import DraggablePriorityList from "../../components/DraggablePriorityList"
@@ -309,36 +310,21 @@ const TrainingSettings = () => {
                     color: colors.brand,
                     textDecorationLine: "underline",
                 },
-                modalContent: {
-                    backgroundColor: colors.surface,
-                    borderRadius: 12,
-                    padding: 20,
-                    width: Dimensions.get("window").width * 0.85,
-                    maxHeight: Dimensions.get("window").height * 0.7,
-                },
-                modalHeader: {
-                    flexDirection: "row",
-                    justifyContent: "space-between",
+                modalHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+                modalTitleMono: { ...TYPE.monoLabel, color: colors.text, fontSize: 13, letterSpacing: 1.5 },
+                modalCloseChip: {
+                    width: 36,
+                    height: 36,
+                    borderRadius: 8,
+                    overflow: "hidden",
                     alignItems: "center",
-                    marginBottom: 20,
+                    justifyContent: "center",
+                    backgroundColor: colors.surfaceRaised,
+                    borderWidth: 1,
+                    borderColor: colors.borderHair,
                 },
-                modalTitle: {
-                    fontSize: 20,
-                    fontWeight: "bold",
-                    color: colors.text,
-                },
-                closeButton: {
-                    padding: 8,
-                },
-                closeText: {
-                    fontSize: 18,
-                    color: colors.brand,
-                },
-                buttonRow: {
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    marginTop: 20,
-                },
+                modalBodyList: { gap: SPACING.xs + 2 },
+                modalFooterRow: { flexDirection: "row", gap: SPACING.sm },
             }),
         [colors]
     )
@@ -410,54 +396,60 @@ const TrainingSettings = () => {
                     {description && <Text style={[styles.label, { fontSize: 14, color: colors.text, opacity: 0.7, marginTop: 4 }]}>{description}</Text>}
                 </Pressable>
 
-                <GlassModal visible={modalVisible} onRequestClose={() => setModalVisible(false)} contentStyle={styles.modalContent}>
-                    <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>{title}</Text>
-                        <Pressable style={styles.closeButton} onPress={() => setModalVisible(false)} android_ripple={{ color: colors.ripple, foreground: true }}>
-                            <Text style={styles.closeText}>✕</Text>
-                        </Pressable>
-                    </View>
-
+                <SheetModal
+                    visible={modalVisible}
+                    onRequestClose={() => setModalVisible(false)}
+                    header={
+                        <View style={styles.modalHeaderRow}>
+                            <Text style={styles.modalTitleMono}>{title.toUpperCase()}</Text>
+                            <Pressable
+                                style={styles.modalCloseChip}
+                                onPress={() => setModalVisible(false)}
+                                android_ripple={{ color: colors.ripple, foreground: true }}
+                                accessibilityLabel="Close"
+                            >
+                                <Ionicons name="close" size={18} color={colors.text} />
+                            </Pressable>
+                        </View>
+                    }
+                    footer={
+                        <View style={styles.modalFooterRow}>
+                            <ModalFooterChip
+                                label={mode === "priority" ? "Reset" : "Clear All"}
+                                tone="danger"
+                                onPress={() => {
+                                    if (mode === "priority") {
+                                        setSelectedStats(defaultSettings.training.statPrioritization)
+                                        setModalVisible(false)
+                                    } else {
+                                        clearAll(setSelectedStats)
+                                    }
+                                }}
+                            />
+                            <ModalFooterChip label="Select All" onPress={() => selectAll(setSelectedStats, selectedStats)} />
+                        </View>
+                    }
+                >
                     {mode === "priority" ? (
                         <DraggablePriorityList
-                            items={defaultSettings.training.statPrioritization.map((stat) => ({
-                                id: stat,
-                                label: stat,
-                            }))}
+                            items={defaultSettings.training.statPrioritization.map((stat) => ({ id: stat, label: stat }))}
                             selectedItems={selectedStats}
                             onSelectionChange={setSelectedStats}
-                            onOrderChange={(orderedItems) => {
-                                // Update the order when items are reordered.
-                                setSelectedStats(orderedItems)
-                            }}
+                            onOrderChange={(orderedItems) => setSelectedStats(orderedItems)}
                         />
                     ) : (
-                        defaultSettings.training.statPrioritization.map((stat) => (
-                            <CustomCheckbox key={stat} checked={selectedStats.includes(stat)} onCheckedChange={() => toggleStat(stat, selectedStats, setSelectedStats)} label={stat} className="my-2" />
-                        ))
+                        <View style={styles.modalBodyList}>
+                            {defaultSettings.training.statPrioritization.map((stat) => (
+                                <ModalCheckRow
+                                    key={stat}
+                                    label={stat}
+                                    checked={selectedStats.includes(stat)}
+                                    onPress={() => toggleStat(stat, selectedStats, setSelectedStats)}
+                                />
+                            ))}
+                        </View>
                     )}
-
-                    <View style={styles.buttonRow}>
-                        <CustomButton
-                            onPress={() => {
-                                if (mode === "priority") {
-                                    // For prioritization, reset to default and dismiss modal.
-                                    setSelectedStats(defaultSettings.training.statPrioritization)
-                                    setModalVisible(false)
-                                } else {
-                                    // For blacklist, just clear the list.
-                                    clearAll(setSelectedStats)
-                                }
-                            }}
-                            variant="destructive"
-                        >
-                            Clear All
-                        </CustomButton>
-                        <CustomButton onPress={() => selectAll(setSelectedStats, selectedStats)} variant="outline">
-                            Select All
-                        </CustomButton>
-                    </View>
-                </GlassModal>
+                </SheetModal>
             </View>
         )
 
