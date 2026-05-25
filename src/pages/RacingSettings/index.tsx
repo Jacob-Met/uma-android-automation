@@ -377,90 +377,99 @@ const RacingSettings = () => {
                             )}
                         </Section>
 
-                        <SearchableItem
-                            id="enable-user-in-game-race-agenda"
-                            title="Enable User In-Game Race Agenda"
-                            description="When enabled, the bot will load your selected in-game race agenda instead of using the racing plan settings. Note that this will disable the farming fans and racing plan settings."
-                        >
-                            <Row
+                        {/* //////////////////////////////////////////////////////////////////////////////////////////////////
+                            //////////////////////////////////////////////////////////////////////////////////////////////////
+                            In-Game Race Agenda */}
+                        <Section label="In-Game Race Agenda">
+                            <SearchableItem
+                                id="enable-user-in-game-race-agenda"
                                 title="Enable User In-Game Race Agenda"
                                 description="When enabled, the bot will load your selected in-game race agenda instead of using the racing plan settings. Note that this will disable the farming fans and racing plan settings."
-                                right={<Switch checked={enableUserInGameRaceAgenda} onCheckedChange={(checked) => updateRacingSetting("enableUserInGameRaceAgenda", checked)} />}
-                            />
-                        </SearchableItem>
-
-                        <CustomSelect
-                            searchId="user-in-game-race-agenda"
-                            searchTitle="Select User In-Game Race Agenda"
-                            searchDescription="The in-game race agenda to use when 'Enable User In-Game Race Agenda' is enabled."
-                            searchCondition={enableUserInGameRaceAgenda}
-                            parentId="enable-user-in-game-race-agenda"
-                            placeholder="Select an Agenda"
-                            width="100%"
-                            options={[
-                                { value: "Agenda 1", label: "Agenda 1" },
-                                { value: "Agenda 2", label: "Agenda 2" },
-                                { value: "Agenda 3", label: "Agenda 3" },
-                                { value: "Agenda 4", label: "Agenda 4" },
-                                { value: "Agenda 5", label: "Agenda 5" },
-                                { value: "Agenda 6", label: "Agenda 6" },
-                                { value: "Agenda 7", label: "Agenda 7" },
-                                { value: "Agenda 8", label: "Agenda 8" },
-                            ]}
-                            value={racingSettings.selectedUserAgenda}
-                            onValueChange={(value) => updateRacingSetting("selectedUserAgenda", value)}
-                            style={{ marginBottom: 16 }}
-                        />
-
-                        <SearchableItem
-                            id="custom-agenda-title"
-                            title="Custom Agenda Title"
-                            description="If you renamed your agenda in-game, enter the custom title here. Leave blank to use the selected agenda name above."
-                            condition={enableUserInGameRaceAgenda}
-                            parentId="enable-user-in-game-race-agenda"
-                            style={{ marginBottom: 16 }}
-                        >
-                            <Text style={styles.inputLabel}>Custom Agenda Title (Optional)</Text>
-                            <Text style={styles.inputDescription}>If you renamed your agenda in-game, enter the custom title here. Leave blank to use the selected agenda name above.</Text>
-                            <TextInput
-                                style={[styles.input, !enableUserInGameRaceAgenda && { opacity: 0.5 }]}
-                                value={customAgendaTitle}
-                                onChangeText={(text) => updateRacingSetting("customAgendaTitle", text)}
-                                placeholder="Leave blank to use selected agenda name"
-                                placeholderTextColor={"gray"}
-                                editable={enableUserInGameRaceAgenda}
-                                autoCapitalize="none"
-                                autoCorrect={false}
-                            />
-                        </SearchableItem>
-
-                        <SearchableItem
-                            id="limit-races-to-in-game-agenda"
-                            title="Limit Extra Races to Agenda"
-                            description="When enabled, the bot will override the racing behavior of any scenario such that it will not run any extra races except for the ones scheduled by the selected user's in-game racing agenda."
-                            condition={enableUserInGameRaceAgenda}
-                            parentId="enable-user-in-game-race-agenda"
-                        >
-                            <Row
-                                title="Limit Extra Races to Agenda"
-                                description="When enabled, the bot will override the racing behavior of any scenario such that it will not run any extra races except for the ones scheduled by the selected user's in-game racing agenda."
-                                right={<Switch checked={limitRacesToInGameAgenda} onCheckedChange={(checked) => updateRacingSetting("limitRacesToInGameAgenda", checked)} />}
-                            />
-                        </SearchableItem>
-
-                        <SearchableItem
-                            id="skip-summer-training-for-agenda"
-                            title="Skip Summer Training for Agenda"
-                            description="When enabled, the bot will perform scheduled races from the in-game racing agenda during Summer instead of prioritizing Summer training. Note that this requires 'Enable User In-Game Race Agenda' to be enabled."
-                            condition={enableUserInGameRaceAgenda}
-                            parentId="enable-user-in-game-race-agenda"
-                        >
-                            <Row
-                                title="Skip Summer Training for Agenda"
-                                description="When enabled, the bot will perform scheduled races from the in-game racing agenda during Summer instead of prioritizing Summer training. Note that this requires 'Enable User In-Game Race Agenda' to be enabled."
-                                right={<Switch checked={skipSummerTrainingForAgenda} onCheckedChange={(checked) => updateRacingSetting("skipSummerTrainingForAgenda", checked)} />}
-                            />
-                        </SearchableItem>
+                            >
+                                <Row
+                                    title="Enable User In-Game Race Agenda"
+                                    description="When enabled, the bot will load your selected in-game race agenda instead of using the racing plan settings. Note that this will disable the farming fans and racing plan settings."
+                                    right={<Switch checked={enableUserInGameRaceAgenda} onCheckedChange={(checked) => updateRacingSetting("enableUserInGameRaceAgenda", checked)} />}
+                                />
+                            </SearchableItem>
+                            {enableUserInGameRaceAgenda && (
+                                <>
+                                    <SearchableItem
+                                        id="user-in-game-race-agenda"
+                                        title="Select Agenda"
+                                        description="The in-game race agenda the bot loads when the toggle above is enabled."
+                                        parentId="enable-user-in-game-race-agenda"
+                                    >
+                                        <Row
+                                            title="Select Agenda"
+                                            description="The in-game race agenda the bot loads when the toggle above is enabled."
+                                            right={
+                                                <CustomSelect
+                                                    placeholder="Agenda 1"
+                                                    width={140}
+                                                    options={[
+                                                        { value: "Agenda 1", label: "Agenda 1" },
+                                                        { value: "Agenda 2", label: "Agenda 2" },
+                                                        { value: "Agenda 3", label: "Agenda 3" },
+                                                        { value: "Agenda 4", label: "Agenda 4" },
+                                                        { value: "Agenda 5", label: "Agenda 5" },
+                                                        { value: "Agenda 6", label: "Agenda 6" },
+                                                        { value: "Agenda 7", label: "Agenda 7" },
+                                                        { value: "Agenda 8", label: "Agenda 8" },
+                                                    ]}
+                                                    value={racingSettings.selectedUserAgenda}
+                                                    onValueChange={(value) => updateRacingSetting("selectedUserAgenda", value)}
+                                                />
+                                            }
+                                        />
+                                    </SearchableItem>
+                                    <SearchableItem
+                                        id="custom-agenda-title"
+                                        title="Custom Agenda Title"
+                                        description="If you renamed your agenda in-game, enter the custom title here. Leave blank to use the selected agenda name above."
+                                        parentId="enable-user-in-game-race-agenda"
+                                    >
+                                        <View style={{ paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, gap: SPACING.xs }}>
+                                            <Text style={[TYPE.body, { color: colors.text, fontWeight: "500" as const }]}>Custom Agenda Title (Optional)</Text>
+                                            <Text style={[TYPE.caption, { color: colors.textMuted }]}>If you renamed your agenda in-game, enter the custom title here. Leave blank to use the selected agenda name above.</Text>
+                                            <TextInput
+                                                style={[styles.input, { marginTop: SPACING.sm }]}
+                                                value={customAgendaTitle}
+                                                onChangeText={(text) => updateRacingSetting("customAgendaTitle", text)}
+                                                placeholder="Leave blank to use selected agenda name"
+                                                placeholderTextColor={colors.textMuted}
+                                                autoCapitalize="none"
+                                                autoCorrect={false}
+                                            />
+                                        </View>
+                                    </SearchableItem>
+                                    <SearchableItem
+                                        id="limit-races-to-in-game-agenda"
+                                        title="Limit Extra Races to Agenda"
+                                        description="When enabled, the bot will override the racing behavior of any scenario such that it will not run any extra races except for the ones scheduled by the selected user's in-game racing agenda."
+                                        parentId="enable-user-in-game-race-agenda"
+                                    >
+                                        <Row
+                                            title="Limit Extra Races to Agenda"
+                                            description="When enabled, the bot will override the racing behavior of any scenario such that it will not run any extra races except for the ones scheduled by the selected user's in-game racing agenda."
+                                            right={<Switch checked={limitRacesToInGameAgenda} onCheckedChange={(checked) => updateRacingSetting("limitRacesToInGameAgenda", checked)} />}
+                                        />
+                                    </SearchableItem>
+                                    <SearchableItem
+                                        id="skip-summer-training-for-agenda"
+                                        title="Skip Summer Training for Agenda"
+                                        description="When enabled, the bot will perform scheduled races from the in-game racing agenda during Summer instead of prioritizing Summer training. Note that this requires 'Enable User In-Game Race Agenda' to be enabled."
+                                        parentId="enable-user-in-game-race-agenda"
+                                    >
+                                        <Row
+                                            title="Skip Summer Training for Agenda"
+                                            description="When enabled, the bot will perform scheduled races from the in-game racing agenda during Summer instead of prioritizing Summer training. Note that this requires 'Enable User In-Game Race Agenda' to be enabled."
+                                            right={<Switch checked={skipSummerTrainingForAgenda} onCheckedChange={(checked) => updateRacingSetting("skipSummerTrainingForAgenda", checked)} />}
+                                        />
+                                    </SearchableItem>
+                                </>
+                            )}
+                        </Section>
 
                         {/* //////////////////////////////////////////////////////////////////////////////////////////////////
                             //////////////////////////////////////////////////////////////////////////////////////////////////
