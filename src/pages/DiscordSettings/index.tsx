@@ -88,7 +88,7 @@ const DiscordSettings = () => {
                     backgroundColor: colors.bg,
                 },
                 section: {
-                    marginBottom: SPACING.xl,
+                    marginBottom: SPACING.md,
                 },
                 textInput: {
                     borderWidth: 1,
