@@ -380,7 +380,7 @@ const LLMSettings = () => {
 
     const embedderProgressText = useMemo(() => {
         if (!embedderState) return null
-        if (embedderState.status === "complete") return "Engine downloaded."
+        if (embedderState.status === "complete") return "Engine downloaded successfully."
         if (embedderState.status === "failed" || embedderState.status === "error") return `Engine download failed${embedderState.error ? ` (${embedderState.error})` : ""}.`
         const total = embedderState.bytesTotal
         const done = embedderState.bytesDownloaded
