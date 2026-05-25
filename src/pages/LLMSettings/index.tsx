@@ -15,7 +15,6 @@ import { GlassSurface } from "../../components/ui/glass-surface"
 import RamGauge from "../../components/ui/ram-gauge"
 import { Row } from "../../components/ui/row"
 import { Section } from "../../components/ui/section"
-import { SectionLabel } from "../../components/ui/section-label"
 import { Switch } from "../../components/ui/switch"
 import { RADII } from "../../lib/radii"
 import { TYPE } from "../../lib/type"
@@ -555,7 +554,7 @@ const LLMSettings = () => {
 
                         <Section label="Ask the Docs Engine">
                             <View style={{ paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md }}>
-                                <Text style={styles.hint}>
+                                <Text style={[styles.hint, { marginBottom: SPACING.md }]}>
                                     The MiniLM embedder (~<Text style={[TYPE.monoValue, { color: colors.text }]}>{Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)}</Text> MB) powers documentation
                                     retrieval. It is downloaded on demand to keep the APK small; both retrieve-only search and the chat model require it. Hosted on Hugging Face; no token required.
                                 </Text>
@@ -567,7 +566,7 @@ const LLMSettings = () => {
                                             </View>
                                             <View style={{ flex: 1 }}>
                                                 <Text style={{ ...TYPE.body, color: colors.text, fontWeight: "600" }}>Engine not installed</Text>
-                                                <Text style={{ ...TYPE.caption, color: colors.textMuted }}>{Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)} MB · One-time download · Free</Text>
+                                                <Text style={{ ...TYPE.caption, color: colors.textMuted }}>{Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)} MB · One-time download</Text>
                                             </View>
                                             {!isEmbedderDownloading ? (
                                                 <CustomButton variant="primary" onPress={handleDownloadEmbedder}>
@@ -725,28 +724,27 @@ const LLMSettings = () => {
                             </Section>
                         )}
 
-                        <View style={styles.section}>
-                            <SectionLabel
-                                label="Generation Tuning"
-                                right={
-                                    <Pressable
-                                        onPress={handleResetTuning}
-                                        android_ripple={{ color: colors.ripple, foreground: true }}
-                                        style={{
-                                            marginLeft: "auto",
-                                            paddingHorizontal: SPACING.sm,
-                                            paddingVertical: 2,
-                                            backgroundColor: colors.brandSubtle,
-                                            borderColor: colors.brandBorder,
-                                            borderWidth: 1,
-                                            borderRadius: RADII.pill,
-                                        }}
-                                        hitSlop={6}
-                                    >
-                                        <Text style={{ ...TYPE.caption, color: colors.brand }}>Reset</Text>
-                                    </Pressable>
-                                }
-                            />
+                        <Section
+                            label="Generation Tuning"
+                            labelRight={
+                                <Pressable
+                                    onPress={handleResetTuning}
+                                    android_ripple={{ color: colors.ripple, foreground: true }}
+                                    style={{
+                                        paddingHorizontal: SPACING.sm,
+                                        paddingVertical: 2,
+                                        backgroundColor: colors.brandSubtle,
+                                        borderColor: colors.brandBorder,
+                                        borderWidth: 1,
+                                        borderRadius: RADII.pill,
+                                        overflow: "hidden",
+                                    }}
+                                    hitSlop={6}
+                                >
+                                    <Text style={{ ...TYPE.caption, color: colors.brand }}>Reset</Text>
+                                </Pressable>
+                            }
+                        >
                             <View style={{ paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md }}>
                                 <Text style={styles.hint}>Bigger numbers = longer, slower answers. Changes apply to the next chat call. Engine context window changes reload the loaded model.</Text>
                                 <CustomSlider
@@ -781,7 +779,7 @@ const LLMSettings = () => {
                                 />
                                 {ekvCapWarning && <Text style={styles.warningHint}>{ekvCapWarning}</Text>}
                             </View>
-                        </View>
+                        </Section>
 
                         <WarningContainer>
                             Generated answers may occasionally be wrong or phrased imprecisely. A verifier guards against clear hallucinations by falling back to showing the source text verbatim, but
