@@ -3,7 +3,7 @@ import { AppState, AppStateStatus, NativeModules, StyleSheet, View } from "react
 import Ionicons from "@react-native-vector-icons/ionicons"
 import { useTheme } from "../../context/ThemeContext"
 import { logErrorWithTimestamp, logWithTimestamp } from "../../lib/logger"
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../ui/alert-dialog"
+import { GlassModal } from "../ui/glass-modal"
 import { Text } from "../ui/text"
 import CustomButton from "../CustomButton"
 
@@ -98,15 +98,15 @@ const PermissionSetupDialog = ({ open, onOpenChange, onAllGranted }: PermissionS
 
     const renderRow = (index: number, granted: boolean, title: string, description: string, onOpenPress: () => void) => (
         <View style={styles.row}>
-            <View style={[styles.numberBadge, { backgroundColor: granted ? colors.success : colors.muted, borderColor: granted ? colors.success : colors.border }]}>
-                <Text style={[styles.numberText, { color: granted ? "#ffffff" : colors.foreground }]}>{index}</Text>
+            <View style={[styles.numberBadge, { backgroundColor: granted ? colors.success : colors.surfaceRaised, borderColor: granted ? colors.success : colors.borderHair }]}>
+                <Text style={[styles.numberText, { color: granted ? "#ffffff" : colors.text }]}>{index}</Text>
             </View>
             <View style={styles.rowBody}>
                 <View style={styles.rowHeader}>
-                    <Text style={[styles.rowTitle, { color: colors.foreground }]}>{title}</Text>
+                    <Text style={[styles.rowTitle, { color: colors.text }]}>{title}</Text>
                     <Ionicons name={granted ? "checkmark-circle" : "close-circle"} size={20} color={granted ? colors.success : colors.error} style={styles.statusIcon} />
                 </View>
-                <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>{description}</Text>
+                <Text style={[styles.rowDescription, { color: colors.textMuted }]}>{description}</Text>
                 <CustomButton variant={granted ? "outline" : "default"} onPress={onOpenPress} style={styles.rowButton} disabled={granted}>
                     {granted ? "Granted" : "Open Settings"}
                 </CustomButton>
@@ -115,45 +115,56 @@ const PermissionSetupDialog = ({ open, onOpenChange, onAllGranted }: PermissionS
     )
 
     return (
-        <AlertDialog open={open} onOpenChange={onOpenChange}>
-            <AlertDialogContent onDismiss={() => onOpenChange(false)}>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Set Up Permissions</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        The bot needs these 3 Android permissions to read the screen, draw its overlay, and stay alive in the background. Tap each Open Settings, grant the permission, then return
-                        here.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
+        <GlassModal visible={open} onRequestClose={() => onOpenChange(false)} contentStyle={styles.modalContent}>
+            <View style={styles.header}>
+                <Text style={[styles.title, { color: colors.text }]}>Set Up Permissions</Text>
+                <Text style={[styles.description, { color: colors.textMuted }]}>
+                    The bot needs these 3 Android permissions to read the screen, draw its overlay, and stay alive in the background. Tap each Open Settings, grant the permission, then return here.
+                </Text>
+            </View>
 
-                <View style={styles.rowsContainer}>
-                    {renderRow(1, accessibilityGranted, "Accessibility Service", "Lets the bot perform clicks and gestures on your behalf.", () => StartModule.openAccessibilitySettings())}
-                    {!accessibilityGranted && (
-                        <View style={styles.restrictedHint}>
-                            <Text style={[styles.restrictedHintText, { color: colors.mutedForeground }]}>
-                                On newer Android versions, you must first open App Info → 3-dot menu → "Allow restricted settings" in order to enable the service.
-                            </Text>
-                            <CustomButton variant="ghost" onPress={() => StartModule.openAppInfoSettings()} style={styles.restrictedHintButton}>
-                                Open App Info
-                            </CustomButton>
-                        </View>
-                    )}
-                    {renderRow(2, overlayGranted, "Display over other apps", "Lets the bot draw its on-screen control overlay.", () => StartModule.openOverlaySettings())}
-                    {renderRow(3, batteryGranted, "Disable battery optimization", "Stops Android from killing the bot during long automation runs.", () =>
-                        StartModule.openBatteryOptimizationSettings()
-                    )}
-                </View>
+            <View style={styles.rowsContainer}>
+                {renderRow(1, accessibilityGranted, "Accessibility Service", "Lets the bot perform clicks and gestures on your behalf.", () => StartModule.openAccessibilitySettings())}
+                {!accessibilityGranted && (
+                    <View style={styles.restrictedHint}>
+                        <Text style={[styles.restrictedHintText, { color: colors.textMuted }]}>
+                            On newer Android versions, you must first open App Info → 3-dot menu → "Allow restricted settings" in order to enable the service.
+                        </Text>
+                        <CustomButton variant="ghost" onPress={() => StartModule.openAppInfoSettings()} style={styles.restrictedHintButton}>
+                            Open App Info
+                        </CustomButton>
+                    </View>
+                )}
+                {renderRow(2, overlayGranted, "Display over other apps", "Lets the bot draw its on-screen control overlay.", () => StartModule.openOverlaySettings())}
+                {renderRow(3, batteryGranted, "Disable battery optimization", "Stops Android from killing the bot during long automation runs.", () => StartModule.openBatteryOptimizationSettings())}
+            </View>
 
-                <AlertDialogFooter style={styles.footer}>
-                    <AlertDialogCancel onPress={() => onOpenChange(false)}>
-                        <Text>Cancel</Text>
-                    </AlertDialogCancel>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+            <View style={styles.footer}>
+                <CustomButton variant="outline" onPress={() => onOpenChange(false)}>
+                    Cancel
+                </CustomButton>
+            </View>
+        </GlassModal>
     )
 }
 
 const styles = StyleSheet.create({
+    modalContent: {
+        width: "100%",
+        padding: 24,
+        gap: 16,
+    },
+    header: {
+        gap: 8,
+    },
+    title: {
+        fontSize: 18,
+        fontWeight: "600",
+    },
+    description: {
+        fontSize: 14,
+        lineHeight: 20,
+    },
     rowsContainer: {
         marginVertical: 12,
         gap: 16,
@@ -201,7 +212,9 @@ const styles = StyleSheet.create({
         alignSelf: "flex-start",
     },
     footer: {
+        flexDirection: "row",
         justifyContent: "flex-start",
+        gap: 8,
     },
     restrictedHint: {
         marginLeft: 40,

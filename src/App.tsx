@@ -6,6 +6,8 @@ import { LogBox } from "react-native"
 import { PortalHost } from "@rn-primitives/portal"
 import { StatusBar } from "expo-status-bar"
 import { SafeAreaView, SafeAreaProvider } from "react-native-safe-area-context"
+import { useFonts, Geist_400Regular, Geist_500Medium, Geist_600SemiBold, Geist_700Bold } from "@expo-google-fonts/geist"
+import { GeistMono_400Regular, GeistMono_500Medium } from "@expo-google-fonts/geist-mono"
 import { BotStateProvider } from "./context/BotStateContext"
 import { MessageLogProvider } from "./context/MessageLogContext"
 import { SettingsProvider } from "./context/SettingsContext"
@@ -19,9 +21,7 @@ import TrainingSettings from "./pages/TrainingSettings"
 import TrainingEventSettings from "./pages/TrainingEventSettings"
 import RacingSettings from "./pages/RacingSettings"
 import SmartRaceSolverSettings from "./pages/SmartRaceSolverSettings"
-import SkillSettings from "./pages/SkillSettings"
-import SkillPlanSettings from "./pages/SkillPlanSettings"
-import { skillPlanSettingsPages } from "./pages/SkillPlanSettings/config"
+import Skills from "./pages/Skills"
 import EventLogVisualizer from "./pages/EventLogVisualizer"
 import ImportSettingsPreview from "./pages/ImportSettingsPreview"
 import ScenarioOverridesSettings from "./pages/ScenarioOverridesSettings"
@@ -30,7 +30,7 @@ import DiscordSettings from "./pages/DiscordSettings"
 import LLMSettings from "./pages/LLMSettings"
 import Chat from "./pages/Chat"
 import DrawerContent from "./components/DrawerContent"
-import { NAV_THEME } from "./lib/theme"
+import { NAV_THEME } from "./lib/navTheme"
 
 export const Tag = "UAA"
 
@@ -54,12 +54,7 @@ function SettingsStack() {
             <Stack.Screen name="TrainingEventSettings" component={TrainingEventSettings} />
             <Stack.Screen name="RacingSettings" component={RacingSettings} />
             <Stack.Screen name="SmartRaceSolverSettings" component={SmartRaceSolverSettings} />
-            <Stack.Screen name="SkillSettings" component={SkillSettings} />
-            {Object.entries(skillPlanSettingsPages).map(([key, config]) => (
-                <Stack.Screen key={key} name={config.name}>
-                    {(props) => <SkillPlanSettings {...props} planKey={config.planKey} name={config.name} title={config.title} description={config.description} />}
-                </Stack.Screen>
-            ))}
+            <Stack.Screen name="Skills" component={Skills} initialParams={{ tab: "skillPointCheck" }} />
             <Stack.Screen name="EventLogVisualizer" component={EventLogVisualizer} />
             <Stack.Screen name="ImportSettingsPreview" component={ImportSettingsPreview} />
             <Stack.Screen name="ScenarioOverridesSettings" component={ScenarioOverridesSettings} />
@@ -82,13 +77,14 @@ function MainDrawer() {
             screenOptions={{
                 headerShown: false,
                 drawerType: "front",
+                swipeEdgeWidth: 0,
                 drawerStyle: {
                     width: 280,
                     backgroundColor: colors.card,
                 },
                 drawerActiveTintColor: colors.primary,
                 drawerInactiveTintColor: colors.foreground,
-                overlayColor: "rgba(0, 0, 0, 0.5)",
+                overlayColor: colors.glassBackdrop,
             }}
         >
             <Drawer.Screen name="Home" component={Home} />
@@ -132,6 +128,18 @@ function AppContent() {
 }
 
 function App() {
+    // Wait for Geist + Geist Mono to load before rendering navigation so the first paint uses the brand fonts. The OS splash covers this window.
+    const [fontsLoaded] = useFonts({
+        Geist_400Regular,
+        Geist_500Medium,
+        Geist_600SemiBold,
+        Geist_700Bold,
+        GeistMono_400Regular,
+        GeistMono_500Medium,
+    })
+
+    if (!fontsLoaded) return null
+
     return (
         <SafeAreaProvider>
             <ThemeProvider>

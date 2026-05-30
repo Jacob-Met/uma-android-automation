@@ -7,6 +7,9 @@ import { SettingsChange } from "../../hooks/useSettingsFileManager"
 import { useSettings } from "../../context/SettingsContext"
 import PageHeader from "../../components/PageHeader"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
+import { Section } from "../../components/ui/section"
+import { TYPE } from "../../lib/type"
+import { SPACING } from "../../lib/spacing"
 
 /**
  * Route params passed from the settings file manager when navigating to this screen.
@@ -57,15 +60,16 @@ const ImportSettingsPreview = () => {
                     flexDirection: "column",
                     justifyContent: "center",
                     margin: 10,
-                    backgroundColor: colors.background,
+                    backgroundColor: colors.bg,
                 },
                 content: {
                     flex: 1,
                     padding: 12,
+                    marginBottom: SPACING.md,
                 },
                 description: {
                     fontSize: 13,
-                    color: colors.mutedForeground,
+                    color: colors.textMuted,
                     marginBottom: 16,
                     fontWeight: "500",
                 },
@@ -77,49 +81,19 @@ const ImportSettingsPreview = () => {
                 },
                 noChangesText: {
                     fontSize: 15,
-                    color: colors.mutedForeground,
+                    color: colors.textMuted,
                     textAlign: "center",
                     lineHeight: 22,
                 },
-                categorySection: {
-                    marginBottom: 14,
-                },
-                categoryHeader: {
-                    fontSize: 11,
-                    fontWeight: "700",
-                    color: colors.mutedForeground,
-                    textTransform: "uppercase",
-                    letterSpacing: 1,
-                    marginBottom: 8,
-                    paddingHorizontal: 2,
-                },
-                categoryContent: {
-                    backgroundColor: colors.card,
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    overflow: "hidden",
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 4,
-                    elevation: 2,
-                },
                 settingItem: {
                     flexDirection: "row",
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderBottomWidth: 0.5,
-                    borderBottomColor: colors.border,
+                    paddingVertical: SPACING.sm,
+                    paddingHorizontal: SPACING.md,
                     backgroundColor: "transparent",
-                },
-                settingItemLast: {
-                    borderBottomWidth: 0,
                 },
                 settingKey: {
                     fontSize: 11,
-                    fontWeight: "600",
-                    color: colors.foreground,
+                    color: colors.text,
                     width: 125,
                     marginRight: 10,
                     lineHeight: 17,
@@ -132,16 +106,9 @@ const ImportSettingsPreview = () => {
                 valuePair: {
                     flex: 1,
                 },
-                valueLabel: {
-                    fontSize: 10,
-                    fontWeight: "700",
-                    marginBottom: 3,
-                    letterSpacing: 0.5,
-                    textTransform: "uppercase",
-                },
                 valueText: {
                     fontSize: 11,
-                    color: colors.foreground,
+                    color: colors.text,
                     flexWrap: "wrap",
                     lineHeight: 16,
                 },
@@ -149,11 +116,11 @@ const ImportSettingsPreview = () => {
                     paddingHorizontal: 12,
                     paddingVertical: 12,
                     borderTopWidth: 1,
-                    borderTopColor: colors.border,
+                    borderTopColor: colors.borderHair,
                     flexDirection: "row",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    backgroundColor: colors.background,
+                    backgroundColor: colors.bg,
                 },
             }),
         [colors]
@@ -192,7 +159,6 @@ const ImportSettingsPreview = () => {
     return (
         <View style={styles.root}>
             <PageHeader title="Import Settings Preview" />
-
             <ScrollView style={styles.content} showsVerticalScrollIndicator={true}>
                 {changes.length === 0 ? (
                     <View style={styles.noChangesContainer}>
@@ -201,36 +167,30 @@ const ImportSettingsPreview = () => {
                 ) : (
                     <>
                         <Text style={styles.description}>
-                            {changes.length} setting{changes.length !== 1 ? "s" : ""} will be changed:
+                            <Text style={[TYPE.monoValue, { color: colors.textMuted }]}>{changes.length}</Text> setting{changes.length !== 1 ? "s" : ""} will be changed:
                         </Text>
                         {Object.entries(groupedChanges).map(([category, categoryChanges]) => (
-                            <View key={category} style={styles.categorySection}>
-                                <Text style={styles.categoryHeader}>{category}</Text>
-                                <View style={styles.categoryContent}>
-                                    {categoryChanges.map((item, index) => (
-                                        <View
-                                            key={`${item.category}-${item.key}-${index}`}
-                                            style={[styles.settingItem, index === categoryChanges.length - 1 && styles.settingItemLast, index % 2 === 1 && { backgroundColor: colors.muted }]}
-                                        >
-                                            <Text style={styles.settingKey}>{item.key}</Text>
-                                            <View style={styles.settingValues}>
-                                                <View style={styles.valuePair}>
-                                                    <Text style={[styles.valueLabel, { color: colors.warningText }]}>Old</Text>
-                                                    <Text style={styles.valueText} numberOfLines={2}>
-                                                        {item.formattedOldValue}
-                                                    </Text>
-                                                </View>
-                                                <View style={styles.valuePair}>
-                                                    <Text style={[styles.valueLabel, { color: colors.primary }]}>New</Text>
-                                                    <Text style={styles.valueText} numberOfLines={2}>
-                                                        {item.formattedNewValue}
-                                                    </Text>
-                                                </View>
+                            <Section key={category} label={category}>
+                                {categoryChanges.map((item, index) => (
+                                    <View key={`${item.category}-${item.key}-${index}`} style={[styles.settingItem, index % 2 === 1 && { backgroundColor: colors.surfaceRaised }]}>
+                                        <Text style={[styles.settingKey, TYPE.monoValue]}>{item.key}</Text>
+                                        <View style={styles.settingValues}>
+                                            <View style={styles.valuePair}>
+                                                <Text style={[TYPE.monoLabel, { color: colors.warningText, marginBottom: 3 }]}>Old</Text>
+                                                <Text style={styles.valueText} numberOfLines={2}>
+                                                    {item.formattedOldValue}
+                                                </Text>
+                                            </View>
+                                            <View style={styles.valuePair}>
+                                                <Text style={[TYPE.monoLabel, { color: colors.brand, marginBottom: 3 }]}>New</Text>
+                                                <Text style={styles.valueText} numberOfLines={2}>
+                                                    {item.formattedNewValue}
+                                                </Text>
                                             </View>
                                         </View>
-                                    ))}
-                                </View>
-                            </View>
+                                    </View>
+                                ))}
+                            </Section>
                         ))}
                     </>
                 )}

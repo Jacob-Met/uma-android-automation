@@ -16,7 +16,7 @@ export { deepMerge, convertSettingsToBatch, applyMigrations }
  */
 export const useSettingsManager = () => {
     // Track whether settings are currently being saved.
-    const [isSaving, setIsSaving] = useState(false)
+    const [, setIsSaving] = useState(false)
     const [migrationCompleted, setMigrationCompleted] = useState(false)
 
     const { setSettings, setReadyStatus } = useContext(BotMetaContext)
@@ -44,7 +44,6 @@ export const useSettingsManager = () => {
 
     // Direct database operations.
     const isSQLiteInitialized = databaseManager.isInitialized()
-    const isSQLiteSaving = false
 
     // Auto-load settings when SQLite is initialized.
     useEffect(() => {
@@ -290,6 +289,12 @@ export const useSettingsManager = () => {
 
                 // Load settings and profiles from JSON file.
                 const { settings: importedSettings, profiles } = await loadFromJSONFile(fileUri)
+
+                // Preserve the current Discord token. Export already strips it for privacy, and re-importing should never
+                // overwrite the user's locally-stored token with a default empty string or a stale value from another device.
+                if (importedSettings.discord) {
+                    importedSettings.discord.discordToken = settingsRef.current.discord?.discordToken ?? ""
+                }
 
                 // Save settings to SQLite database.
                 await databaseManager.saveSettingsBatch(convertSettingsToBatch(importedSettings))

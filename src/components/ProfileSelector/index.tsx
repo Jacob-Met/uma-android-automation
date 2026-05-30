@@ -58,10 +58,10 @@ const ProfileSelector: React.FC<ProfileSelectorProps> = ({ currentTrainingSettin
             StyleSheet.create({
                 container: {
                     padding: 16,
-                    backgroundColor: colors.background,
+                    backgroundColor: colors.surface,
                     borderRadius: 8,
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                 },
                 row: {
                     flexDirection: "row",
@@ -74,13 +74,13 @@ const ProfileSelector: React.FC<ProfileSelectorProps> = ({ currentTrainingSettin
                 iconButton: {
                     padding: 8,
                     borderRadius: 8,
-                    backgroundColor: colors.secondary,
+                    backgroundColor: colors.surfaceRaised,
                     justifyContent: "center",
                     alignItems: "center",
                 },
                 description: {
                     fontSize: 12,
-                    color: colors.foreground,
+                    color: colors.text,
                     opacity: 0.7,
                 },
             }),
@@ -191,11 +191,11 @@ const ProfileSelector: React.FC<ProfileSelectorProps> = ({ currentTrainingSettin
                 </View>
                 {/* Create profile button */}
                 <Pressable style={styles.iconButton} onPress={() => setShowCreateModal(true)} android_ripple={{ color: colors.ripple, foreground: true }}>
-                    <Plus size={20} color={colors.foreground} />
+                    <Plus size={20} color={colors.text} />
                 </Pressable>
                 {/* Manage profiles button */}
                 <Pressable style={styles.iconButton} onPress={() => setShowManageModal(true)} android_ripple={{ color: colors.ripple, foreground: true }}>
-                    <SettingsIcon size={20} color={colors.foreground} />
+                    <SettingsIcon size={20} color={colors.text} />
                 </Pressable>
             </View>
 
@@ -227,6 +227,7 @@ const ProfileSelector: React.FC<ProfileSelectorProps> = ({ currentTrainingSettin
                 currentTrainingSettings={currentTrainingSettings}
                 currentTrainingStatTargetSettings={currentTrainingStatTargetSettings}
                 onOverwriteSettings={onOverwriteSettings}
+                activeProfileName={selectedProfileName}
                 onProfileDeleted={async (deletedProfileName) => {
                     // Reload profiles first to get the latest state after deletion.
                     await loadProfiles()

@@ -1,6 +1,6 @@
 import * as Application from "expo-application"
 import MessageLog from "../../components/MessageLog"
-import { useContext, useEffect, useRef, useState, useMemo } from "react"
+import { useContext, useEffect, useMemo, useRef, useState } from "react"
 import { BotMetaContext, GeneralMiscContext } from "../../context/BotStateContext"
 import { useSettings } from "../../context/SettingsContext"
 import { logWithTimestamp, logErrorWithTimestamp } from "../../lib/logger"
@@ -17,6 +17,9 @@ import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
 import SelectButton from "../../components/SelectButton"
 import PermissionSetupDialog from "../../components/PermissionSetupDialog"
 import { loadDeviceCapabilities, shouldSuggestX8664Variant } from "../../lib/chat/deviceCapabilities"
+import HeroStatusCard, { HeroStatus } from "../../components/HeroStatusCard"
+import { useProfileContext, DEFAULT_PROFILE_NAME } from "../../context/ProfileContext"
+import { SPACING } from "../../lib/spacing"
 
 const styles = StyleSheet.create({
     root: {
@@ -30,6 +33,13 @@ const styles = StyleSheet.create({
         flex: 1,
         width: "100%",
         flexDirection: "column",
+    },
+    hero: {
+        width: "100%",
+        marginBottom: SPACING.md,
+    },
+    logBody: {
+        flex: 1,
     },
     button: {
         width: 100,
@@ -79,6 +89,7 @@ const Home = () => {
     const { general, updateGeneral } = useContext(GeneralMiscContext)
     const mlc = useContext(MessageLogDispatchContext)
     const { saveSettings } = useSettings()
+    const { currentProfileName } = useProfileContext()
 
     const pulseAnim = useRef(new Animated.Value(1)).current
 
@@ -195,6 +206,7 @@ const Home = () => {
             logErrorWithTimestamp("[Home] Failed to save settings:", error)
             setSnackbarMessage(`Failed to save settings before starting: ${error}`)
             setSnackbarOpen(true)
+            return
         }
         StartModule.start()
     }
@@ -330,32 +342,41 @@ Note: Reinstall using the x86_64 release APK for much better performance.`)
         return null
     }
 
+    // Map the existing bot state to the hero card's status pill. Running takes priority. Warnings (unsupported display
+    // or ABI mismatch) surface as "error". An unselected scenario lands on "stopped". Otherwise the bot is "ready".
+    const heroStatus: HeroStatus = isRunning ? "running" : unsupportedReason !== null || abiMismatch ? "error" : readyStatus && deviceMetrics !== null ? "ready" : "stopped"
+    const heroProfile = currentProfileName ?? DEFAULT_PROFILE_NAME
     return (
         <View style={styles.root}>
-            <PageHeader
-                title=""
-                showHomeButton={false}
-                style={{ width: "100%" }}
-                leftComponent={
-                    <SelectButton
-                        variant={getSelectButtonVariant()}
-                        iconName={getSelectButtonIconName()}
-                        options={scenarios}
-                        placeholder={deviceMetrics ? "Select a Scenario" : "Not Ready"}
-                        value={general.scenario}
-                        onValueChange={(value) => {
-                            const newScenario = value || ""
-                            updateGeneral({ scenario: newScenario })
-                            setReadyStatus(newScenario !== "")
-                        }}
-                        onPress={handleButtonPress}
-                    />
-                }
-                rightComponent={renderStatus()}
-            />
+            {/* MessageLog uses FlashList, which doesn't support sticky headers the same way as ScrollView, so PageHeader stays a sibling above (non-sticky). */}
+            <PageHeader title="Home" showHomeButton={false} style={{ width: "100%" }} rightComponent={renderStatus()} />
+
+            <View style={styles.hero}>
+                <HeroStatusCard
+                    status={heroStatus}
+                    profile={heroProfile}
+                    cta={
+                        <SelectButton
+                            variant={getSelectButtonVariant()}
+                            iconName={getSelectButtonIconName()}
+                            options={scenarios}
+                            placeholder={deviceMetrics ? "Select a Scenario" : "Not Ready"}
+                            value={general.scenario}
+                            onValueChange={(value) => {
+                                const newScenario = value || ""
+                                updateGeneral({ scenario: newScenario })
+                                setReadyStatus(newScenario !== "")
+                            }}
+                            onPress={handleButtonPress}
+                        />
+                    }
+                />
+            </View>
 
             <View style={styles.contentContainer}>
-                <MessageLog />
+                <View style={styles.logBody}>
+                    <MessageLog />
+                </View>
             </View>
 
             <AlertDialog open={showNotReadyDialog} onOpenChange={setShowNotReadyDialog}>
@@ -383,7 +404,7 @@ Note: Reinstall using the x86_64 release APK for much better performance.`)
                         setSnackbarOpen(false)
                     },
                 }}
-                style={{ backgroundColor: "red", borderRadius: 10 }}
+                style={{ backgroundColor: colors.error, borderRadius: 10 }}
             >
                 {snackbarMessage}
             </Snackbar>

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { View, ScrollView, StyleSheet, TextInput, Text, NativeModules, Pressable } from "react-native"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
+import { View, ScrollView, StyleSheet, TextInput, Text, NativeModules, Pressable, KeyboardAvoidingView } from "react-native"
 import { useFocusEffect } from "@react-navigation/native"
 import { type MarkedStyles } from "react-native-marked"
 import type { UserTheme } from "react-native-marked/dist/typescript/theme/types"
@@ -15,6 +15,10 @@ import * as verifier from "../../lib/chat/groundingVerifier"
 import { loadChatTuning, trimToCap, type ChatTuning } from "../../lib/chat/chatSettings"
 import { ACTIVE_MODEL_SETTING, resolveActiveModel } from "../../lib/chat/activeModel"
 import { isEmbedderReady } from "../../lib/chat/embedder"
+import { Section } from "../../components/ui/section"
+import InfoCallout from "../../components/ui/info-callout"
+import { TYPE } from "../../lib/type"
+import { SPACING } from "../../lib/spacing"
 
 const HISTORY_CATEGORY = "chat"
 const HISTORY_KEY = "questionHistory"
@@ -51,6 +55,22 @@ const SYSTEM_INSTRUCTIONS =
     '- Do NOT prefix output with "Answer:" or repeat the question.\n' +
     "- Only use facts that appear in the excerpts. Do not invent features, numbers, button names, or behavior.\n" +
     "- If the excerpts do not answer the question, reply with exactly: NOT_IN_DOCS"
+
+/** Props for BlinkingCursor. */
+interface BlinkingCursorProps {
+    /** Color of the cursor block, typically `colors.brand`. */
+    color: string
+}
+
+/** Small blinking caret rendered at the end of a streaming reply. */
+const BlinkingCursor: React.FC<BlinkingCursorProps> = ({ color }) => {
+    const [visible, setVisible] = useState(true)
+    useEffect(() => {
+        const id = setInterval(() => setVisible((v) => !v), 500)
+        return () => clearInterval(id)
+    }, [])
+    return <View style={{ width: 6, height: 12, marginLeft: 2, backgroundColor: color, opacity: visible ? 1 : 0, borderRadius: 1 }} />
+}
 
 const Chat = () => {
     const { colors, isDark } = useTheme()
@@ -212,7 +232,8 @@ const Chat = () => {
             }
         } catch (err) {
             console.log("[Chat] error:", err)
-            setResult(null)
+            const msg = err instanceof Error ? err.message : String(err)
+            setResult({ answer: `Chat failed: ${msg}`, mode: "retrieveOnly", citations: [] })
         } finally {
             setIsSearching(false)
             setIsAborting(false)
@@ -250,81 +271,68 @@ const Chat = () => {
     const styles = useMemo(
         () =>
             StyleSheet.create({
-                root: { flex: 1, margin: 10, backgroundColor: colors.background },
-                inputColumn: { gap: 8, marginVertical: 10 },
+                root: { flex: 1, margin: 10, backgroundColor: colors.bg },
                 input: {
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                     borderRadius: 6,
                     paddingHorizontal: 10,
                     paddingVertical: 8,
-                    color: colors.foreground,
-                    backgroundColor: colors.card,
+                    color: colors.text,
+                    backgroundColor: colors.surface,
                     minHeight: 96,
                     maxHeight: 200,
                     textAlignVertical: "top",
                 },
                 answerCard: {
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                     borderRadius: 6,
                     padding: 12,
                     marginBottom: 12,
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.surface,
                 },
-                modeLabel: { fontSize: 11, color: colors.mutedForeground, marginTop: 8, fontStyle: "italic" },
-                sectionLabel: { fontSize: 15, fontWeight: "600", color: colors.foreground, marginTop: 10, marginBottom: 6 },
+                modeLabel: { ...TYPE.caption, fontSize: 11, color: colors.textMuted, marginTop: 8, fontStyle: "italic" },
                 resultCard: {
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                     borderRadius: 6,
                     padding: 10,
                     marginBottom: 8,
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.surface,
                 },
-                resultHeading: { fontWeight: "600", color: colors.foreground, marginBottom: 4 },
-                resultMeta: { fontSize: 11, color: colors.mutedForeground, marginBottom: 6 },
+                resultHeading: { ...TYPE.body, fontWeight: "600", color: colors.text, marginBottom: 4 },
+                resultMeta: { ...TYPE.caption, fontSize: 11, color: colors.textMuted, marginBottom: 6 },
                 codeBlock: {
                     fontFamily: "monospace",
                     fontSize: 12,
-                    color: colors.foreground,
-                    backgroundColor: colors.muted,
+                    color: colors.text,
+                    backgroundColor: colors.surfaceRaised,
                     borderRadius: 6,
                     padding: 8,
                 },
-                emptyText: { color: colors.mutedForeground, textAlign: "center", marginTop: 20, paddingHorizontal: 20 },
-                disclaimer: { fontSize: 11, color: colors.mutedForeground, marginTop: 4, marginBottom: 8, fontStyle: "italic" },
-                modelStatus: { fontSize: 12, color: colors.foreground },
-                modelStatusInactive: { fontSize: 12, color: colors.mutedForeground, fontStyle: "italic", marginBottom: 8 },
-                modelSelectorRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, marginBottom: 8 },
-                embedderCta: {
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 8,
-                    padding: 12,
-                    marginVertical: 12,
-                    backgroundColor: colors.card,
-                },
-                embedderCtaTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600" as const, marginBottom: 4 },
-                embedderCtaBody: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
+                emptyText: { ...TYPE.body, color: colors.textMuted, textAlign: "center", marginTop: 20, paddingHorizontal: 20 },
+                modelStatus: { ...TYPE.caption, color: colors.text },
+                modelStatusInactive: { ...TYPE.caption, color: colors.textMuted, fontStyle: "italic" },
+                modelSelectorRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+                embedderCtaTitle: { ...TYPE.body, color: colors.text, fontWeight: "600" as const, marginBottom: 4 },
+                embedderCtaBody: { ...TYPE.body, color: colors.textMuted, fontSize: 13, lineHeight: 18 },
                 modelSelectorControl: { flex: 1 },
-                historyHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 12, marginBottom: 6 },
-                historyTitle: { fontSize: 12, fontWeight: "600", color: colors.mutedForeground, textTransform: "uppercase", letterSpacing: 0.5 },
-                historyClear: { fontSize: 11, color: colors.mutedForeground, textDecorationLine: "underline" },
+                historyClear: { ...TYPE.caption, fontSize: 11, color: colors.textMuted, textDecorationLine: "underline" },
                 historyChip: {
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                     borderRadius: 14,
                     paddingHorizontal: 10,
                     paddingVertical: 6,
                     marginRight: 6,
                     marginBottom: 6,
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.surface,
                     overflow: "hidden",
                 },
-                historyChipText: { color: colors.foreground, fontSize: 12 },
+                historyChipText: { ...TYPE.caption, color: colors.text },
                 historyChipRow: { flexDirection: "row", flexWrap: "wrap" },
-                streamingNotice: { fontSize: 11, color: colors.mutedForeground, marginBottom: 4, fontStyle: "italic" },
+                streamingNotice: { ...TYPE.caption, fontSize: 11, color: colors.textMuted, marginBottom: 4, fontStyle: "italic" },
             }),
         [colors]
     )
@@ -332,10 +340,10 @@ const Chat = () => {
     const markedTheme = useMemo<UserTheme>(
         () => ({
             colors: {
-                text: colors.foreground,
-                code: colors.foreground,
-                link: colors.primary,
-                border: colors.border,
+                text: colors.text,
+                code: colors.text,
+                link: colors.brand,
+                border: colors.borderHair,
             },
         }),
         [colors]
@@ -343,32 +351,32 @@ const Chat = () => {
 
     const markedStyles = useMemo<MarkedStyles>(
         () => ({
-            text: { color: colors.foreground, fontSize: 15, lineHeight: 22 },
+            text: { color: colors.text, fontSize: 15, lineHeight: 22 },
             paragraph: { marginTop: 0, marginBottom: 8, paddingHorizontal: 0 },
-            strong: { color: colors.foreground, fontWeight: "700" },
-            em: { color: colors.foreground, fontStyle: "italic" },
-            link: { color: colors.primary, textDecorationLine: "underline" },
-            h1: { color: colors.foreground, fontWeight: "700", fontSize: 20, marginTop: 10, marginBottom: 6 },
-            h2: { color: colors.foreground, fontWeight: "700", fontSize: 17, marginTop: 10, marginBottom: 6 },
-            h3: { color: colors.foreground, fontWeight: "600", fontSize: 15, marginTop: 8, marginBottom: 4 },
-            h4: { color: colors.foreground, fontWeight: "600", fontSize: 14, marginTop: 6, marginBottom: 4 },
-            h5: { color: colors.foreground, fontWeight: "600", fontSize: 13, marginTop: 4, marginBottom: 2 },
-            h6: { color: colors.foreground, fontWeight: "600", fontSize: 13, marginTop: 4, marginBottom: 2 },
-            codespan: { color: colors.foreground, backgroundColor: colors.muted, borderRadius: 4, paddingHorizontal: 4, fontFamily: "monospace" },
-            code: { backgroundColor: colors.muted, borderRadius: 6, padding: 8, marginVertical: 4 },
+            strong: { color: colors.text, fontWeight: "700" },
+            em: { color: colors.text, fontStyle: "italic" },
+            link: { color: colors.brand, textDecorationLine: "underline" },
+            h1: { color: colors.text, fontWeight: "700", fontSize: 20, marginTop: 10, marginBottom: 6 },
+            h2: { color: colors.text, fontWeight: "700", fontSize: 17, marginTop: 10, marginBottom: 6 },
+            h3: { color: colors.text, fontWeight: "600", fontSize: 15, marginTop: 8, marginBottom: 4 },
+            h4: { color: colors.text, fontWeight: "600", fontSize: 14, marginTop: 6, marginBottom: 4 },
+            h5: { color: colors.text, fontWeight: "600", fontSize: 13, marginTop: 4, marginBottom: 2 },
+            h6: { color: colors.text, fontWeight: "600", fontSize: 13, marginTop: 4, marginBottom: 2 },
+            codespan: { color: colors.text, backgroundColor: colors.surfaceRaised, borderRadius: 4, paddingHorizontal: 4, fontFamily: "monospace" },
+            code: { backgroundColor: colors.surfaceRaised, borderRadius: 6, padding: 8, marginVertical: 4 },
             blockquote: {
-                backgroundColor: colors.muted,
-                borderLeftColor: colors.border,
+                backgroundColor: colors.surfaceRaised,
+                borderLeftColor: colors.borderHair,
                 borderLeftWidth: 3,
                 paddingLeft: 8,
                 paddingVertical: 4,
                 marginVertical: 4,
             },
             list: { marginBottom: 8 },
-            li: { color: colors.foreground, fontSize: 15, lineHeight: 22 },
-            hr: { backgroundColor: colors.border, height: 1, marginVertical: 8 },
-            table: { borderColor: colors.border, borderWidth: 1, borderRadius: 4, marginVertical: 6 },
-            tableRow: { borderColor: colors.border },
+            li: { color: colors.text, fontSize: 15, lineHeight: 22 },
+            hr: { backgroundColor: colors.borderHair, height: 1, marginVertical: 8 },
+            table: { borderColor: colors.borderHair, borderWidth: 1, borderRadius: 4, marginVertical: 6 },
+            tableRow: { borderColor: colors.borderHair },
             tableCell: { padding: 6 },
         }),
         [colors]
@@ -380,89 +388,107 @@ const Chat = () => {
     const citationMarkedStyles = useMemo<MarkedStyles>(
         () => ({
             ...markedStyles,
-            text: { color: colors.foreground, fontSize: 12, lineHeight: 18 },
-            li: { color: colors.foreground, fontSize: 12, lineHeight: 18 },
-            h1: { color: colors.foreground, fontWeight: "700", fontSize: 16, marginTop: 8, marginBottom: 4 },
-            h2: { color: colors.foreground, fontWeight: "700", fontSize: 14, marginTop: 8, marginBottom: 4 },
-            h3: { color: colors.foreground, fontWeight: "600", fontSize: 13, marginTop: 6, marginBottom: 3 },
-            h4: { color: colors.foreground, fontWeight: "600", fontSize: 12, marginTop: 4, marginBottom: 2 },
-            h5: { color: colors.foreground, fontWeight: "600", fontSize: 12, marginTop: 4, marginBottom: 2 },
-            h6: { color: colors.foreground, fontWeight: "600", fontSize: 12, marginTop: 4, marginBottom: 2 },
+            text: { color: colors.text, fontSize: 12, lineHeight: 18 },
+            li: { color: colors.text, fontSize: 12, lineHeight: 18 },
+            h1: { color: colors.text, fontWeight: "700", fontSize: 16, marginTop: 8, marginBottom: 4 },
+            h2: { color: colors.text, fontWeight: "700", fontSize: 14, marginTop: 8, marginBottom: 4 },
+            h3: { color: colors.text, fontWeight: "600", fontSize: 13, marginTop: 6, marginBottom: 3 },
+            h4: { color: colors.text, fontWeight: "600", fontSize: 12, marginTop: 4, marginBottom: 2 },
+            h5: { color: colors.text, fontWeight: "600", fontSize: 12, marginTop: 4, marginBottom: 2 },
+            h6: { color: colors.text, fontWeight: "600", fontSize: 12, marginTop: 4, marginBottom: 2 },
         }),
         [colors, markedStyles]
     )
 
     return (
-        <View style={styles.root}>
+        <KeyboardAvoidingView style={styles.root} behavior="padding">
             <PageHeader title="Ask the Docs" />
-            <Text style={styles.disclaimer}>Answers are grounded in README.md, HOW_IT_WORKS.md, in-app option descriptions, and the app's Kotlin source code. Fully offline.</Text>
-            {activeModelFilename === undefined ? null : downloadedModels.length > 0 ? (
-                <View style={styles.modelSelectorRow}>
-                    <Text style={styles.modelStatus}>Model:</Text>
-                    <View style={styles.modelSelectorControl}>
-                        <CustomSelect
-                            options={downloadedModels.map((f) => ({ value: f, label: f }))}
-                            value={activeModelFilename ?? undefined}
-                            onValueChange={handleSelectModel}
-                            placeholder="Select a model"
-                            groupLabel="Downloaded models"
-                        />
-                    </View>
-                </View>
-            ) : (
-                <Text style={styles.modelStatusInactive}>No model · retrieve-only mode</Text>
-            )}
-
-            {embedderReady === false ? (
-                <View style={styles.embedderCta}>
-                    <Text style={styles.embedderCtaTitle}>Engine not installed</Text>
-                    <Text style={styles.embedderCtaBody}>
-                        Ask the Docs needs to download a small embedder (~22 MB) before it can search the documentation. Open LLM Settings to start the download.
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, paddingBottom: SPACING.xl }}>
+                <InfoCallout title="About" collapsible={false} style={{ marginVertical: SPACING.md }}>
+                    <Text style={[TYPE.caption, { color: colors.textMuted }]}>
+                        Ask the Docs answers questions about this app by searching its bundled documentation and source code, all on-device.{"\n\n"}Responses are grounded in README.md,
+                        HOW_IT_WORKS.md, in-app option descriptions, and the app's Kotlin source code. Fully offline.
                     </Text>
-                </View>
-            ) : (
-                <View style={styles.inputColumn}>
-                    <TextInput
-                        style={styles.input}
-                        value={query}
-                        onChangeText={setQuery}
-                        placeholder="Ask a question about the app..."
-                        placeholderTextColor={colors.mutedForeground}
-                        multiline
-                        textAlignVertical="top"
-                        editable={!isSearching}
-                    />
-                    {isSearching ? (
-                        <CustomButton variant="destructive" onPress={handleStop} disabled={isAborting}>
-                            {isAborting ? "Stopping..." : "Stop"}
-                        </CustomButton>
-                    ) : (
-                        <CustomButton variant="primary" onPress={handleSearch} disabled={query.trim().length === 0 || !tuning}>
-                            Ask
-                        </CustomButton>
-                    )}
-                </View>
-            )}
+                </InfoCallout>
+                {activeModelFilename !== undefined && (
+                    <Section label="Model">
+                        <View style={{ padding: SPACING.md }}>
+                            {downloadedModels.length > 0 ? (
+                                <View style={styles.modelSelectorRow}>
+                                    <Text style={styles.modelStatus}>Model:</Text>
+                                    <View style={styles.modelSelectorControl}>
+                                        <CustomSelect
+                                            options={downloadedModels.map((f) => ({ value: f, label: f }))}
+                                            value={activeModelFilename ?? undefined}
+                                            onValueChange={handleSelectModel}
+                                            placeholder="Select a model"
+                                            groupLabel="Downloaded models"
+                                        />
+                                    </View>
+                                </View>
+                            ) : (
+                                <Text style={styles.modelStatusInactive}>No model · retrieve-only mode</Text>
+                            )}
+                        </View>
+                    </Section>
+                )}
 
-            <ScrollView keyboardShouldPersistTaps="handled">
+                {embedderReady === false ? (
+                    <Section label="Setup">
+                        <View style={{ padding: SPACING.md }}>
+                            <Text style={styles.embedderCtaTitle}>Engine not installed</Text>
+                            <Text style={styles.embedderCtaBody}>
+                                Ask the Docs needs to download a small embedder (~22 MB) before it can search the documentation. Open LLM Settings to start the download.
+                            </Text>
+                        </View>
+                    </Section>
+                ) : (
+                    <Section label="Ask a Question">
+                        <View style={{ padding: SPACING.md, gap: SPACING.sm }}>
+                            <TextInput
+                                style={styles.input}
+                                value={query}
+                                onChangeText={setQuery}
+                                placeholder="Ask a question about the app..."
+                                placeholderTextColor={colors.textMuted}
+                                multiline
+                                textAlignVertical="top"
+                                editable={!isSearching}
+                            />
+                            {isSearching ? (
+                                <CustomButton variant="destructive" onPress={handleStop} disabled={isAborting} isLoading={true}>
+                                    {isAborting ? "Stopping..." : "Stop"}
+                                </CustomButton>
+                            ) : (
+                                <CustomButton variant="primary" onPress={handleSearch} disabled={query.trim().length === 0 || !tuning}>
+                                    Ask
+                                </CustomButton>
+                            )}
+                        </View>
+                    </Section>
+                )}
+
                 {history.length > 0 && (
-                    <>
-                        <View style={styles.historyHeaderRow}>
-                            <Text style={styles.historyTitle}>Recent questions</Text>
-                            <Pressable onPress={handleClearHistory} android_ripple={{ color: colors.ripple, foreground: true }}>
+                    <Section
+                        label="Recent Questions"
+                        labelRight={
+                            <Pressable onPress={handleClearHistory} android_ripple={{ color: colors.ripple, foreground: true }} hitSlop={8}>
                                 <Text style={styles.historyClear}>Clear</Text>
                             </Pressable>
+                        }
+                    >
+                        <View style={{ padding: SPACING.md }}>
+                            <View style={styles.historyChipRow}>
+                                {history.map((q) => (
+                                    <Pressable key={q} style={styles.historyChip} onPress={() => handleHistoryTap(q)} android_ripple={{ color: colors.ripple, foreground: true }}>
+                                        <Text style={styles.historyChipText} numberOfLines={1}>
+                                            {q}
+                                        </Text>
+                                    </Pressable>
+                                ))}
+                            </View>
                         </View>
-                        <View style={styles.historyChipRow}>
-                            {history.map((q) => (
-                                <Pressable key={q} style={styles.historyChip} onPress={() => handleHistoryTap(q)} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                    <Text style={styles.historyChipText} numberOfLines={1}>
-                                        {q}
-                                    </Text>
-                                </Pressable>
-                            ))}
-                        </View>
-                    </>
+                    </Section>
                 )}
 
                 {isSearching && partialAnswer.length > 0 && (
@@ -473,6 +499,9 @@ const Chat = () => {
                         <MarkdownView theme={markedTheme} mdStyles={markedStyles}>
                             {partialAnswer}
                         </MarkdownView>
+                        <View style={{ flexDirection: "row", alignItems: "center", marginTop: -8 }}>
+                            <BlinkingCursor color={colors.brand} />
+                        </View>
                     </View>
                 )}
 
@@ -489,27 +518,32 @@ const Chat = () => {
                                 </Text>
                             )}
                         </View>
-                        {result.citations.length > 0 && <Text style={styles.sectionLabel}>Sources</Text>}
-                        {result.citations.map((r) => (
-                            <View key={r.id} style={styles.resultCard}>
-                                <Text style={styles.resultHeading}>{citationHeading(r)}</Text>
-                                <Text style={styles.resultMeta}>{`${r.source} · similarity ${(r.score * 100).toFixed(0)}%`}</Text>
-                                {r.kind === "code" ? (
-                                    <View style={styles.codeBlock}>
-                                        <KotlinCode text={r.text} palette={isDark ? DARK_PALETTE : LIGHT_PALETTE} style={{ fontSize: 10, lineHeight: 18 }} />
-                                    </View>
-                                ) : (
-                                    <MarkdownView theme={markedTheme} mdStyles={citationMarkedStyles}>
-                                        {r.text}
-                                    </MarkdownView>
-                                )}
-                            </View>
-                        ))}
+                        {result.citations.length > 0 && (
+                            <Section label="Sources">
+                                <View style={{ padding: SPACING.md, gap: SPACING.sm }}>
+                                    {result.citations.map((r) => (
+                                        <View key={r.id} style={styles.resultCard}>
+                                            <Text style={styles.resultHeading}>{citationHeading(r)}</Text>
+                                            <Text style={styles.resultMeta}>{`${r.source} · similarity ${(r.score * 100).toFixed(0)}%`}</Text>
+                                            {r.kind === "code" ? (
+                                                <View style={styles.codeBlock}>
+                                                    <KotlinCode text={r.text} palette={isDark ? DARK_PALETTE : LIGHT_PALETTE} style={{ fontSize: 10, lineHeight: 18 }} />
+                                                </View>
+                                            ) : (
+                                                <MarkdownView theme={markedTheme} mdStyles={citationMarkedStyles}>
+                                                    {r.text}
+                                                </MarkdownView>
+                                            )}
+                                        </View>
+                                    ))}
+                                </View>
+                            </Section>
+                        )}
                     </>
                 )}
                 {searched && !isSearching && !result && <Text style={styles.emptyText}>No matching documentation found.</Text>}
             </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
     )
 }
 

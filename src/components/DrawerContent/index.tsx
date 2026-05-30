@@ -1,68 +1,155 @@
-import React, { useMemo, useState, useEffect, useContext, useRef } from "react"
-import { View, Text, StyleSheet, Pressable, Linking } from "react-native"
+import React, { useMemo, useState, useEffect, useContext, useRef, useCallback } from "react"
+import { View, Text, StyleSheet, Pressable, Linking, NativeModules } from "react-native"
 import { DrawerContentScrollView, DrawerContentComponentProps, useDrawerStatus } from "@react-navigation/drawer"
 import { CommonActions } from "@react-navigation/native"
 import Ionicons from "@react-native-vector-icons/ionicons"
 import { Avatar, AvatarImage } from "../ui/avatar"
+import { SectionLabel } from "../ui/section-label"
 import { markNavigationStart, markNavigationPhase } from "../../lib/performanceLogger"
 import { useTheme } from "../../context/ThemeContext"
-import { ChatContext, BotMetaContext } from "../../context/BotStateContext"
-import { skillPlanSettingsPages } from "../../pages/SkillPlanSettings/config"
+import { BotMetaContext } from "../../context/BotStateContext"
 import { circularPress } from "../../lib/pressSurface"
+import { SPACING } from "../../lib/spacing"
+import { TYPE } from "../../lib/type"
+import { databaseManager } from "../../lib/database"
 
-interface MenuItem {
-    /** The route name used for navigation. */
-    name: string
-    /** The display label shown in the drawer. */
+/** A single drawer row entry. May expand to reveal `children` rows. */
+interface DrawerItem {
+    /** Display label rendered in the row. */
     label: string
-    /** Function returning the Ionicons icon name based on focused state. */
-    icon: (focused: boolean) => string
-    /** Optional nested menu items for expandable sections. */
-    nested?: MenuItem[]
+    /** Ionicons name. Outline variant is preferred so the active variant can be derived. */
+    icon: string
+    /** Stack/Drawer route name the row navigates to. */
+    route: string
+    /** Optional nested rows revealed when the row is expanded. */
+    children?: DrawerItem[]
 }
 
+/** A labelled group of `DrawerItem` rows rendered under a `SectionLabel`. */
+interface DrawerSection {
+    /** Section heading rendered via `SectionLabel`. */
+    label: string
+    /** Rows that belong to this section. */
+    items: DrawerItem[]
+}
+
+/** Repository GitHub URL used by the footer GitHub icon. */
+const GITHUB_URL = "https://github.com/steve1316/uma-android-automation"
+/** SQLite category for misc drawer state. */
+const MISC_CATEGORY = "misc"
+/** SQLite key holding the JSON-serialised recent-page route list. */
+const RECENT_PAGES_KEY = "drawerRecentPages"
+/** Max entries stored on disk. */
+const RECENT_PAGES_STORE_CAP = 5
+/** Max entries actually rendered as chips. */
+const RECENT_PAGES_RENDER_CAP = 3
+
+/** Sections rendered in the drawer. Order is significant. */
+const SECTIONS: DrawerSection[] = [
+    {
+        label: "Overview",
+        items: [
+            { label: "Home", icon: "home-outline", route: "Home" },
+            { label: "Settings", icon: "settings-outline", route: "SettingsMain" },
+            { label: "Ask the Docs", icon: "chatbubble-outline", route: "Chat" },
+        ],
+    },
+    {
+        label: "Gameplay",
+        items: [
+            { label: "Training", icon: "barbell-outline", route: "TrainingSettings" },
+            { label: "Training Events", icon: "calendar-outline", route: "TrainingEventSettings" },
+            {
+                label: "Racing",
+                icon: "flag-outline",
+                route: "RacingSettings",
+                children: [{ label: "Smart Race Solver", icon: "hardware-chip-outline", route: "SmartRaceSolverSettings" }],
+            },
+            { label: "Skills", icon: "american-football-outline", route: "Skills" },
+        ],
+    },
+    {
+        label: "Scenarios",
+        items: [{ label: "Scenario Overrides", icon: "options-outline", route: "ScenarioOverridesSettings" }],
+    },
+    {
+        label: "Integrations",
+        items: [
+            { label: "Discord", icon: "chatbubble-ellipses-outline", route: "DiscordSettings" },
+            { label: "LLM", icon: "sparkles-outline", route: "LLMSettings" },
+        ],
+    },
+    {
+        label: "Tools",
+        items: [
+            { label: "Event Log", icon: "eye-outline", route: "EventLogVisualizer" },
+            { label: "Debug", icon: "bug-outline", route: "DebugSettings" },
+        ],
+    },
+]
+
+/** Lookup table from route name to drawer label. Built from `SECTIONS` so chips stay in sync. */
+const ROUTE_LABELS: Record<string, string> = (() => {
+    const out: Record<string, string> = {}
+    for (const section of SECTIONS) {
+        for (const item of section.items) {
+            out[item.route] = item.label
+            if (item.children) {
+                for (const child of item.children) {
+                    out[child.route] = child.label
+                }
+            }
+        }
+    }
+    return out
+})()
+
+/** Routes that live under the Settings stack navigator. Used to dispatch nested navigation. */
+const SETTINGS_STACK_ROUTES = new Set<string>([
+    "SettingsMain",
+    "TrainingSettings",
+    "TrainingEventSettings",
+    "RacingSettings",
+    "SmartRaceSolverSettings",
+    "Skills",
+    "EventLogVisualizer",
+    "ImportSettingsPreview",
+    "ScenarioOverridesSettings",
+    "DebugSettings",
+    "DiscordSettings",
+    "LLMSettings",
+])
+
 /**
- * Custom drawer content component that renders a styled navigation sidebar.
- * Supports multi-level nested menu items with expand/collapse functionality,
- * active route highlighting, and deferred navigation for smooth drawer animations.
- * @param props The drawer content component props from React Navigation.
+ * Custom drawer content that renders a sectioned navigation sidebar. Includes a search-shortcut
+ * row that dispatches to Home with an `openSearch` token, a recently-visited chips strip backed
+ * by SQLite, and labelled sections with expandable parents that use distinct chevron hit targets.
+ *
+ * @param props The drawer content props from React Navigation.
+ * @returns The rendered drawer sidebar.
  */
 const DrawerContent: React.FC<DrawerContentComponentProps> = (props) => {
     const { colors } = useTheme()
     const { state, navigation } = props
-    const { chat } = useContext(ChatContext)
     const { appVersion } = useContext(BotMetaContext)
     const drawerStatus = useDrawerStatus()
-    // Initialize with Settings expanded by default.
-    const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["Settings"]))
+    const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set())
+    const [recentRoutes, setRecentRoutes] = useState<string[]>([])
     const previousDrawerStatus = useRef<string | undefined>(undefined)
-
-    // List of nested routes under Settings.
-    const settingsNestedRoutes = [
-        "TrainingSettings",
-        "TrainingEventSettings",
-        "RacingSettings",
-        "SmartRaceSolverSettings",
-        "SkillSettings",
-        ...Object.values(skillPlanSettingsPages).flatMap((item) => item.name),
-        "EventLogVisualizer",
-        "DiscordSettings",
-        "ScenarioOverridesSettings",
-        "DebugSettings",
-    ]
+    const recentRoutesRef = useRef<string[]>([])
 
     const styles = useMemo(
         () =>
             StyleSheet.create({
                 container: {
                     flex: 1,
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.surface,
                 },
                 header: {
                     paddingBottom: 12,
-                    paddingHorizontal: 20,
+                    paddingHorizontal: SPACING.lg,
                     borderBottomWidth: 1,
-                    borderBottomColor: colors.border,
+                    borderBottomColor: colors.borderHair,
                     flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "space-between",
@@ -74,216 +161,114 @@ const DrawerContent: React.FC<DrawerContentComponentProps> = (props) => {
                 headerTitle: {
                     fontSize: 24,
                     fontWeight: "bold",
-                    color: colors.foreground,
+                    color: colors.text,
                     marginBottom: 4,
                 },
                 headerSubtitle: {
                     fontSize: 14,
-                    color: colors.mutedForeground,
+                    color: colors.textMuted,
                 },
-                menuContainer: {
-                    paddingTop: 8,
+                recentStrip: {
+                    paddingHorizontal: SPACING.md,
+                    paddingVertical: SPACING.sm,
+                    flexGrow: 0,
+                    flexShrink: 0,
+                },
+                recentChip: {
+                    backgroundColor: colors.surfaceRaised,
+                    borderRadius: 999,
+                    paddingHorizontal: SPACING.md,
+                    paddingVertical: SPACING.xs + 2,
+                    marginRight: SPACING.sm,
+                    overflow: "hidden",
+                    maxWidth: 90,
+                    flexShrink: 0,
+                },
+                recentChipText: {
+                    ...TYPE.caption,
+                    color: colors.text,
+                },
+                section: {
+                    paddingHorizontal: SPACING.md,
+                    paddingTop: SPACING.md,
                 },
                 menuItem: {
                     flexDirection: "row",
                     alignItems: "center",
-                    paddingVertical: 16,
-                    paddingHorizontal: 20,
-                    marginHorizontal: 4,
-                    marginVertical: 2,
-                    borderRadius: 0,
+                    paddingVertical: 14,
+                    paddingHorizontal: SPACING.md,
+                    borderRadius: 10,
+                    overflow: "hidden",
                 },
                 menuItemActive: {
-                    backgroundColor: colors.muted,
+                    backgroundColor: colors.surfaceRaised,
                 },
                 menuItemIcon: {
-                    marginRight: 16,
+                    marginRight: SPACING.md,
                     width: 24,
                     alignItems: "center",
                 },
                 menuItemText: {
-                    fontSize: 16,
-                    fontWeight: "500",
-                    color: colors.foreground,
+                    ...TYPE.body,
+                    color: colors.text,
                     flex: 1,
                 },
                 menuItemTextActive: {
-                    color: colors.primary,
+                    color: colors.brand,
                     fontWeight: "600",
                 },
-                chevronButton: { ...circularPress(40), marginLeft: 8 },
-                nestedContainer: {
+                chevronButton: { ...circularPress(44), marginLeft: SPACING.sm },
+                childRow: {
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingVertical: 10,
+                    paddingLeft: 44,
+                    paddingRight: SPACING.md,
+                    borderRadius: 10,
                     overflow: "hidden",
                 },
-                nestedItem: {
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingVertical: 12,
-                    paddingHorizontal: 20,
-                    paddingLeft: 40,
-                    marginHorizontal: 4,
-                    marginVertical: 2,
-                    borderRadius: 0,
+                childRowActive: {
+                    backgroundColor: colors.surfaceRaised,
                 },
-                nestedItemActive: {
-                    backgroundColor: colors.muted,
-                },
-                nestedItemIcon: {
-                    marginRight: 16,
-                    width: 24,
+                childIcon: {
+                    marginRight: SPACING.sm,
+                    width: 20,
                     alignItems: "center",
                 },
-                nestedItemText: {
-                    fontSize: 15,
-                    fontWeight: "400",
-                    color: colors.foreground,
+                childText: {
+                    ...TYPE.body,
+                    fontSize: 13,
+                    color: colors.text,
                     flex: 1,
                 },
-                nestedItemTextActive: {
-                    color: colors.primary,
-                    fontWeight: "500",
-                },
-                doubleNestedItem: {
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingVertical: 12,
-                    paddingHorizontal: 20,
-                    paddingLeft: 64,
-                    marginHorizontal: 4,
-                    marginVertical: 2,
-                    borderRadius: 0,
-                },
-                doubleNestedItemActive: {
-                    backgroundColor: colors.muted,
-                },
-                doubleNestedItemIcon: {
-                    marginRight: 16,
-                    width: 24,
-                    alignItems: "center",
-                },
-                doubleNestedItemText: {
-                    fontSize: 14,
-                    fontWeight: "400",
-                    color: colors.foreground,
-                    flex: 1,
-                },
-                doubleNestedItemTextActive: {
-                    color: colors.primary,
-                    fontWeight: "500",
+                childTextActive: {
+                    color: colors.brand,
+                    fontWeight: "600",
                 },
                 footer: {
-                    padding: 20,
-                    borderTopWidth: 1,
-                    borderTopColor: colors.border,
-                },
-                footerButton: {
                     flexDirection: "row",
-                    alignItems: "center",
                     justifyContent: "center",
+                    gap: SPACING.md,
+                    padding: SPACING.lg,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.borderHair,
                 },
-                footerText: {
-                    fontSize: 16,
-                    color: colors.primary,
-                    fontWeight: "600",
+                footerIconButton: {
+                    ...circularPress(48),
+                    backgroundColor: colors.surfaceRaised,
                 },
             }),
         [colors]
     )
 
-    const askTheDocsEnabled = chat?.enableAskTheDocs ?? false
-
-    // Define the menu item configurations for the drawer.
-    const menuItems: MenuItem[] = [
-        {
-            name: "Home",
-            label: "Home",
-            icon: (focused: boolean) => (focused ? "home" : "home-outline"),
-        },
-        ...(askTheDocsEnabled
-            ? [
-                  {
-                      name: "Chat",
-                      label: "Ask the Docs",
-                      icon: (focused: boolean) => (focused ? "chatbubble" : "chatbubble-outline"),
-                  } as MenuItem,
-              ]
-            : []),
-        {
-            name: "Settings",
-            label: "Settings",
-            icon: (focused: boolean) => (focused ? "settings" : "settings-outline"),
-            nested: [
-                {
-                    name: "TrainingSettings",
-                    label: "Training Settings",
-                    icon: () => "barbell-outline",
-                },
-                {
-                    name: "TrainingEventSettings",
-                    label: "Training Event Settings",
-                    icon: () => "calendar-outline",
-                },
-                {
-                    name: "RacingSettings",
-                    label: "Racing Settings",
-                    icon: () => "flag-outline",
-                    nested: [
-                        {
-                            name: "SmartRaceSolverSettings",
-                            label: "Smart Race Solver",
-                            icon: () => "rocket-outline",
-                        },
-                    ],
-                },
-                {
-                    name: "SkillSettings",
-                    label: "Skill Settings",
-                    icon: () => "american-football-outline",
-                    nested: Object.values(skillPlanSettingsPages).map((item) => ({
-                        name: item.name,
-                        label: `${item.title} Plan Settings`,
-                        icon: () => "cube-outline",
-                    })),
-                },
-                {
-                    name: "EventLogVisualizer",
-                    label: "Event Log Visualizer",
-                    icon: () => "eye-outline",
-                },
-                {
-                    name: "DiscordSettings",
-                    label: "Discord Settings",
-                    icon: () => "logo-discord",
-                },
-                {
-                    name: "ScenarioOverridesSettings",
-                    label: "Scenario Overrides Settings",
-                    icon: () => "options-outline",
-                },
-                {
-                    name: "DebugSettings",
-                    label: "Debug Settings",
-                    icon: () => "bug-outline",
-                },
-                {
-                    name: "LLMSettings",
-                    label: "LLM Settings",
-                    icon: () => "sparkles-outline",
-                },
-            ],
-        },
-    ]
-
     /**
-     * Gets the current active screen name, handling nested navigators.
-     * If on Settings stack, returns the nested screen name (e.g., `TrainingSettings`).
-     * Otherwise returns the drawer route name (e.g., `Home`).
+     * Resolves the active screen, accounting for the nested Settings stack so chips/highlight track
+     * the actual visible page.
      * @returns The current active screen name.
      */
-    const getCurrentActiveScreen = (): string => {
+    const getCurrentActiveScreen = useCallback((): string => {
         const drawerRoute = state.routes[state.index]
         if (drawerRoute?.name === "Settings") {
-            // Check if there's nested state from the stack navigator.
             const nestedState = drawerRoute.state
             if (nestedState?.routes && nestedState.index !== undefined) {
                 return nestedState.routes[nestedState.index]?.name || "SettingsMain"
@@ -291,234 +276,192 @@ const DrawerContent: React.FC<DrawerContentComponentProps> = (props) => {
             return "SettingsMain"
         }
         return drawerRoute?.name || "Home"
-    }
+    }, [state.index, state.routes])
 
-    // Ensure Settings is expanded when drawer opens, and auto-expand sections if nested routes are active.
+    // Hydrate recent routes once on mount from SQLite.
     useEffect(() => {
-        // Check if drawer just opened (transitioned from closed to open).
-        const drawerJustOpened = previousDrawerStatus.current !== "open" && drawerStatus === "open"
-
-        if (drawerJustOpened) {
-            // Reset Settings to expanded when drawer opens.
-            setExpandedSections((prev) => {
-                const newSet = new Set(prev)
-                newSet.add("Settings")
-                return newSet
-            })
+        let cancelled = false
+        ;(async () => {
+            try {
+                const stored = await databaseManager.loadSetting(MISC_CATEGORY, RECENT_PAGES_KEY)
+                if (cancelled) return
+                if (Array.isArray(stored)) {
+                    const sanitised = stored.filter((r): r is string => typeof r === "string" && r in ROUTE_LABELS).slice(0, RECENT_PAGES_STORE_CAP)
+                    setRecentRoutes(sanitised)
+                    recentRoutesRef.current = sanitised
+                }
+            } catch {
+                // Best-effort hydrate. A missing row is normal on first launch.
+            }
+        })()
+        return () => {
+            cancelled = true
         }
+    }, [])
 
+    // Track the current page and update the recent-routes list whenever it changes.
+    useEffect(() => {
+        const currentScreen = getCurrentActiveScreen()
+        if (!(currentScreen in ROUTE_LABELS)) return
+        const prev = recentRoutesRef.current
+        if (prev[0] === currentScreen) return
+        const next = [currentScreen, ...prev.filter((r) => r !== currentScreen)].slice(0, RECENT_PAGES_STORE_CAP)
+        recentRoutesRef.current = next
+        setRecentRoutes(next)
+        databaseManager.saveSetting(MISC_CATEGORY, RECENT_PAGES_KEY, next, true).catch(() => {
+            // SQLite failures here are non-fatal. The list will simply not persist across launches.
+        })
+    }, [state.index, state.routes, getCurrentActiveScreen])
+
+    // Auto-expand parents that contain the current screen, while preserving the user's manual expansions.
+    useEffect(() => {
+        const drawerJustOpened = previousDrawerStatus.current !== "open" && drawerStatus === "open"
         previousDrawerStatus.current = drawerStatus
 
         const currentScreen = getCurrentActiveScreen()
-        const newExpanded = new Set<string>()
-
-        // Auto-expand Settings if any nested route is active.
-        if (settingsNestedRoutes.includes(currentScreen) || currentScreen === "SettingsMain") {
-            newExpanded.add("Settings")
+        const toAdd = new Set<string>()
+        for (const section of SECTIONS) {
+            for (const item of section.items) {
+                if (item.children?.some((child) => child.route === currentScreen)) {
+                    toAdd.add(item.route)
+                }
+            }
         }
 
-        // Auto-expand Racing Settings if Smart Race Solver Settings is active.
-        if (currentScreen === "SmartRaceSolverSettings") {
-            newExpanded.add("RacingSettings")
-        }
-
-        // Auto-expand Skill Settings if Skill Plan Settings is active.
-        if (
-            Object.values(skillPlanSettingsPages)
-                .map((item) => item.name)
-                .includes(currentScreen)
-        ) {
-            newExpanded.add("SkillSettings")
-        }
-
-        // Merge with existing expanded sections to preserve user's manual expansions.
-        if (newExpanded.size > 0) {
+        if (toAdd.size > 0 || drawerJustOpened) {
             setExpandedSections((prev) => {
                 const merged = new Set(prev)
-                newExpanded.forEach((section) => merged.add(section))
+                toAdd.forEach((r) => merged.add(r))
                 return merged
             })
         }
-    }, [state.index, state.routes, drawerStatus])
+    }, [state.index, state.routes, drawerStatus, getCurrentActiveScreen])
 
     /**
-     * Toggles the expanded state of a section in the drawer.
-     * @param sectionName The name of the section to toggle.
+     * Toggles the expanded state of a parent row.
+     * @param routeName The route name of the parent whose children should expand or collapse.
      */
-    const toggleSection = (sectionName: string) => {
+    const toggleSection = useCallback((routeName: string) => {
         setExpandedSections((prev) => {
             const newSet = new Set(prev)
-            if (newSet.has(sectionName)) {
-                newSet.delete(sectionName)
+            if (newSet.has(routeName)) {
+                newSet.delete(routeName)
             } else {
-                newSet.add(sectionName)
+                newSet.add(routeName)
             }
             return newSet
         })
-    }
+    }, [])
 
     /**
-     * Navigates to a route and closes the drawer.
-     * For nested routes, we navigate to the Settings drawer and then the specific screen.
-     * @param routeName The name of the route to navigate to.
+     * Dispatches navigation to a route while closing the drawer. Settings-stack screens are wrapped
+     * in a nested navigate so the Settings stack renders the right sub-page.
+     * @param routeName The drawer or stack screen to navigate to.
+     * @param params Optional params forwarded to the destination screen.
      */
-    const handleNavigation = (routeName: string) => {
-        // Mark the start of the navigation for performance tracking.
-        markNavigationStart(routeName)
+    const handleNavigation = useCallback(
+        (routeName: string, params?: Record<string, unknown>) => {
+            markNavigationStart(routeName)
+            navigation.closeDrawer()
+            markNavigationPhase(routeName, "drawer_closed")
 
-        // Close the drawer immediately to start the transition.
-        // This achieves the effect of hiding the initial lag of mounting and rendering the target page while we are transitioning to it.
-        navigation.closeDrawer()
-        markNavigationPhase(routeName, "drawer_closed")
-
-        // Defer the heavy navigation until the drawer closing animation has been scheduled.
-        // This prevents the target page's heavy mount/render from stuttering the drawer animation.
-        setTimeout(() => {
-            markNavigationPhase(routeName, "dispatch")
-            if (routeName === "Home") {
-                // Navigate to Home drawer screen.
-                navigation.dispatch(CommonActions.navigate({ name: "Home" }))
-            } else if (routeName === "Chat") {
-                // Navigate to the top-level Chat drawer screen.
-                navigation.dispatch(CommonActions.navigate({ name: "Chat" }))
-            } else if (routeName === "Settings") {
-                // Navigate to Settings main page.
-                navigation.dispatch(
-                    CommonActions.navigate({
-                        name: "Settings",
-                        params: { screen: "SettingsMain", initial: false },
-                    })
-                )
-            } else {
-                // Settings sub-pages: navigate to Settings drawer, then to the specific screen.
-                navigation.dispatch(
-                    CommonActions.navigate({
-                        name: "Settings",
-                        params: { screen: routeName, initial: false },
-                    })
-                )
-            }
-        }, 0)
-    }
+            setTimeout(() => {
+                markNavigationPhase(routeName, "dispatch")
+                if (routeName === "Home") {
+                    navigation.dispatch(CommonActions.navigate({ name: "Home", params }))
+                } else if (routeName === "Chat") {
+                    navigation.dispatch(CommonActions.navigate({ name: "Chat", params }))
+                } else if (SETTINGS_STACK_ROUTES.has(routeName)) {
+                    navigation.dispatch(
+                        CommonActions.navigate({
+                            name: "Settings",
+                            params: { screen: routeName, initial: false, params },
+                        })
+                    )
+                } else {
+                    navigation.dispatch(CommonActions.navigate({ name: routeName, params }))
+                }
+            }, 0)
+        },
+        [navigation]
+    )
 
     /**
-     * Navigates to a parent route and closes the drawer.
-     * @param item The menu item to navigate to.
+     * Checks whether a route is the currently visible screen.
+     * @param routeName The route to check.
+     * @returns True if the route matches the current visible screen.
      */
-    const handleParentNavigation = (item: MenuItem) => {
-        handleNavigation(item.name)
-    }
+    const isRouteActive = useCallback(
+        (routeName: string) => {
+            return getCurrentActiveScreen() === routeName
+        },
+        [getCurrentActiveScreen]
+    )
 
     /**
-     * Stops event propagation to prevent the navigation from happening when the chevron is pressed.
-     * @param e The event object.
-     * @param item The menu item.
+     * Renders a top-level drawer row. Expandable rows split label-press and chevron-press into
+     * sibling Pressables so taps cannot conflict.
+     * @param item The drawer item to render.
+     * @returns The row plus any expanded children.
      */
-    const handleChevronPress = (e: any, item: MenuItem) => {
-        e.stopPropagation()
-        toggleSection(item.name)
-    }
-
-    /**
-     * Checks if a section is expanded.
-     * @param sectionName The name of the section to check.
-     * @returns True if the section is expanded, false otherwise.
-     */
-    const isSectionExpanded = (sectionName: string) => {
-        return expandedSections.has(sectionName)
-    }
-
-    /**
-     * Checks if a route is active.
-     * @param routeName The name of the route to check.
-     * @returns True if the route is active, false otherwise.
-     */
-    const isRouteActive = (routeName: string) => {
-        const currentScreen = getCurrentActiveScreen()
-        // Settings menu item is active when on SettingsMain.
-        if (routeName === "Settings") {
-            return currentScreen === "SettingsMain"
-        }
-        if (routeName === "Chat") {
-            return currentScreen === "Chat"
-        }
-        return currentScreen === routeName
-    }
-
-    /**
-     * Recursively renders menu items at any nesting level.
-     * @param item The menu item to render.
-     * @param level The nesting level.
-     * @returns The rendered menu item.
-     */
-    const renderMenuItem = (item: MenuItem, level: number = 0) => {
-        const isActive = isRouteActive(item.name)
-        const isExpanded = item.nested ? isSectionExpanded(item.name) : false
-
-        const stylesByLevel = {
-            0: {
-                item: styles.menuItem,
-                active: styles.menuItemActive,
-                icon: styles.menuItemIcon,
-                text: styles.menuItemText,
-                textActive: styles.menuItemTextActive,
-                iconSize: 24,
-                chevronSize: 20,
-            },
-            1: {
-                item: styles.nestedItem,
-                active: styles.nestedItemActive,
-                icon: styles.nestedItemIcon,
-                text: styles.nestedItemText,
-                textActive: styles.nestedItemTextActive,
-                iconSize: 20,
-                chevronSize: 18,
-            },
-            2: {
-                item: styles.doubleNestedItem,
-                active: styles.doubleNestedItemActive,
-                icon: styles.doubleNestedItemIcon,
-                text: styles.doubleNestedItemText,
-                textActive: styles.doubleNestedItemTextActive,
-                iconSize: 18,
-                chevronSize: 16,
-            },
-        }
-
-        // Determine styles based on nesting level.
-        const itemStyle = stylesByLevel[level as keyof typeof stylesByLevel].item
-        const activeStyle = stylesByLevel[level as keyof typeof stylesByLevel].active
-        const iconStyle = stylesByLevel[level as keyof typeof stylesByLevel].icon
-        const textStyle = stylesByLevel[level as keyof typeof stylesByLevel].text
-        const textActiveStyle = stylesByLevel[level as keyof typeof stylesByLevel].textActive
-        const iconSize = stylesByLevel[level as keyof typeof stylesByLevel].iconSize
-        const chevronSize = stylesByLevel[level as keyof typeof stylesByLevel].chevronSize
+    const renderItem = (item: DrawerItem) => {
+        const isActive = isRouteActive(item.route)
+        const isExpanded = expandedSections.has(item.route)
+        const hasChildren = !!item.children && item.children.length > 0
 
         return (
-            <View key={item.name}>
-                <Pressable
-                    style={[itemStyle, isActive && activeStyle]}
-                    android_ripple={{ color: colors.ripple, foreground: true }}
-                    onPress={() => (level === 0 ? handleParentNavigation(item) : handleNavigation(item.name))}
-                >
-                    <View style={iconStyle}>
-                        <Ionicons name={item.icon(isActive) as any} size={iconSize} color={isActive ? colors.primary : colors.foreground} />
-                    </View>
-                    <Text style={[textStyle, isActive && textActiveStyle]}>{item.label}</Text>
-                    {item.nested && (
-                        <Pressable onPress={(e) => handleChevronPress(e, item)} style={styles.chevronButton} android_ripple={{ color: colors.ripple, foreground: true }}>
-                            <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={chevronSize} color={colors.mutedForeground} />
+            <View key={item.route}>
+                <View style={[{ flexDirection: "row", alignItems: "center", borderRadius: 10, overflow: "hidden" }, isActive && styles.menuItemActive]}>
+                    <Pressable
+                        style={[styles.menuItem, { flex: 1, paddingRight: hasChildren ? 44 + SPACING.sm + SPACING.md : undefined }]}
+                        android_ripple={{ color: colors.ripple, foreground: true }}
+                        onPress={() => handleNavigation(item.route)}
+                    >
+                        <View style={styles.menuItemIcon}>
+                            <Ionicons name={item.icon as any} size={22} color={isActive ? colors.brand : colors.text} />
+                        </View>
+                        <Text style={[styles.menuItemText, isActive && styles.menuItemTextActive]}>{item.label}</Text>
+                    </Pressable>
+                    {hasChildren && (
+                        <Pressable
+                            onPress={() => toggleSection(item.route)}
+                            style={[styles.chevronButton, { position: "absolute", right: 0, top: "50%", marginTop: -22, marginLeft: 0 }]}
+                            hitSlop={12}
+                            android_ripple={{ color: colors.ripple, foreground: true }}
+                        >
+                            <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textMuted} />
                         </Pressable>
                     )}
-                </Pressable>
-                {item.nested && isExpanded && <View style={styles.nestedContainer}>{item.nested.map((nestedItem) => renderMenuItem(nestedItem, level + 1))}</View>}
+                </View>
+                {hasChildren && isExpanded && (
+                    <View>
+                        {item.children!.map((child) => {
+                            const childActive = isRouteActive(child.route)
+                            return (
+                                <Pressable
+                                    key={child.route}
+                                    style={[styles.childRow, childActive && styles.childRowActive]}
+                                    android_ripple={{ color: colors.ripple, foreground: true }}
+                                    onPress={() => handleNavigation(child.route)}
+                                >
+                                    <View style={styles.childIcon}>
+                                        <Ionicons name={child.icon as any} size={16} color={childActive ? colors.brand : colors.textMuted} />
+                                    </View>
+                                    <Text style={[styles.childText, childActive && styles.childTextActive]}>{child.label}</Text>
+                                </Pressable>
+                            )
+                        })}
+                    </View>
+                )}
             </View>
         )
     }
 
+    const visibleRecent = recentRoutes.slice(0, RECENT_PAGES_RENDER_CAP)
+
     return (
         <>
-            <DrawerContentScrollView {...props} style={styles.container} contentContainerStyle={{ flexGrow: 1 }}>
+            <DrawerContentScrollView {...props} style={styles.container} contentContainerStyle={{ flexGrow: 1, paddingTop: SPACING.md }}>
                 <View style={styles.header}>
                     <View style={styles.headerTextContainer}>
                         <Text style={styles.headerTitle}>Uma Android Automation</Text>
@@ -528,14 +471,41 @@ const DrawerContent: React.FC<DrawerContentComponentProps> = (props) => {
                         <AvatarImage source={require("../../assets/app_icon.png")} />
                     </Avatar>
                 </View>
-                <View style={styles.menuContainer}>{menuItems.map((item) => renderMenuItem(item, 0))}</View>
+
+                {visibleRecent.length > 0 && (
+                    <View style={[styles.recentStrip, { flexDirection: "row", alignItems: "center" }]}>
+                        {visibleRecent.map((route) => (
+                            <Pressable key={route} style={styles.recentChip} android_ripple={{ color: colors.ripple, foreground: true }} onPress={() => handleNavigation(route)}>
+                                <Text style={styles.recentChipText} numberOfLines={1} ellipsizeMode="tail">
+                                    {ROUTE_LABELS[route]}
+                                </Text>
+                            </Pressable>
+                        ))}
+                    </View>
+                )}
+
+                {SECTIONS.map((section) => (
+                    <View key={section.label} style={styles.section}>
+                        <SectionLabel label={section.label} />
+                        {section.items.map(renderItem)}
+                    </View>
+                ))}
             </DrawerContentScrollView>
             <View style={styles.footer}>
-                <Pressable onPress={() => Linking.openURL("https://github.com/steve1316/uma-android-automation")} android_ripple={{ color: colors.ripple, foreground: true }}>
-                    <View style={styles.footerButton}>
-                        <Ionicons name="logo-github" size={32} color={colors.primary} style={{ marginRight: 8 }} />
-                        <Text style={styles.footerText}>Go to GitHub</Text>
-                    </View>
+                <Pressable style={styles.footerIconButton} android_ripple={{ color: colors.ripple, foreground: true }} onPress={() => Linking.openURL(GITHUB_URL)}>
+                    <Ionicons name="logo-github" size={24} color={colors.text} />
+                </Pressable>
+                <Pressable
+                    style={styles.footerIconButton}
+                    android_ripple={{ color: colors.ripple, foreground: true }}
+                    accessibilityLabel="View current changelog"
+                    onPress={() => {
+                        NativeModules.StartModule.showChangelog().catch(() => {
+                            // Swallow failures; the dialog is informational and not critical.
+                        })
+                    }}
+                >
+                    <Ionicons name="newspaper-outline" size={24} color={colors.text} />
                 </Pressable>
             </View>
         </>

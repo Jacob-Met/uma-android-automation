@@ -29,8 +29,8 @@ const DayRow: React.FC<Props> = ({ record, showTriggers }) => {
                     borderRadius: 8,
                     borderWidth: 1,
                     marginBottom: 10,
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
+                    backgroundColor: colors.surface,
+                    borderColor: colors.borderHair,
                 },
                 headerRow: {
                     flexDirection: "row",
@@ -41,16 +41,16 @@ const DayRow: React.FC<Props> = ({ record, showTriggers }) => {
                 title: {
                     fontSize: 16,
                     fontWeight: "600",
-                    color: colors.foreground,
+                    color: colors.text,
                 },
                 date: {
                     fontSize: 12,
-                    color: colors.lightlyMuted,
+                    color: colors.textMuted,
                 },
                 summary: {
                     fontSize: 14,
                     marginBottom: 8,
-                    color: colors.foreground,
+                    color: colors.text,
                 },
                 flagsRow: {
                     flexDirection: "row",
@@ -68,7 +68,7 @@ const DayRow: React.FC<Props> = ({ record, showTriggers }) => {
                 },
                 flagLabel: {
                     fontSize: 12,
-                    color: colors.lightlyMuted,
+                    color: colors.textMuted,
                 },
                 triggersContainer: {
                     marginTop: 8,
@@ -77,12 +77,12 @@ const DayRow: React.FC<Props> = ({ record, showTriggers }) => {
                     marginBottom: 6,
                 },
                 triggerTitle: {
-                    color: colors.lightlyMuted,
+                    color: colors.textMuted,
                     fontWeight: "600",
                     marginBottom: 2,
                 },
                 triggerLine: {
-                    color: colors.lightlyMuted,
+                    color: colors.textMuted,
                     fontSize: 12,
                 },
             }),
@@ -124,7 +124,7 @@ const DayRow: React.FC<Props> = ({ record, showTriggers }) => {
                     { label: "Training", active: record.actions.training },
                     { label: "Race", active: record.actions.race },
                 ].map(({ label, active }) => {
-                    const flagColor = active ? colors.activeFlag : colors.lightlyMuted
+                    const flagColor = active ? colors.activeFlag : colors.textMuted
                     return (
                         <View key={label} style={[styles.flag, { opacity: active ? 1 : 0.35 }]}>
                             <Text style={[styles.flagDot, { color: flagColor }]}>{active ? "●" : "○"}</Text>

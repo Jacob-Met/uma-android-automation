@@ -1,25 +1,28 @@
 import { useMemo, useContext, useEffect, useState, useRef, useCallback } from "react"
 import { SearchPageProvider } from "../../context/SearchPageContext"
 import { BotMetaContext, GeneralMiscContext } from "../../context/BotStateContext"
-import { InteractionManager, ScrollView, StyleSheet, Text, View } from "react-native"
+import { InteractionManager, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
 import { Snackbar } from "react-native-paper"
 import { useNavigation } from "@react-navigation/native"
+import { Ionicons } from "@react-native-vector-icons/ionicons"
 import ThemeToggle from "../../components/ThemeToggle"
 import { useTheme } from "../../context/ThemeContext"
 import CustomSelect from "../../components/CustomSelect"
-import NavigationLink from "../../components/NavigationLink"
-import CustomCheckbox from "../../components/CustomCheckbox"
 import CustomSlider from "../../components/CustomSlider"
-import CustomTitle from "../../components/CustomTitle"
 import CustomButton from "../../components/CustomButton"
 import PageHeader from "../../components/PageHeader"
-import { Separator } from "../../components/ui/separator"
+import { Row } from "../../components/ui/row"
+import { Section } from "../../components/ui/section"
+import { Switch } from "../../components/ui/switch"
 import WarningContainer from "../../components/WarningContainer"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../../components/ui/alert-dialog"
 import SearchableItem from "../../components/SearchableItem"
 import { useSettings } from "../../context/SettingsContext"
 import { useSettingsFileManager } from "../../hooks/useSettingsFileManager"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
+import { TYPE } from "../../lib/type"
+import { SPACING } from "../../lib/spacing"
+import { RADII } from "../../lib/radii"
 
 /**
  * The main Settings page of the application.
@@ -28,10 +31,9 @@ import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
  */
 const Settings = () => {
     usePerformanceLogging("Settings")
-    const [snackbarOpen, setSnackbarOpen] = useState<boolean>(false)
     const scrollViewRef = useRef<ScrollView>(null)
 
-    const { readyStatus, defaultSettings } = useContext(BotMetaContext)
+    const { defaultSettings } = useContext(BotMetaContext)
     const { general, misc, updateGeneral, updateMisc } = useContext(GeneralMiscContext)
     const { colors } = useTheme()
     const navigation = useNavigation()
@@ -47,8 +49,44 @@ const Settings = () => {
                     flexDirection: "column",
                     justifyContent: "center",
                     margin: 10,
-                    backgroundColor: colors.background,
+                    backgroundColor: colors.bg,
                 },
+                managementGrid: {
+                    flexDirection: "row",
+                    gap: SPACING.sm,
+                },
+                managementTile: {
+                    flex: 1,
+                    backgroundColor: colors.surfaceRaised,
+                    borderWidth: 1,
+                    borderColor: colors.borderHair,
+                    borderRadius: RADII.lg,
+                    paddingVertical: SPACING.md,
+                    paddingHorizontal: SPACING.sm,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    overflow: "hidden",
+                },
+                managementTileLabel: { ...TYPE.body, color: colors.text, fontWeight: "600" as const, textAlign: "center" as const },
+                managementTileCaption: { ...TYPE.caption, color: colors.textMuted, fontSize: 10, textAlign: "center" as const },
+                managementTileDanger: { borderColor: colors.destructive },
+                dateEntry: {
+                    borderWidth: 1,
+                    borderColor: colors.borderHair,
+                    borderRadius: RADII.md,
+                    backgroundColor: colors.surfaceRaised,
+                    padding: SPACING.md,
+                    gap: SPACING.sm,
+                },
+                dateEntryHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+                dateEntryTitleRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, flex: 1 },
+                dateBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.brand, alignItems: "center" as const, justifyContent: "center" as const },
+                dateBadgeText: { ...TYPE.monoLabel, color: colors.onBrand, fontSize: 11 },
+                dateTitle: { ...TYPE.body, color: colors.text, fontWeight: "600" as const, flexShrink: 1 },
+                dateRemoveButton: { padding: SPACING.xs, borderRadius: 999, overflow: "hidden" as const },
+                dateSelectorRow: { flexDirection: "row" },
+                dateSelectorCell: { flex: 1 },
             }),
         [colors]
     )
@@ -56,12 +94,6 @@ const Settings = () => {
     //////////////////////////////////////////////////
     //////////////////////////////////////////////////
     // Callbacks
-
-    useEffect(() => {
-        // Manually set this flag to false as the snackbar autohiding does not set this to false automatically.
-        setSnackbarOpen(true)
-        setTimeout(() => setSnackbarOpen(false), 2500)
-    }, [readyStatus])
 
     // Two-phase mount. First paint renders the cheap navigation-link list (~40 ms baseline) so the
     // user sees the page immediately; the heavy Misc section (sliders, checkboxes, dialogs,
@@ -77,14 +109,16 @@ const Settings = () => {
         return () => handle.cancel()
     }, [])
 
+    const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null)
+
     /**
      * Reset the settings to their default values.
      */
     const handleResetSettings = async () => {
         const success = await resetSettings()
         if (success) {
-            setSnackbarOpen(true)
-            setTimeout(() => setSnackbarOpen(false), 2500)
+            setSnackbarMessage("Settings reset to defaults")
+            setTimeout(() => setSnackbarMessage(null), 2500)
         }
     }
 
@@ -148,289 +182,234 @@ const Settings = () => {
         [general]
     )
 
-    const renderTrainingLink = () => {
-        return (
-            <NavigationLink
-                title="Go to Training Settings"
-                description="Configure which stats to train, set priorities, and customize training behavior."
-                onPress={() => navigation.navigate("TrainingSettings" as never)}
-            />
-        )
-    }
+    // Shared chevron icon used as the right-aligned affordance on every navigation Row.
+    const chevron = <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
 
-    const renderTrainingEventLink = () => {
+    const renderNavigationSections = () => {
         return (
-            <NavigationLink
-                title="Go to Training Event Settings"
-                description="Configure training event preferences and event selection behavior."
-                onPress={() => navigation.navigate("TrainingEventSettings" as never)}
-            />
-        )
-    }
+            <>
+                <Section label="GAMEPLAY">
+                    <Row title="Training" description="Stat priorities, training behavior, and customization." right={chevron} onPress={() => navigation.navigate("TrainingSettings" as never)} />
+                    <Row title="Training Events" description="Training event preferences and event selection." right={chevron} onPress={() => navigation.navigate("TrainingEventSettings" as never)} />
+                    <Row title="Racing" description="Racing behavior, retries, and mandatory race handling." right={chevron} onPress={() => navigation.navigate("RacingSettings" as never)} />
+                    <Row title="Skills" description="Skill purchasing behavior." right={chevron} onPress={() => navigation.navigate("Skills" as never)} />
+                </Section>
 
-    const renderRacingLink = () => {
-        return (
-            <NavigationLink
-                title="Go to Racing Settings"
-                description="Configure racing behavior, retry settings, mandatory race handling, and more."
-                onPress={() => navigation.navigate("RacingSettings" as never)}
-            />
-        )
-    }
+                <Section label="SCENARIO">
+                    <Row
+                        title="Scenario Overrides"
+                        description="Behavior overrides specific to each scenario."
+                        right={chevron}
+                        onPress={() => navigation.navigate("ScenarioOverridesSettings" as never)}
+                    />
+                </Section>
 
-    const renderSkillsLink = () => {
-        return <NavigationLink title="Go to Skills Settings" description="Configure skill purchasing behavior." onPress={() => navigation.navigate("SkillSettings" as never)} />
-    }
+                <Section label="INTEGRATIONS">
+                    <Row title="Discord" description="Discord notifications when the bot stops." right={chevron} onPress={() => navigation.navigate("DiscordSettings" as never)} />
+                    <Row title="LLM" description="On-device docs search and chat model downloads." right={chevron} onPress={() => navigation.navigate("LLMSettings" as never)} />
+                </Section>
 
-    const renderEventLogVisualizerLink = () => {
-        return (
-            <NavigationLink
-                title="Go to Event Log Visualizer (Beta)"
-                description="Import logs and view a day-by-day timeline of actions."
-                onPress={() => navigation.navigate("EventLogVisualizer" as never)}
-            />
-        )
-    }
-
-    const renderScenarioOverridesLink = () => {
-        return (
-            <NavigationLink
-                title="Go to Scenario Overrides Settings"
-                description="Configure behavior overrides specific to each scenario."
-                onPress={() => navigation.navigate("ScenarioOverridesSettings" as never)}
-            />
-        )
-    }
-
-    const renderDebugLink = () => {
-        return (
-            <NavigationLink
-                title="Go to Debug Settings"
-                description="Configure debug mode, template matching settings, and diagnostic tests for bot troubleshooting."
-                onPress={() => navigation.navigate("DebugSettings" as never)}
-            />
-        )
-    }
-
-    const renderDiscordLink = () => {
-        return (
-            <NavigationLink
-                title="Go to Discord Settings"
-                description="Configure Discord bot notifications to receive DM updates when the bot stops."
-                onPress={() => navigation.navigate("DiscordSettings" as never)}
-            />
-        )
-    }
-
-    const renderLLMSettingsLink = () => {
-        return (
-            <NavigationLink
-                title="Go to LLM Settings"
-                description="Configure on-device docs search and chat model downloads for the Ask the Docs feature."
-                onPress={() => navigation.navigate("LLMSettings" as never)}
-            />
+                <Section label="TOOLS">
+                    <Row title="Ask the Docs" description="On-device docs chat powered by the LLM engine." right={chevron} onPress={() => navigation.navigate("Chat" as never)} />
+                    <Row
+                        title="Event Log Visualizer (Beta)"
+                        description="Import logs and view a day-by-day timeline of actions."
+                        right={chevron}
+                        onPress={() => navigation.navigate("EventLogVisualizer" as never)}
+                    />
+                    <Row title="Debug" description="Debug mode, template matching, and diagnostic tests." right={chevron} onPress={() => navigation.navigate("DebugSettings" as never)} />
+                </Section>
+            </>
         )
     }
 
     const renderMiscSettings = () => {
         return (
-            <View style={{ marginTop: 16 }}>
-                <Separator style={{ marginVertical: 16 }} />
-
-                <CustomTitle title="Misc Settings" description="General settings for the bot that don't fit into the other categories." />
-
-                <CustomCheckbox
-                    searchId="settings-stop-before-finals"
-                    checked={general.enableStopBeforeFinals}
-                    onCheckedChange={(checked) => {
-                        updateGeneral({ enableStopBeforeFinals: checked })
-                    }}
-                    label="Stop before Finals"
-                    description="Stops the bot on turn 72 so you can purchase skills before the final races."
-                    className="mt-4"
-                />
-
-                <CustomCheckbox
-                    searchId="settings-stop-at-date"
-                    checked={general.enableStopAtDate}
-                    onCheckedChange={(checked) => {
-                        updateGeneral({ enableStopAtDate: checked })
-                    }}
-                    label="Stop at Date"
-                    description="Stops the bot on one or more specified dates. The bot will stop at the earliest matching date it reaches."
-                    className="mt-4"
-                />
-
-                {general.enableStopAtDate && (
-                    <SearchableItem id="settings-stop-at-date" title="Target Dates" description="Stops the bot on the specified dates." style={{ marginLeft: 16, marginTop: 8 }}>
-                        {general.stopAtDates.map((dateStr, index) => {
-                            const parts = dateStr.split(" ")
-                            return (
-                                <View key={index} style={{ marginBottom: index < general.stopAtDates.length - 1 ? 12 : 0 }}>
-                                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                                        <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground }}>Date {index + 1}</Text>
-                                        {general.stopAtDates.length > 1 && (
-                                            <CustomButton onPress={() => handleRemoveStopAtDate(index)} variant="destructive" size="sm" fontSize={12}>
-                                                Remove
-                                            </CustomButton>
-                                        )}
-                                    </View>
-                                    <View style={{ flexDirection: "row", gap: 8, justifyContent: "space-between" }}>
-                                        <View style={{ flex: 1 }}>
-                                            <CustomSelect
-                                                placeholder="Year"
-                                                width="100%"
-                                                options={years}
-                                                value={parts[0]}
-                                                onValueChange={(value) => handleStopAtDateChange(index, "year", value || "Senior")}
-                                            />
-                                        </View>
-                                        <View style={{ flex: 1 }}>
-                                            <CustomSelect
-                                                placeholder="Month"
-                                                width="100%"
-                                                options={months}
-                                                value={parts[1]}
-                                                onValueChange={(value) => handleStopAtDateChange(index, "month", value || "January")}
-                                            />
-                                        </View>
-                                        <View style={{ flex: 1 }}>
-                                            <CustomSelect
-                                                placeholder="Phase"
-                                                width="100%"
-                                                options={phases}
-                                                value={parts[2]}
-                                                onValueChange={(value) => handleStopAtDateChange(index, "phase", value || "Early")}
-                                            />
-                                        </View>
-                                    </View>
-                                </View>
-                            )
-                        })}
-                        <CustomButton onPress={handleAddStopAtDate} variant="default" fontSize={14} style={{ marginTop: 12, alignSelf: "flex-start" }}>
-                            + Add Date
-                        </CustomButton>
+            <View>
+                <Section label="MISC">
+                    <SearchableItem id="settings-stop-before-finals" title="Stop before Finals" description="Pause to buy skills before the final races">
+                        <Row
+                            title="Stop before Finals"
+                            description="Pause to buy skills before the final races"
+                            right={<Switch checked={general.enableStopBeforeFinals} onCheckedChange={(checked) => updateGeneral({ enableStopBeforeFinals: checked })} />}
+                        />
                     </SearchableItem>
-                )}
 
-                <CustomCheckbox
-                    searchId="settings-crane-game-attempt"
-                    checked={general.enableCraneGameAttempt}
-                    onCheckedChange={(checked) => {
-                        updateGeneral({ enableCraneGameAttempt: checked })
-                    }}
-                    label="Enable Crane Game Attempt"
-                    description="When enabled, the bot will attempt to complete the crane game. By default, the bot will stop when it is detected."
-                    className="mt-4"
-                />
+                    <SearchableItem id="settings-stop-at-date" title="Stop at Date" description="Stop on one or more specified dates">
+                        <Row
+                            title="Stop at Date"
+                            description="Stop on one or more specified dates"
+                            right={<Switch checked={general.enableStopAtDate} onCheckedChange={(checked) => updateGeneral({ enableStopAtDate: checked })} />}
+                        />
+                    </SearchableItem>
 
-                <CustomCheckbox
-                    searchId="settings-enable-settings-display"
-                    checked={misc.enableSettingsDisplay}
-                    onCheckedChange={(checked) => {
-                        updateMisc({ enableSettingsDisplay: checked })
-                    }}
-                    label="Enable Settings Display in Message Log"
-                    description="Shows current bot configuration settings at the top of the message log."
-                    className="mt-4"
-                />
+                    {general.enableStopAtDate && (
+                        <SearchableItem id="settings-target-dates" title="Target Dates" description="Stops the bot on the specified dates." parentId="settings-stop-at-date">
+                            <View style={{ padding: SPACING.md, gap: SPACING.sm }}>
+                                {general.stopAtDates.map((dateStr, index) => {
+                                    const parts = dateStr.split(" ")
+                                    const year = parts[0] || "Senior"
+                                    const month = parts[1] || "January"
+                                    const phase = parts[2] || "Early"
+                                    return (
+                                        <View key={index} style={styles.dateEntry}>
+                                            <View style={styles.dateEntryHeader}>
+                                                <View style={styles.dateEntryTitleRow}>
+                                                    <View style={styles.dateBadge}>
+                                                        <Text style={styles.dateBadgeText}>{index + 1}</Text>
+                                                    </View>
+                                                    <Text style={styles.dateTitle} numberOfLines={1}>
+                                                        {year} {month} {phase}
+                                                    </Text>
+                                                </View>
+                                                {general.stopAtDates.length > 1 && (
+                                                    <Pressable
+                                                        onPress={() => handleRemoveStopAtDate(index)}
+                                                        style={styles.dateRemoveButton}
+                                                        hitSlop={8}
+                                                        android_ripple={{ color: colors.ripple, foreground: true }}
+                                                        accessibilityRole="button"
+                                                        accessibilityLabel={`Remove Date ${index + 1}`}
+                                                    >
+                                                        <Ionicons name="trash-outline" size={18} color={colors.destructive} />
+                                                    </Pressable>
+                                                )}
+                                            </View>
+                                            <View style={styles.dateSelectorRow}>
+                                                <View style={styles.dateSelectorCell}>
+                                                    <CustomSelect
+                                                        placeholder="Year"
+                                                        width="100%"
+                                                        options={years}
+                                                        value={year}
+                                                        onValueChange={(value) => handleStopAtDateChange(index, "year", value || "Senior")}
+                                                    />
+                                                </View>
+                                                <View style={styles.dateSelectorCell}>
+                                                    <CustomSelect
+                                                        placeholder="Month"
+                                                        width="100%"
+                                                        options={months}
+                                                        value={month}
+                                                        onValueChange={(value) => handleStopAtDateChange(index, "month", value || "January")}
+                                                    />
+                                                </View>
+                                                <View style={styles.dateSelectorCell}>
+                                                    <CustomSelect
+                                                        placeholder="Phase"
+                                                        width="100%"
+                                                        options={phases}
+                                                        value={phase}
+                                                        onValueChange={(value) => handleStopAtDateChange(index, "phase", value || "Early")}
+                                                    />
+                                                </View>
+                                            </View>
+                                        </View>
+                                    )
+                                })}
+                                <CustomButton onPress={handleAddStopAtDate} variant="outline" icon={<Ionicons name="add" size={18} color={colors.text} />} style={{ marginVertical: SPACING.sm }}>
+                                    Add Date
+                                </CustomButton>
+                            </View>
+                        </SearchableItem>
+                    )}
 
-                <CustomCheckbox
-                    searchId="settings-enable-message-id-display"
-                    checked={misc.enableMessageIdDisplay}
-                    onCheckedChange={(checked) => {
-                        updateMisc({ enableMessageIdDisplay: checked })
-                    }}
-                    label="Enable Message ID Display"
-                    description="Shows message IDs in the message log to help with debugging."
-                    className="mt-4"
-                />
+                    <SearchableItem id="settings-crane-game-attempt" title="Enable Crane Game Attempt" description="Attempt to complete the crane game instead of stopping">
+                        <Row
+                            title="Enable Crane Game Attempt"
+                            description="Attempt to complete the crane game instead of stopping"
+                            right={<Switch checked={general.enableCraneGameAttempt} onCheckedChange={(checked) => updateGeneral({ enableCraneGameAttempt: checked })} />}
+                        />
+                    </SearchableItem>
 
-                <CustomSlider
-                    searchId="settings-wait-delay"
-                    value={general.waitDelay}
-                    placeholder={defaultSettings.general.waitDelay}
-                    onValueChange={(value) => {
-                        updateGeneral({ waitDelay: value })
-                    }}
-                    onSlidingComplete={(value) => {
-                        updateGeneral({ waitDelay: value })
-                    }}
-                    min={0.0}
-                    max={1.0}
-                    step={0.1}
-                    label="Wait Delay"
-                    labelUnit="s"
-                    showValue={true}
-                    showLabels={true}
-                    description="Sets the delay between actions and imaging operations. Lowering this will make the bot run much faster at the risk of the bot losing track of its location after loading/connecting screens."
-                />
+                    <SearchableItem id="settings-enable-settings-display" title="Enable Settings Display in Message Log" description="Show current bot configuration in the message log">
+                        <Row
+                            title="Enable Settings Display in Message Log"
+                            description="Show current bot configuration in the message log"
+                            right={<Switch checked={misc.enableSettingsDisplay} onCheckedChange={(checked) => updateMisc({ enableSettingsDisplay: checked })} />}
+                        />
+                    </SearchableItem>
+                </Section>
 
-                <CustomSlider
-                    searchId="settings-dialog-wait-delay"
-                    value={general.dialogWaitDelay}
-                    placeholder={defaultSettings.general.dialogWaitDelay}
-                    onValueChange={(value) => {
-                        updateGeneral({ dialogWaitDelay: value })
-                    }}
-                    onSlidingComplete={(value) => {
-                        updateGeneral({ dialogWaitDelay: value })
-                    }}
-                    min={0.0}
-                    max={1.0}
-                    step={0.1}
-                    label="Dialog Wait Delay"
-                    labelUnit="s"
-                    showValue={true}
-                    showLabels={true}
-                    description="Sets the delay between clicking a button that opens dialog and actually handling the dialog. Lowering this will make the bot run faster at an increased risk of the bot incorrectly handling dialogs that pop up."
-                />
+                <Section label="WAIT DELAY">
+                    <View style={{ padding: SPACING.md }}>
+                        <CustomSlider
+                            searchId="settings-wait-delay"
+                            value={general.waitDelay}
+                            placeholder={defaultSettings.general.waitDelay}
+                            onValueChange={(value) => {
+                                updateGeneral({ waitDelay: value })
+                            }}
+                            onSlidingComplete={(value) => {
+                                updateGeneral({ waitDelay: value })
+                            }}
+                            min={0.0}
+                            max={1.0}
+                            step={0.1}
+                            label="Wait Delay"
+                            labelUnit="s"
+                            showValue={true}
+                            showLabels={true}
+                            description="Sets the delay between actions and imaging operations. Lowering this will make the bot run much faster at the risk of the bot losing track of its location after loading/connecting screens."
+                        />
+                    </View>
+                    <View style={{ padding: SPACING.md }}>
+                        <CustomSlider
+                            searchId="settings-dialog-wait-delay"
+                            value={general.dialogWaitDelay}
+                            placeholder={defaultSettings.general.dialogWaitDelay}
+                            onValueChange={(value) => {
+                                updateGeneral({ dialogWaitDelay: value })
+                            }}
+                            onSlidingComplete={(value) => {
+                                updateGeneral({ dialogWaitDelay: value })
+                            }}
+                            min={0.0}
+                            max={1.0}
+                            step={0.1}
+                            label="Dialog Wait Delay"
+                            labelUnit="s"
+                            showValue={true}
+                            showLabels={true}
+                            description="Sets the delay between clicking a button that opens dialog and actually handling the dialog. Lowering this will make the bot run faster at an increased risk of the bot incorrectly handling dialogs that pop up."
+                        />
+                    </View>
+                </Section>
 
-                <CustomSlider
-                    searchId="settings-overlay-button-size"
-                    value={misc.overlayButtonSizeDP}
-                    placeholder={defaultSettings.misc.overlayButtonSizeDP}
-                    onValueChange={(value) => {
-                        updateMisc({ overlayButtonSizeDP: value })
-                    }}
-                    onSlidingComplete={(value) => {
-                        updateMisc({ overlayButtonSizeDP: value })
-                    }}
-                    min={30}
-                    max={60}
-                    step={5}
-                    label="Overlay Button Size"
-                    labelUnit=" dp"
-                    showValue={true}
-                    showLabels={true}
-                    description="Sets the size of the floating overlay button in density-independent pixels (dp). Higher values make the button easier to tap."
-                />
+                <Section label="DATA MANAGEMENT">
+                    <SearchableItem id="settings-management-title" title="Settings Management" description="Import and export settings from JSON file or access the app's data directory.">
+                        <View style={{ padding: SPACING.md }}>
+                            <View style={styles.managementGrid}>
+                                <Pressable style={styles.managementTile} android_ripple={{ color: colors.ripple, foreground: true }} onPress={handleImportSettings}>
+                                    <Ionicons name="download-outline" size={24} color={colors.brand} />
+                                    <Text style={styles.managementTileLabel}>Import</Text>
+                                    <Text style={styles.managementTileCaption}>Load settings from JSON</Text>
+                                </Pressable>
+                                <Pressable style={styles.managementTile} android_ripple={{ color: colors.ripple, foreground: true }} onPress={handleExportSettings}>
+                                    <Ionicons name="share-outline" size={24} color={colors.brand} />
+                                    <Text style={styles.managementTileLabel}>Export</Text>
+                                    <Text style={styles.managementTileCaption}>Save settings to JSON</Text>
+                                </Pressable>
+                                <Pressable style={styles.managementTile} android_ripple={{ color: colors.ripple, foreground: true }} onPress={openDataDirectory}>
+                                    <Ionicons name="folder-outline" size={24} color={colors.brand} />
+                                    <Text style={styles.managementTileLabel}>Data</Text>
+                                    <Text style={styles.managementTileCaption}>Open folder</Text>
+                                </Pressable>
+                                <Pressable
+                                    style={[styles.managementTile, styles.managementTileDanger]}
+                                    android_ripple={{ color: colors.ripple, foreground: true }}
+                                    onPress={() => setShowResetDialog(true)}
+                                >
+                                    <Ionicons name="refresh-outline" size={24} color={colors.destructive} />
+                                    <Text style={[styles.managementTileLabel, { color: colors.destructive }]}>Reset</Text>
+                                    <Text style={styles.managementTileCaption}>Restore defaults</Text>
+                                </Pressable>
+                            </View>
+                        </View>
+                    </SearchableItem>
+                </Section>
 
-                <Separator style={{ marginVertical: 16 }} />
-
-                <CustomTitle searchId="settings-management-title" title="Settings Management" description="Import and export settings from JSON file or access the app's data directory." />
-
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                    <CustomButton onPress={handleImportSettings} variant="default" style={{ width: 150 }}>
-                        📥 Import Settings
-                    </CustomButton>
-
-                    <CustomButton onPress={handleExportSettings} variant="default" style={{ width: 150 }}>
-                        📤 Export Settings
-                    </CustomButton>
-                </View>
-
-                <View style={{ flexDirection: "row", marginTop: 16, justifyContent: "space-between" }}>
-                    <CustomButton onPress={openDataDirectory} variant="default" style={{ width: 150 }} fontSize={12}>
-                        📁 Open Data Directory
-                    </CustomButton>
-
-                    <CustomButton onPress={() => setShowResetDialog(true)} variant="destructive" style={{ width: 150 }}>
-                        🔄 Reset Settings
-                    </CustomButton>
-                </View>
-
-                <WarningContainer style={{ marginBottom: 12 }}>
+                <WarningContainer style={{ marginTop: 0, marginBottom: SPACING.md }}>
                     <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
                         <Text style={{ fontWeight: "bold", color: colors.warningText }}>⚠️ File Explorer Note:</Text>
                         <Text style={{ fontSize: 14, color: colors.warningText, lineHeight: 20 }}>
@@ -447,38 +426,15 @@ const Settings = () => {
 
     return (
         <View style={styles.root}>
-            <PageHeader title="Settings" rightComponent={<ThemeToggle />} />
-
             <SearchPageProvider page="SettingsMain" scrollViewRef={scrollViewRef}>
+                <PageHeader title="Settings" searchOnRight rightComponent={<ThemeToggle />} />
                 <ScrollView ref={scrollViewRef} nestedScrollEnabled={true} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
                     <View className="m-1">
-                        {renderTrainingLink()}
-                        {renderTrainingEventLink()}
-                        {renderRacingLink()}
-                        {renderSkillsLink()}
-                        {renderEventLogVisualizerLink()}
-                        {renderDiscordLink()}
-                        {renderScenarioOverridesLink()}
-                        {renderDebugLink()}
-                        {renderLLMSettingsLink()}
+                        {renderNavigationSections()}
                         {showHeavySections && renderMiscSettings()}
                     </View>
                 </ScrollView>
             </SearchPageProvider>
-
-            <Snackbar
-                visible={snackbarOpen}
-                onDismiss={() => setSnackbarOpen(false)}
-                action={{
-                    label: "Close",
-                    onPress: () => {
-                        setSnackbarOpen(false)
-                    },
-                }}
-                style={{ backgroundColor: readyStatus ? "green" : "red", borderRadius: 10 }}
-            >
-                {readyStatus ? "Bot is ready!" : "Bot is not ready!"}
-            </Snackbar>
 
             {/* Restart Dialog */}
             <AlertDialog open={showImportDialog} onOpenChange={setShowImportDialog}>
@@ -522,6 +478,10 @@ const Settings = () => {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <Snackbar visible={snackbarMessage !== null} onDismiss={() => setSnackbarMessage(null)} style={{ backgroundColor: colors.surfaceRaised, borderRadius: 10 }}>
+                {snackbarMessage ?? ""}
+            </Snackbar>
         </View>
     )
 }

@@ -14,11 +14,14 @@ import { Snackbar } from "react-native-paper"
 import { useSettings } from "../../context/SettingsContext"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip"
 import { Info } from "lucide-react-native"
-import CustomCheckbox from "../../components/CustomCheckbox"
+import { Row } from "../../components/ui/row"
+import { Switch } from "../../components/ui/switch"
+import Ionicons from "@react-native-vector-icons/ionicons"
 import PageHeader from "../../components/PageHeader"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
 import WarningContainer from "../../components/WarningContainer"
 import { circularPress } from "../../lib/pressSurface"
+import { TYPE } from "../../lib/type"
 
 type MixedRecord = DayRecord | GapRecord | FileDividerRecord
 
@@ -43,7 +46,7 @@ const EventLogVisualizer: React.FC = () => {
             StyleSheet.create({
                 root: {
                     flex: 1,
-                    backgroundColor: colors.background,
+                    backgroundColor: colors.bg,
                 },
                 content: {
                     padding: 12,
@@ -55,19 +58,21 @@ const EventLogVisualizer: React.FC = () => {
                     opacity: 0.8,
                 },
                 totalTimeTitle: {
-                    fontSize: 18,
+                    ...TYPE.h1,
                     fontWeight: "bold",
                 },
                 totalTimeValue: {
+                    ...TYPE.monoValue,
                     fontSize: 18,
                     fontWeight: "600",
                 },
                 totalTimeHuman: {
+                    ...TYPE.caption,
                     fontSize: 14,
                 },
                 toggleContainer: {
                     flexDirection: "row",
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.surface,
                     borderRadius: 8,
                     padding: 4,
                     gap: 4,
@@ -81,20 +86,20 @@ const EventLogVisualizer: React.FC = () => {
                     justifyContent: "center",
                 },
                 toggleButtonActive: {
-                    backgroundColor: colors.primary,
+                    backgroundColor: colors.brand,
                 },
                 toggleButtonInactive: {
                     backgroundColor: "transparent",
                 },
                 toggleButtonText: {
-                    fontSize: 14,
+                    ...TYPE.body,
                     fontWeight: "600",
                 },
                 toggleButtonTextActive: {
-                    color: colors.primaryForeground,
+                    color: colors.onBrand,
                 },
                 toggleButtonTextInactive: {
-                    color: colors.foreground,
+                    color: colors.text,
                 },
             }),
         [colors]
@@ -177,22 +182,23 @@ const EventLogVisualizer: React.FC = () => {
     return (
         <View style={styles.root}>
             <View style={styles.content}>
+                {/* FlashList doesn't support sticky headers the same way as ScrollView, so PageHeader stays a sibling above the list (non-sticky). */}
                 <PageHeader title="Event Log Visualizer" style={{ marginBottom: 12 }} />
 
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 8 }}>
-                    <CustomButton onPress={openDataDirectory} variant="default">
-                        📁 Open Data Directory
+                    <CustomButton variant="outline" style={{ flex: 1 }} icon={<Ionicons name="folder-outline" size={16} color={colors.text} />} onPress={openDataDirectory}>
+                        Open Data Directory
                     </CustomButton>
-                    <CustomButton onPress={onPickFiles} variant="default">
-                        📂 Select Log Files
+                    <CustomButton variant="primary" style={{ flex: 1 }} icon={<Ionicons name="folder-open" size={16} color={colors.onBrand} />} onPress={onPickFiles}>
+                        Select Log Files
                     </CustomButton>
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Pressable style={circularPress(40)} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                <Info size={20} color={colors.primary} />
+                                <Info size={20} color={colors.brand} />
                             </Pressable>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom" style={{ backgroundColor: isDark ? colors.muted : "black", maxWidth: 300 }}>
+                        <TooltipContent side="bottom" style={{ backgroundColor: isDark ? colors.surfaceRaised : "black", maxWidth: 300 }}>
                             <WarningContainer>
                                 <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
                                     <Text style={{ fontWeight: "bold", color: colors.warningText }}>⚠️ File Explorer Note:</Text>
@@ -211,14 +217,7 @@ const EventLogVisualizer: React.FC = () => {
                     </Tooltip>
                 </View>
 
-                <View style={{ marginTop: 8, marginBottom: 12 }}>
-                    <CustomCheckbox
-                        checked={showTriggers}
-                        onCheckedChange={(checked) => setShowTriggers(!!checked)}
-                        label="Show trigger lines"
-                        description="Display the exact log lines that triggered each action per day."
-                    />
-                </View>
+                <Row title="Show trigger lines" description="Display the log lines behind each action" right={<Switch checked={showTriggers} onCheckedChange={setShowTriggers} />} />
 
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                     <View style={[styles.toggleContainer, { flex: 1 }]}>
@@ -240,17 +239,17 @@ const EventLogVisualizer: React.FC = () => {
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Pressable style={circularPress(40)} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                <Info size={20} color={colors.primary} />
+                                <Info size={20} color={colors.brand} />
                             </Pressable>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom" style={{ backgroundColor: isDark ? colors.muted : "black", maxWidth: 300 }}>
+                        <TooltipContent side="bottom" style={{ backgroundColor: isDark ? colors.surfaceRaised : "black", maxWidth: 300 }}>
                             <Text style={styles.empty}>
-                                <Text style={{ fontWeight: "bold", color: isDark ? colors.foreground : colors.mutedForeground }}>Timeline View:</Text>
+                                <Text style={[TYPE.monoLabel, { color: isDark ? colors.text : colors.textMuted }]}>Timeline View:</Text>
                                 {"\n"}
                                 Displays all days in chronological order with their actions (Recover Energy, Recover Mood, Recover Injury, Training, Race). Shows gaps for missing days and file
                                 dividers when the source file changes.
                                 {"\n\n"}
-                                <Text style={{ fontWeight: "bold", color: isDark ? colors.foreground : colors.mutedForeground }}>Year Summaries View:</Text>
+                                <Text style={[TYPE.monoLabel, { color: isDark ? colors.text : colors.textMuted }]}>Year Summaries View:</Text>
                                 {"\n"}
                                 Provides aggregated statistics for each year (Junior, Classic, Senior). Shows total action counts, stat gains from training (approximated), and elapsed time per year.
                             </Text>
@@ -272,9 +271,9 @@ const EventLogVisualizer: React.FC = () => {
                     <>
                         {yearSummariesResult.totalElapsedTimeFormatted && (
                             <View style={[styles.content, { paddingBottom: 8, flexDirection: "row", alignItems: "center", gap: 8 }]}>
-                                <Text style={[styles.totalTimeTitle, { color: colors.foreground }]}>Total Elapsed Time:</Text>
-                                <Text style={[styles.totalTimeValue, { color: colors.foreground }]}>{yearSummariesResult.totalElapsedTimeFormatted}</Text>
-                                <Text style={[styles.totalTimeHuman, { color: colors.mutedForeground }]}>({yearSummariesResult.totalElapsedTimeHuman})</Text>
+                                <Text style={[styles.totalTimeTitle, { color: colors.text }]}>Total Elapsed Time:</Text>
+                                <Text style={[styles.totalTimeValue, { color: colors.text }]}>{yearSummariesResult.totalElapsedTimeFormatted}</Text>
+                                <Text style={[styles.totalTimeHuman, { color: colors.textMuted }]}>({yearSummariesResult.totalElapsedTimeHuman})</Text>
                             </View>
                         )}
                         <FlashList
@@ -291,7 +290,7 @@ const EventLogVisualizer: React.FC = () => {
                 visible={snackbarOpen}
                 onDismiss={() => setSnackbarOpen(false)}
                 action={{ label: "Close", onPress: () => setSnackbarOpen(false) }}
-                style={{ backgroundColor: errors.length ? colors.destructive : colors.card, borderRadius: 10 }}
+                style={{ backgroundColor: errors.length ? colors.destructive : colors.surface, borderRadius: 10 }}
             >
                 {errors.join("\n")}
             </Snackbar>

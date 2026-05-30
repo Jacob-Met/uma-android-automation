@@ -1,22 +1,29 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { View, ScrollView, StyleSheet, Text, TextInput, NativeModules, NativeEventEmitter, Alert, Linking, Pressable } from "react-native"
 import { Check, Trash2 } from "lucide-react-native"
+import Ionicons from "@react-native-vector-icons/ionicons"
 import { useTheme } from "../../context/ThemeContext"
 import { ChatContext } from "../../context/BotStateContext"
 import CustomButton from "../../components/CustomButton"
-import CustomCheckbox from "../../components/CustomCheckbox"
 import CustomSlider from "../../components/CustomSlider"
 import PageHeader from "../../components/PageHeader"
+import SearchableItem from "../../components/SearchableItem"
 import WarningContainer from "../../components/WarningContainer"
 import InfoContainer from "../../components/InfoContainer"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
+import { GlassSurface } from "../../components/ui/glass-surface"
+import RamGauge from "../../components/ui/ram-gauge"
+import { Row } from "../../components/ui/row"
+import { Section } from "../../components/ui/section"
+import { Switch } from "../../components/ui/switch"
+import { RADII } from "../../lib/radii"
+import { TYPE } from "../../lib/type"
+import { SPACING } from "../../lib/spacing"
 import { databaseManager } from "../../lib/database"
 import { DEFAULTS as TUNING_DEFAULTS, saveTuning } from "../../lib/chat/chatSettings"
 import { ACTIVE_MODEL_SETTING } from "../../lib/chat/activeModel"
 import { EMBEDDER_SHA256, EMBEDDER_SIZE_BYTES, EMBEDDER_URL, isEmbedderReady } from "../../lib/chat/embedder"
 import {
-    accelerationTier,
-    accelerationTierLabel,
     type DeviceCapabilities,
     fetchModelSizeBytes,
     formatBytes,
@@ -265,7 +272,6 @@ const LLMSettings = () => {
             .catch(() => undefined)
     }, [])
 
-    const tier = useMemo(() => accelerationTier(deviceCaps?.cpuFeatures ?? [], deviceCaps?.abi), [deviceCaps])
     const recommended = useMemo(() => recommendedPreset(deviceCaps), [deviceCaps])
 
     const handleDownload = useCallback(async () => {
@@ -371,7 +377,7 @@ const LLMSettings = () => {
 
     const embedderProgressText = useMemo(() => {
         if (!embedderState) return null
-        if (embedderState.status === "complete") return "Engine downloaded."
+        if (embedderState.status === "complete") return "Engine downloaded successfully."
         if (embedderState.status === "failed" || embedderState.status === "error") return `Engine download failed${embedderState.error ? ` (${embedderState.error})` : ""}.`
         const total = embedderState.bytesTotal
         const done = embedderState.bytesDownloaded
@@ -381,24 +387,6 @@ const LLMSettings = () => {
         }
         return "Preparing download..."
     }, [embedderState])
-
-    const handleDelete = useCallback(() => {
-        const totalMB = Math.round(downloadedModels.reduce((acc, m) => acc + m.sizeBytes, 0) / 1024 / 1024)
-        Alert.alert("Delete every downloaded chat model?", `Frees ~${totalMB} MB across ${downloadedModels.length} file${downloadedModels.length === 1 ? "" : "s"}.`, [
-            { text: "Cancel", style: "cancel" },
-            {
-                text: "Delete",
-                style: "destructive",
-                onPress: async () => {
-                    await NativeModules.LLMChatModule.deleteModel()
-                    setActiveModelFilename(null)
-                    NativeModules.LLMChatModule.setActiveModel("")
-                    databaseManager.saveSetting(ACTIVE_MODEL_SETTING.category, ACTIVE_MODEL_SETTING.key, "", true).catch(() => undefined)
-                    await refreshModels()
-                },
-            },
-        ])
-    }, [downloadedModels, refreshModels])
 
     const isDownloading = downloadState?.status === "running" || downloadState?.status === "pending" || downloadState?.status === "paused"
 
@@ -425,65 +413,63 @@ const LLMSettings = () => {
     const styles = useMemo(
         () =>
             StyleSheet.create({
-                root: { flex: 1, margin: 10, backgroundColor: colors.background },
+                root: { flex: 1, margin: 10, backgroundColor: colors.bg },
                 section: { marginTop: 14 },
-                sectionLabel: { fontSize: 13, fontWeight: "600", color: colors.foreground, marginBottom: 6 },
-                statusRow: { color: colors.foreground, marginBottom: 4 },
-                hint: { fontSize: 11, color: colors.mutedForeground, marginTop: 4 },
+                statusRow: { color: colors.text, marginBottom: 4 },
+                hint: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
                 linkRowContainer: { flexDirection: "row" as const, gap: 16, marginTop: 4 },
                 linkRow: { paddingVertical: 10 },
-                link: { fontSize: 14, color: colors.primary, textDecorationLine: "underline" as const },
+                link: { fontSize: 14, color: colors.brand, textDecorationLine: "underline" as const },
                 tokenInput: {
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                     borderRadius: 6,
                     paddingHorizontal: 10,
                     paddingVertical: 8,
-                    color: colors.foreground,
-                    backgroundColor: colors.card,
+                    color: colors.text,
+                    backgroundColor: colors.surface,
                     marginTop: 6,
                 },
                 presetCard: {
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                     borderRadius: 6,
                     paddingHorizontal: 10,
                     paddingVertical: 8,
                     marginTop: 6,
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.surface,
                 },
-                presetCardSelected: { borderColor: colors.primary, borderWidth: 2 },
-                presetLabel: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
-                presetDetail: { color: colors.mutedForeground, fontSize: 11, marginTop: 2 },
+                presetCardSelected: { borderColor: colors.brand, borderWidth: 2 },
+                presetLabel: { color: colors.text, fontSize: 13, fontWeight: "600" },
+                presetDetail: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
                 modelRow: {
                     flexDirection: "row" as const,
                     alignItems: "center" as const,
                     justifyContent: "space-between" as const,
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                     borderRadius: 6,
                     paddingHorizontal: 10,
                     paddingVertical: 8,
                     marginTop: 6,
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.surface,
                 },
-                modelRowActive: { borderColor: colors.primary, borderWidth: 2 },
+                modelRowActive: { borderColor: colors.brand, borderWidth: 2 },
                 modelInfo: { flex: 1, marginRight: 8 },
-                modelFilename: { color: colors.foreground, fontSize: 13, fontWeight: "600" as const },
-                modelMeta: { color: colors.mutedForeground, fontSize: 11, marginTop: 2 },
+                modelFilename: { color: colors.text, fontSize: 13, fontWeight: "600" as const },
+                modelMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
                 modelActions: { flexDirection: "row" as const, gap: 6 },
                 modelActionButton: {
                     paddingHorizontal: 10,
                     paddingVertical: 6,
                     borderRadius: 4,
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.borderHair,
                 },
-                modelActionText: { color: colors.foreground, fontSize: 12 },
-                modelActionActiveText: { color: colors.primary, fontSize: 12, fontWeight: "600" as const },
+                modelActionText: { color: colors.text, fontSize: 12 },
+                modelActionActiveText: { color: colors.brand, fontSize: 12, fontWeight: "600" as const },
                 activeBadge: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4, paddingHorizontal: 4 },
-                tuningHeader: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const },
-                warningHint: { fontSize: 11, color: colors.warningBorder ?? colors.foreground, marginTop: 6 },
+                warningHint: { fontSize: 11, color: colors.warningBorder ?? colors.text, marginTop: 6 },
                 buttonRow: { flexDirection: "row", gap: 8, marginTop: 8 },
             }),
         [colors]
@@ -496,70 +482,105 @@ const LLMSettings = () => {
                 <InfoContainer>Retrieve-only search always works. The options below add optional natural-language answers backed by an on-device model.</InfoContainer>
 
                 <View style={styles.section}>
-                    <CustomCheckbox
-                        checked={enableAskTheDocs}
-                        onCheckedChange={(checked) => updateChat({ enableAskTheDocs: checked })}
-                        label="Enable Ask the Docs feature"
+                    <SearchableItem
+                        id="llm-enable-ask-the-docs"
+                        title="Enable Ask the Docs feature"
                         description="Show the Ask the Docs page in the navigation drawer and reveal the rest of these LLM options. Off by default."
-                        searchId="llm-enable-ask-the-docs"
-                    />
+                    >
+                        <Row
+                            title="Ask the Docs"
+                            description="Show the Ask the Docs page in the navigation drawer and reveal the rest of these LLM options. Off by default."
+                            right={<Switch checked={enableAskTheDocs} onCheckedChange={(checked) => updateChat({ enableAskTheDocs: checked })} />}
+                        />
+                    </SearchableItem>
                 </View>
 
                 {enableAskTheDocs && (
                     <>
-                        <View style={styles.section}>
-                            <Text style={styles.sectionLabel}>Device Fitness</Text>
+                        <Section label="Device Fitness">
                             {deviceCaps ? (
-                                <>
-                                    <Text style={styles.statusRow}>
-                                        RAM: {formatBytes(deviceCaps.totalRamBytes)} ({formatBytes(deviceCaps.availRamBytes)} free) · Acceleration: {accelerationTierLabel(tier)}
-                                    </Text>
-                                    <Text style={styles.hint}>
-                                        {recommended
-                                            ? `Recommended preset based on free RAM: ${recommended.label}.`
-                                            : "Free RAM is below the threshold for any preset. Generation may crash; consider closing background apps before downloading."}
-                                    </Text>
-                                </>
+                                (() => {
+                                    const totalRamGb = deviceCaps.totalRamBytes / 1024 / 1024 / 1024
+                                    const freeRamGb = deviceCaps.availRamBytes / 1024 / 1024 / 1024
+                                    const fillRatio = totalRamGb > 0 ? Math.min(1, Math.max(0, freeRamGb / totalRamGb)) : 0
+                                    return (
+                                        <View style={{ padding: SPACING.md }}>
+                                            <RamGauge
+                                                label="Free RAM headroom"
+                                                verdict={`${freeRamGb.toFixed(1)} GB`}
+                                                fillRatio={fillRatio}
+                                                markers={[
+                                                    { label: "0.5B", position: 0.07 },
+                                                    { label: "1.5B", position: 0.17 },
+                                                    { label: "3B", position: 0.32 },
+                                                    { label: "7B", position: 0.7 },
+                                                ]}
+                                            />
+                                            <Text style={[styles.hint, { marginTop: SPACING.sm }]}>
+                                                {recommended
+                                                    ? `Recommended preset based on free RAM: ${recommended.label}.`
+                                                    : "Free RAM is below the threshold for any preset. Generation may crash; consider closing background apps before downloading."}
+                                            </Text>
+                                        </View>
+                                    )
+                                })()
                             ) : (
-                                <Text style={styles.hint}>Reading device capabilities...</Text>
+                                <View style={{ padding: SPACING.md }}>
+                                    <Text style={styles.hint}>Reading device capabilities...</Text>
+                                </View>
                             )}
-                        </View>
+                        </Section>
 
-                        <View style={styles.section}>
-                            <Text style={styles.sectionLabel}>Ask the Docs Engine</Text>
-                            <Text style={styles.hint}>
-                                The MiniLM embedder (~{Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)} MB) powers documentation retrieval. It is downloaded on demand to keep the APK small; both
-                                retrieve-only search and the chat model require it. Hosted on Hugging Face; no token required.
-                            </Text>
-                            <Text style={styles.statusRow}>{embedderReady ? `✅ Installed (~${Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)} MB)` : "❌ Not installed"}</Text>
-                            {embedderProgressText && <Text style={styles.hint}>{embedderProgressText}</Text>}
-                            <View style={styles.buttonRow}>
-                                {!embedderReady && !isEmbedderDownloading && (
-                                    <CustomButton variant="primary" onPress={handleDownloadEmbedder}>
-                                        Download engine
-                                    </CustomButton>
-                                )}
-                                {isEmbedderDownloading && (
-                                    <CustomButton variant="destructive" onPress={handleCancel}>
-                                        Cancel
-                                    </CustomButton>
-                                )}
-                                {embedderReady && !isEmbedderDownloading && (
-                                    <CustomButton variant="destructive" onPress={handleDeleteEmbedder}>
-                                        Delete engine
-                                    </CustomButton>
-                                )}
+                        <Section label="Ask the Docs Engine" firstDivider={false}>
+                            <View style={{ padding: SPACING.md }}>
+                                <Text style={styles.hint}>
+                                    The MiniLM embedder (~<Text style={[TYPE.monoValue, { color: colors.text }]}>{Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)}</Text> MB) powers documentation
+                                    retrieval. It is downloaded on demand to keep the APK small; both retrieve-only search and the chat model require it. Hosted on Hugging Face; no token required.
+                                </Text>
                             </View>
-                        </View>
+                            <View style={{ padding: SPACING.md, paddingTop: 0 }}>
+                                {!embedderReady ? (
+                                    <GlassSurface>
+                                        <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.md, padding: SPACING.md }}>
+                                            <View style={{ width: 38, height: 38, borderRadius: 999, backgroundColor: colors.brandSubtle, alignItems: "center", justifyContent: "center" }}>
+                                                <Ionicons name="download-outline" size={20} color={colors.brand} />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={{ ...TYPE.body, color: colors.text, fontWeight: "600" }}>Engine not installed</Text>
+                                                <Text style={{ ...TYPE.caption, color: colors.textMuted }}>{Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)} MB · One-time download</Text>
+                                            </View>
+                                            {!isEmbedderDownloading ? (
+                                                <CustomButton variant="primary" onPress={handleDownloadEmbedder}>
+                                                    Download
+                                                </CustomButton>
+                                            ) : (
+                                                <CustomButton variant="destructive" onPress={handleCancel}>
+                                                    Cancel
+                                                </CustomButton>
+                                            )}
+                                        </View>
+                                    </GlassSurface>
+                                ) : (
+                                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                                        <Text style={{ ...TYPE.caption, color: colors.textMuted, flex: 1 }}>Engine installed · {Math.round(EMBEDDER_SIZE_BYTES / 1024 / 1024)} MB</Text>
+                                        <CustomButton variant="destructive" onPress={handleDeleteEmbedder}>
+                                            Delete
+                                        </CustomButton>
+                                    </View>
+                                )}
+                                {embedderProgressText && <Text style={[styles.hint, { marginTop: SPACING.xs }]}>{embedderProgressText}</Text>}
+                            </View>
+                        </Section>
 
-                        <View style={styles.section}>
-                            <Text style={styles.sectionLabel}>Chat Model (llama.cpp / GGUF)</Text>
-                            {downloadedModels.length === 0 && <Text style={styles.statusRow}>Not downloaded</Text>}
-                            <>
+                        <Section label="Chat Model (llama.cpp / GGUF)" firstDivider={false} lastDivider={false}>
+                            <View style={{ padding: SPACING.md, paddingBottom: 0 }}>
+                                {downloadedModels.length === 0 && <Text style={styles.statusRow}>Not downloaded</Text>}
                                 <Text style={styles.hint}>
                                     The Qwen presets are public, no token required. Bigger models summarize better but need more RAM and download time. Pick Custom to paste a different .gguf URL; the
                                     token field will appear if the source is gated.
                                 </Text>
+                            </View>
+                            <View style={{ padding: SPACING.md }}>
                                 {MODEL_PRESETS.map((p) => {
                                     const selected = p.url === CUSTOM_URL_SENTINEL ? isCustomSelected : modelUrl === p.url
                                     const onPress =
@@ -582,149 +603,180 @@ const LLMSettings = () => {
                                         </Pressable>
                                     )
                                 })}
-                                {isCustomSelected && (
-                                    <>
-                                        <View style={styles.linkRowContainer}>
-                                            {modelUrl !== CUSTOM_URL_SENTINEL && modelUrl.trim().length > 0 && (
-                                                <Pressable
-                                                    style={styles.linkRow}
-                                                    onPress={() => Linking.openURL(modelUrl.replace(/\/resolve\/main\/.*$/, ""))}
-                                                    android_ripple={{ color: colors.ripple, foreground: true }}
-                                                >
-                                                    <Text style={styles.link}>Open selected model page</Text>
-                                                </Pressable>
-                                            )}
+                            </View>
+                            {isCustomSelected && (
+                                <View style={{ padding: SPACING.md }}>
+                                    <View style={styles.linkRowContainer}>
+                                        {modelUrl !== CUSTOM_URL_SENTINEL && modelUrl.trim().length > 0 && (
                                             <Pressable
                                                 style={styles.linkRow}
-                                                onPress={() => Linking.openURL("https://huggingface.co/settings/tokens")}
+                                                onPress={() => Linking.openURL(modelUrl.replace(/\/resolve\/main\/.*$/, ""))}
                                                 android_ripple={{ color: colors.ripple, foreground: true }}
                                             >
-                                                <Text style={styles.link}>Create token</Text>
+                                                <Text style={styles.link}>Open selected model page</Text>
                                             </Pressable>
-                                        </View>
-                                        <TextInput
-                                            style={styles.tokenInput}
-                                            value={hfToken}
-                                            onChangeText={persistHfToken}
-                                            placeholder="hf_... (only for gated repos)"
-                                            placeholderTextColor={colors.mutedForeground}
-                                            autoCapitalize="none"
-                                            autoCorrect={false}
-                                        />
-                                        <TextInput
-                                            style={styles.tokenInput}
-                                            value={modelUrl === CUSTOM_URL_SENTINEL ? "" : modelUrl}
-                                            onChangeText={persistModelUrl}
-                                            placeholder="Model .gguf URL"
-                                            placeholderTextColor={colors.mutedForeground}
-                                            autoCapitalize="none"
-                                            autoCorrect={false}
-                                        />
-                                    </>
-                                )}
-                            </>
-                            {progressText && <Text style={styles.hint}>{progressText}</Text>}
-                            <View style={styles.buttonRow}>
-                                {!isDownloading && (
-                                    <CustomButton variant="primary" onPress={handleDownload} disabled={selectedAlreadyDownloaded}>
-                                        {selectedAlreadyDownloaded ? "Already downloaded" : downloadedModels.length > 0 ? "Download another model" : "Download"}
-                                    </CustomButton>
-                                )}
-                                {isDownloading && (
-                                    <CustomButton variant="destructive" onPress={handleCancel}>
-                                        Cancel
-                                    </CustomButton>
-                                )}
+                                        )}
+                                        <Pressable
+                                            style={styles.linkRow}
+                                            onPress={() => Linking.openURL("https://huggingface.co/settings/tokens")}
+                                            android_ripple={{ color: colors.ripple, foreground: true }}
+                                        >
+                                            <Text style={styles.link}>Create token</Text>
+                                        </Pressable>
+                                    </View>
+                                    <TextInput
+                                        style={styles.tokenInput}
+                                        value={hfToken}
+                                        onChangeText={persistHfToken}
+                                        placeholder="hf_... (only for gated repos)"
+                                        placeholderTextColor={colors.textMuted}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                    />
+                                    <TextInput
+                                        style={styles.tokenInput}
+                                        value={modelUrl === CUSTOM_URL_SENTINEL ? "" : modelUrl}
+                                        onChangeText={persistModelUrl}
+                                        placeholder="Model .gguf URL"
+                                        placeholderTextColor={colors.textMuted}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                    />
+                                </View>
+                            )}
+                            <View style={{ padding: SPACING.md, paddingTop: 0 }}>
+                                {progressText && <Text style={styles.hint}>{progressText}</Text>}
+                                <View style={styles.buttonRow}>
+                                    {!isDownloading && (
+                                        <CustomButton variant="primary" onPress={handleDownload} disabled={selectedAlreadyDownloaded}>
+                                            {selectedAlreadyDownloaded ? "Already downloaded" : downloadedModels.length > 0 ? "Download another model" : "Download"}
+                                        </CustomButton>
+                                    )}
+                                    {isDownloading && (
+                                        <CustomButton variant="destructive" onPress={handleCancel}>
+                                            Cancel
+                                        </CustomButton>
+                                    )}
+                                </View>
                             </View>
-                        </View>
+                        </Section>
 
                         {downloadedModels.length > 0 && (
-                            <View style={styles.section}>
-                                <Text style={styles.sectionLabel}>Downloaded Models</Text>
-                                <Text style={styles.hint}>Tap Use to switch the active chat model. Keep multiple variants so you can A/B without re-downloading.</Text>
-                                {downloadedModels.map((m) => {
-                                    const isActive = (activeModelFilename ?? downloadedModels[0]?.filename) === m.filename
-                                    return (
-                                        <View key={m.filename} style={[styles.modelRow, isActive && styles.modelRowActive]}>
-                                            <View style={styles.modelInfo}>
-                                                <Text style={styles.modelFilename} numberOfLines={1}>
-                                                    {m.filename}
-                                                </Text>
-                                                <Text style={styles.modelMeta}>{(m.sizeBytes / 1024 / 1024).toFixed(0)} MB</Text>
-                                            </View>
-                                            <View style={styles.modelActions}>
-                                                {isActive ? (
-                                                    <View style={styles.activeBadge}>
-                                                        <Check size={14} color={colors.primary} />
-                                                        <Text style={styles.modelActionActiveText}>Active</Text>
-                                                    </View>
-                                                ) : (
+                            <Section label="Downloaded Models">
+                                <View style={{ padding: SPACING.md }}>
+                                    <Text style={styles.hint}>Tap Use to switch the active chat model. Keep multiple variants so you can A/B without re-downloading.</Text>
+                                    {downloadedModels.map((m) => {
+                                        const isActive = (activeModelFilename ?? downloadedModels[0]?.filename) === m.filename
+                                        return (
+                                            <View key={m.filename} style={[styles.modelRow, isActive && styles.modelRowActive]}>
+                                                <View style={styles.modelInfo}>
+                                                    <Text style={[styles.modelFilename, TYPE.monoValue]} numberOfLines={1}>
+                                                        {m.filename}
+                                                    </Text>
+                                                    <Text style={styles.modelMeta}>
+                                                        <Text style={[TYPE.monoValue, { color: colors.textMuted, fontSize: 11 }]}>{(m.sizeBytes / 1024 / 1024).toFixed(0)}</Text> MB
+                                                    </Text>
+                                                </View>
+                                                <View style={styles.modelActions}>
+                                                    {isActive ? (
+                                                        <View style={styles.activeBadge}>
+                                                            <Check size={14} color={colors.brand} />
+                                                            <Text style={styles.modelActionActiveText}>Active</Text>
+                                                        </View>
+                                                    ) : (
+                                                        <Pressable
+                                                            style={styles.modelActionButton}
+                                                            onPress={() => handleSelectActiveModel(m.filename)}
+                                                            android_ripple={{ color: colors.ripple, foreground: true }}
+                                                        >
+                                                            <Text style={styles.modelActionText}>Use</Text>
+                                                        </Pressable>
+                                                    )}
                                                     <Pressable
                                                         style={styles.modelActionButton}
-                                                        onPress={() => handleSelectActiveModel(m.filename)}
+                                                        onPress={() => handleDeleteModelFile(m.filename)}
+                                                        accessibilityLabel={`Delete ${m.filename}`}
+                                                        accessibilityRole="button"
                                                         android_ripple={{ color: colors.ripple, foreground: true }}
                                                     >
-                                                        <Text style={styles.modelActionText}>Use</Text>
+                                                        <Trash2 size={14} color={colors.text} />
                                                     </Pressable>
-                                                )}
-                                                <Pressable
-                                                    style={styles.modelActionButton}
-                                                    onPress={() => handleDeleteModelFile(m.filename)}
-                                                    accessibilityLabel={`Delete ${m.filename}`}
-                                                    accessibilityRole="button"
-                                                    android_ripple={{ color: colors.ripple, foreground: true }}
-                                                >
-                                                    <Trash2 size={14} color={colors.foreground} />
-                                                </Pressable>
+                                                </View>
                                             </View>
-                                        </View>
-                                    )
-                                })}
-                            </View>
+                                        )
+                                    })}
+                                </View>
+                            </Section>
                         )}
 
-                        <View style={styles.section}>
-                            <View style={styles.tuningHeader}>
-                                <Text style={styles.sectionLabel}>Generation Tuning</Text>
-                                <Pressable onPress={handleResetTuning} style={styles.linkRow} android_ripple={{ color: colors.ripple, foreground: true }}>
-                                    <Text style={styles.link}>Reset to defaults</Text>
+                        <Section
+                            label="Generation Tuning"
+                            labelRight={
+                                <Pressable
+                                    onPress={handleResetTuning}
+                                    android_ripple={{ color: colors.ripple, foreground: true }}
+                                    style={{
+                                        paddingHorizontal: SPACING.sm,
+                                        paddingVertical: 2,
+                                        backgroundColor: colors.brandSubtle,
+                                        borderColor: colors.brandBorder,
+                                        borderWidth: 1,
+                                        borderRadius: RADII.pill,
+                                        overflow: "hidden",
+                                    }}
+                                    hitSlop={6}
+                                >
+                                    <Text style={{ ...TYPE.caption, color: colors.brand }}>Reset</Text>
                                 </Pressable>
+                            }
+                        >
+                            <View style={{ padding: SPACING.md }}>
+                                <Text style={styles.hint}>Bigger numbers = longer, slower answers. Changes apply to the next chat call. Engine context window changes reload the loaded model.</Text>
                             </View>
-                            <Text style={styles.hint}>Bigger numbers = longer, slower answers. Changes apply to the next chat call. Engine context window changes reload the loaded model.</Text>
-                            <CustomSlider
-                                label="Max output tokens"
-                                description="Upper bound on answer length. 768 default is enough for 4-10 sentences; 1024+ slows generation noticeably on phones."
-                                value={maxOutputTokens}
-                                onValueChange={setMaxOutputTokens}
-                                onSlidingComplete={commitMaxOutputTokens}
-                                min={128}
-                                max={2048}
-                                step={64}
-                            />
-                            <CustomSlider
-                                label="Context per citation (chars)"
-                                description="How much of each retrieved doc section is fed to the LLM. Larger gives the model more to summarize from but eats KV cache budget."
-                                value={llmCitationCharCap}
-                                onValueChange={setLlmCitationCharCap}
-                                onSlidingComplete={commitLlmCitationCharCap}
-                                min={500}
-                                max={4000}
-                                step={100}
-                            />
-                            <CustomSlider
-                                label="Model context window (tokens)"
-                                description="Engine KV cache size. 4096 default fits 4 expanded citations + scaffold + 768 output. Raising this requires the model to support it."
-                                value={modelContextWindow}
-                                onValueChange={setModelContextWindow}
-                                onSlidingComplete={commitModelContextWindow}
-                                min={2048}
-                                max={16384}
-                                step={1024}
-                            />
-                            {ekvCapWarning && <Text style={styles.warningHint}>{ekvCapWarning}</Text>}
-                        </View>
+                            <View style={{ padding: SPACING.md }}>
+                                <CustomSlider
+                                    label="Max output tokens"
+                                    description="Upper bound on answer length. 768 default is enough for 4-10 sentences; 1024+ slows generation noticeably on phones."
+                                    value={maxOutputTokens}
+                                    onValueChange={setMaxOutputTokens}
+                                    onSlidingComplete={commitMaxOutputTokens}
+                                    min={128}
+                                    max={2048}
+                                    step={64}
+                                />
+                            </View>
+                            <View style={{ padding: SPACING.md }}>
+                                <CustomSlider
+                                    label="Context per citation (chars)"
+                                    description="How much of each retrieved doc section is fed to the LLM. Larger gives the model more to summarize from but eats KV cache budget."
+                                    value={llmCitationCharCap}
+                                    onValueChange={setLlmCitationCharCap}
+                                    onSlidingComplete={commitLlmCitationCharCap}
+                                    min={500}
+                                    max={4000}
+                                    step={100}
+                                />
+                            </View>
+                            <View style={{ padding: SPACING.md }}>
+                                <CustomSlider
+                                    label="Model context window (tokens)"
+                                    description="Engine KV cache size. 4096 default fits 4 expanded citations + scaffold + 768 output. Raising this requires the model to support it."
+                                    value={modelContextWindow}
+                                    onValueChange={setModelContextWindow}
+                                    onSlidingComplete={commitModelContextWindow}
+                                    min={2048}
+                                    max={16384}
+                                    step={1024}
+                                />
+                            </View>
+                            {ekvCapWarning && (
+                                <View style={{ padding: SPACING.md, paddingTop: 0 }}>
+                                    <Text style={styles.warningHint}>{ekvCapWarning}</Text>
+                                </View>
+                            )}
+                        </Section>
 
-                        <WarningContainer>
+                        <WarningContainer style={{ marginTop: 0, marginBottom: SPACING.md }}>
                             Generated answers may occasionally be wrong or phrased imprecisely. A verifier guards against clear hallucinations by falling back to showing the source text verbatim, but
                             always cross-check important answers against the full docs.
                         </WarningContainer>

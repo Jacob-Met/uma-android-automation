@@ -89,9 +89,9 @@ export function MarkdownView({ children, theme, mdStyles }: MarkdownViewProps) {
                         body={s.body}
                         theme={theme}
                         mdStyles={mdStyles}
-                        chevronColor={colors.foreground}
-                        borderColor={colors.border}
-                        headerBg={colors.muted}
+                        chevronColor={colors.text}
+                        borderColor={colors.borderHair}
+                        headerBg={colors.surfaceRaised}
                     />
                 )
             )}

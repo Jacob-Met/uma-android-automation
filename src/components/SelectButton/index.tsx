@@ -114,9 +114,9 @@ const SelectButton: React.FC<SelectButtonProps> = ({
             case "outline":
                 return isDark ? "black" : "white"
             case "primary":
-                return colors.primary
+                return colors.brand
             case "secondary":
-                return colors.secondary
+                return colors.surfaceRaised
             case "ghost":
                 return "transparent"
             case "link":
@@ -130,7 +130,7 @@ const SelectButton: React.FC<SelectButtonProps> = ({
             case "error":
                 return colors.error
             default:
-                return colors.secondary
+                return colors.surfaceRaised
         }
     }
 
@@ -145,9 +145,9 @@ const SelectButton: React.FC<SelectButtonProps> = ({
             case "outline":
                 return isDark ? "white" : "black"
             case "primary":
-                return colors.primaryForeground
+                return colors.onBrand
             case "secondary":
-                return colors.secondaryForeground
+                return colors.text
             case "ghost":
                 return isDark ? "white" : "black"
             case "link":
@@ -161,7 +161,7 @@ const SelectButton: React.FC<SelectButtonProps> = ({
             case "error":
                 return colors.errorContent
             default:
-                return colors.secondaryForeground
+                return colors.text
         }
     }
 
