@@ -107,9 +107,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     /** Whether to skip training for stats at their cap. */
     private val disableTrainingOnMaxedStat: Boolean = SettingsHelper.getBooleanSetting("training", "disableTrainingOnMaxedStat")
 
-    /** List of stats to prioritize for spark events. */
-    private val focusOnSparkStatTarget: List<StatName> = SettingsHelper.getStringArraySetting("training", "focusOnSparkStatTarget").map { StatName.fromName(it)!! }
-
     /** Whether the rainbow training bonus is active. */
     private val enableRainbowTrainingBonus: Boolean = SettingsHelper.getBooleanSetting("training", "enableRainbowTrainingBonus")
 
@@ -364,7 +361,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
      * @property currentDate The current in-game date.
      * @property scenario The current training scenario name.
      * @property enableRainbowTrainingBonus Whether the rainbow training bonus is active.
-     * @property focusOnSparkStatTarget List of stats to prioritize for spark events.
      * @property blacklist List of stat trainings to ignore.
      * @property disableTrainingOnMaxedStat Whether to skip training for stats at their cap.
      * @property trainingOptions List of all analyzed training options.
@@ -386,7 +382,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val currentDate: GameDate,
         val scenario: String,
         val enableRainbowTrainingBonus: Boolean,
-        val focusOnSparkStatTarget: List<StatName>,
         val blacklist: List<StatName?> = emptyList(),
         val disableTrainingOnMaxedStat: Boolean = false,
         val trainingOptions: List<TrainingOption>,
@@ -412,7 +407,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             if (currentDate != other.currentDate) return false
             if (scenario != other.scenario) return false
             if (enableRainbowTrainingBonus != other.enableRainbowTrainingBonus) return false
-            if (focusOnSparkStatTarget != other.focusOnSparkStatTarget) return false
             if (blacklist != other.blacklist) return false
             if (disableTrainingOnMaxedStat != other.disableTrainingOnMaxedStat) return false
             if (trainingOptions != other.trainingOptions) return false
@@ -436,7 +430,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             result = 31 * result + currentDate.hashCode()
             result = 31 * result + scenario.hashCode()
             result = 31 * result + enableRainbowTrainingBonus.hashCode()
-            result = 31 * result + focusOnSparkStatTarget.hashCode()
             result = 31 * result + blacklist.hashCode()
             result = 31 * result + disableTrainingOnMaxedStat.hashCode()
             result = 31 * result + trainingOptions.hashCode()
@@ -800,20 +793,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                             1.0
                         }
 
-                    // Note: the spark magnitude and 600 threshold are intentionally NOT extracted because the `focusOnSparkStatTarget` feature is scheduled for removal.
-                    // Spark bonus: Prioritize training sessions for 3* sparks for selected stats below 600 if the setting is enabled.
-                    val isSparkStat = statName in config.focusOnSparkStatTarget
-                    val canTriggerSpark = currentStat < 600
-                    val sparkBonus =
-                        if (isSparkStat && canTriggerSpark) {
-                            MessageLog.i(TAG, "[TRAINING] $statName is at $currentStat (< 600). Prioritizing this training for potential spark event to get above 600.")
-                            2.5
-                        } else {
-                            1.0
-                        }
-
                     val bonusNote = if (isMainStat && statGain >= (config.scoring.mainStatThresholds[statName] ?: error("No mainStatThresholds entry for $statName"))) " [HIGH MAIN STAT]" else ""
-                    val sparkNote = if (isSparkStat && canTriggerSpark) " [SPARK PRIORITY]" else ""
                     val levelNote = if (levelMultiplier > 1.0) " [LVL ${training.trainingLevel} BOOST ${String.format("%.2f", levelMultiplier)}x]" else ""
                     val completionString: String = String.format("%.2f", completionPercent)
                     val ratioMultiplierString: String = String.format("%.2f", ratioMultiplier)
@@ -821,7 +801,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     Log.d(
                         TAG,
                         "$statName: gain=$statGain, completion=$completionString%, " +
-                            "ratioMultiplierString=$ratioMultiplierString, priorityMultiplierString=${priorityMultiplierString}$bonusNote$sparkNote$levelNote",
+                            "ratioMultiplierString=$ratioMultiplierString, priorityMultiplierString=${priorityMultiplierString}$bonusNote$levelNote",
                     )
 
                     // Calculate final score for this stat.
@@ -830,7 +810,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     statScore *= priorityMultiplier
                     statScore *= levelMultiplier
                     statScore *= mainStatBonus
-                    statScore *= sparkBonus
 
                     score += statScore
                 }
@@ -2148,7 +2127,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 currentDate = campaign.date,
                 scenario = game.scenario,
                 enableRainbowTrainingBonus = enableRainbowTrainingBonus,
-                focusOnSparkStatTarget = focusOnSparkStatTarget,
                 blacklist = blacklist,
                 disableTrainingOnMaxedStat = disableTrainingOnMaxedStat,
                 trainingOptions = trainingMap.values.toList(),
@@ -2370,12 +2348,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
             if (selected.relationshipBars.size >= 3) {
                 keyFactors.add("Multiple relationship bars present (${selected.relationshipBars.size}).")
-            }
-
-            val isSparkStat = selected.name in config.focusOnSparkStatTarget
-            val currentVal = config.currentStats[selected.name] ?: 0
-            if (isSparkStat && currentVal < 600) {
-                keyFactors.add("${selected.name} is prioritized for potential 3* spark (under 600).")
             }
 
             if (selected.failureChance > maximumFailureChance) {

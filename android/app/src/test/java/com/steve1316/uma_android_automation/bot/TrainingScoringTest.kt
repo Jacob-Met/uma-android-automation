@@ -128,7 +128,6 @@ class TrainingScoringTest {
         currentDate: GameDate = GameDate(year = DateYear.JUNIOR, month = DateMonth.JANUARY, phase = DatePhase.EARLY),
         scenario: String = "URA Finale",
         enableRainbowTrainingBonus: Boolean = true,
-        focusOnSparkStatTarget: List<StatName> = emptyList(),
         blacklist: List<StatName?> = emptyList(),
         disableTrainingOnMaxedStat: Boolean = false,
         skillHintsPerLocation: Map<StatName, Int> = StatName.entries.associateWith { 0 },
@@ -144,7 +143,6 @@ class TrainingScoringTest {
             currentDate = currentDate,
             scenario = scenario,
             enableRainbowTrainingBonus = enableRainbowTrainingBonus,
-            focusOnSparkStatTarget = focusOnSparkStatTarget,
             blacklist = blacklist,
             disableTrainingOnMaxedStat = disableTrainingOnMaxedStat,
             trainingOptions = trainingOptions,
@@ -359,9 +357,12 @@ class TrainingScoringTest {
     }
 
     @Test
-    @DisplayName("Spark bonus applies for stats below 600 when enabled")
-    fun testSparkBonusAppliesForLowStats() {
-        val currentStats =
+    @DisplayName("Stat efficiency score does not depend on a spark stat list (regression: focusOnSparkStatTarget is removed)")
+    fun testStatEfficiencyHasNoSparkBonus() {
+        // Speed below 600 used to receive a 2.5x bonus when in focusOnSparkStatTarget. That bonus is gone.
+        // Two configs differ only in whether Speed is below or above 600; without spark, the score difference
+        // must come only from ratio multiplier and other documented factors, not a 2.5x spark.
+        val belowSixHundred =
             mapOf(
                 StatName.SPEED to 400,
                 StatName.STAMINA to 400,
@@ -369,30 +370,24 @@ class TrainingScoringTest {
                 StatName.GUTS to 400,
                 StatName.WIT to 400,
             )
+        val aboveSixHundred = belowSixHundred + (StatName.SPEED to 700)
 
         val speedTraining =
             createDefaultTrainingOption(
                 name = StatName.SPEED,
-                statGains = statGainsToMap(intArrayOf(20, 0, 10, 0, 0)),
+                statGains = statGainsToMap(intArrayOf(10, 0, 0, 0, 0)),
             )
 
-        val configWithSpark =
-            createDefaultConfig(
-                trainingOptions = listOf(speedTraining),
-                currentStats = currentStats,
-                focusOnSparkStatTarget = listOf(StatName.SPEED),
-            )
-        val configWithoutSpark =
-            createDefaultConfig(
-                trainingOptions = listOf(speedTraining),
-                currentStats = currentStats,
-                focusOnSparkStatTarget = emptyList(),
-            )
+        val configBelow = createDefaultConfig(trainingOptions = listOf(speedTraining), currentStats = belowSixHundred)
+        val configAbove = createDefaultConfig(trainingOptions = listOf(speedTraining), currentStats = aboveSixHundred)
 
-        val sparkScore = calculateStatEfficiencyScore(configWithSpark, speedTraining)
-        val noSparkScore = calculateStatEfficiencyScore(configWithoutSpark, speedTraining)
+        val belowScore = calculateStatEfficiencyScore(configBelow, speedTraining)
+        val aboveScore = calculateStatEfficiencyScore(configAbove, speedTraining)
 
-        assertTrue(sparkScore > noSparkScore, "Spark bonus should increase score for stats below 600")
+        // belowScore is still > aboveScore because Speed at 400 has a higher ratio multiplier than Speed at 700,
+        // but the gap must be the documented ratio-bucket transition, not the old 2.5x spark on top of it.
+        val ratio = belowScore / aboveScore
+        assertTrue(ratio < 2.0, "Without the spark bonus the score gap between <600 and >=600 must be modest")
     }
 
     @Test
