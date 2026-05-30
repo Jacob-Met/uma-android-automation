@@ -103,10 +103,8 @@ export interface Settings {
     misc: {
         enableSettingsDisplay: boolean
         formattedSettingsString: string
-        enableMessageIdDisplay: boolean
         currentProfileName: string
         messageLogFontSize: number
-        overlayButtonSizeDP: number
     }
 
     // Training settings
@@ -188,6 +186,8 @@ export interface Settings {
         recordingResolutionScale: number
         enableRemoteLogViewer: boolean
         remoteLogViewerPort: number
+        enableMessageIdDisplay: boolean
+        overlayButtonSizeDP: number
     }
 
     // Discord settings
@@ -372,10 +372,8 @@ export const defaultSettings: Settings = {
     misc: {
         enableSettingsDisplay: false,
         formattedSettingsString: "",
-        enableMessageIdDisplay: false,
         currentProfileName: "",
         messageLogFontSize: 8,
-        overlayButtonSizeDP: 40,
     },
     training: {
         trainingBlacklist: [],
@@ -444,6 +442,8 @@ export const defaultSettings: Settings = {
         recordingResolutionScale: 1.0,
         enableRemoteLogViewer: false,
         remoteLogViewerPort: 9000,
+        enableMessageIdDisplay: false,
+        overlayButtonSizeDP: 40,
     },
     discord: {
         enableDiscordNotifications: false,

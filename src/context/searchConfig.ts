@@ -38,7 +38,7 @@ const searchConfig: SearchOption[] = [
         id: "settings-enable-message-id-display",
         title: "Enable Message ID Display",
         description: "Shows message IDs in the message log to help with debugging.",
-        page: "SettingsMain",
+        page: "DebugSettings",
     },
     {
         id: "settings-wait-delay",
@@ -50,7 +50,7 @@ const searchConfig: SearchOption[] = [
         id: "settings-overlay-button-size",
         title: "Overlay Button Size",
         description: "Sets the size of the floating overlay button in density-independent pixels (dp). Higher values make the button easier to tap.",
-        page: "SettingsMain",
+        page: "DebugSettings",
     },
     {
         id: "settings-management-title",

@@ -209,7 +209,7 @@ const Settings = () => {
 
     const renderMiscSettings = () => {
         return (
-            <View style={{ marginTop: SPACING.lg }}>
+            <View>
                 <Section label="MISC">
                     <SearchableItem id="settings-stop-before-finals" title="Stop before Finals" description="Pause to buy skills before the final races">
                         <Row
@@ -243,13 +243,6 @@ const Settings = () => {
                         />
                     </SearchableItem>
 
-                    <SearchableItem id="settings-enable-message-id-display" title="Enable Message ID Display" description="Shows message IDs in the message log to help with debugging.">
-                        <Row
-                            title="Enable Message ID Display"
-                            description="Shows message IDs in the message log to help with debugging."
-                            right={<Switch checked={misc.enableMessageIdDisplay} onCheckedChange={(checked) => updateMisc({ enableMessageIdDisplay: checked })} />}
-                        />
-                    </SearchableItem>
                 </Section>
 
                 {general.enableStopAtDate && (
@@ -349,29 +342,6 @@ const Settings = () => {
                     </View>
                 </Section>
 
-                <Section label="OVERLAY BUTTON SIZE">
-                    <View style={{ padding: SPACING.md }}>
-                        <CustomSlider
-                            searchId="settings-overlay-button-size"
-                            value={misc.overlayButtonSizeDP}
-                            placeholder={defaultSettings.misc.overlayButtonSizeDP}
-                            onValueChange={(value) => {
-                                updateMisc({ overlayButtonSizeDP: value })
-                            }}
-                            onSlidingComplete={(value) => {
-                                updateMisc({ overlayButtonSizeDP: value })
-                            }}
-                            min={30}
-                            max={60}
-                            step={5}
-                            label="Overlay Button Size"
-                            labelUnit=" dp"
-                            showValue={true}
-                            showLabels={true}
-                            description="Sets the size of the floating overlay button in density-independent pixels (dp). Higher values make the button easier to tap."
-                        />
-                    </View>
-                </Section>
 
                 <Section label="DATA MANAGEMENT">
                     <SearchableItem id="settings-management-title" title="Settings Management" description="Import and export settings from JSON file or access the app's data directory.">
@@ -380,12 +350,12 @@ const Settings = () => {
                                 <Pressable style={styles.managementTile} android_ripple={{ color: colors.ripple, foreground: true }} onPress={handleImportSettings}>
                                     <Ionicons name="download-outline" size={24} color={colors.brand} />
                                     <Text style={styles.managementTileLabel}>Import</Text>
-                                    <Text style={styles.managementTileCaption}>Load from JSON</Text>
+                                    <Text style={styles.managementTileCaption}>Load settings from JSON</Text>
                                 </Pressable>
                                 <Pressable style={styles.managementTile} android_ripple={{ color: colors.ripple, foreground: true }} onPress={handleExportSettings}>
                                     <Ionicons name="share-outline" size={24} color={colors.brand} />
                                     <Text style={styles.managementTileLabel}>Export</Text>
-                                    <Text style={styles.managementTileCaption}>Save to JSON</Text>
+                                    <Text style={styles.managementTileCaption}>Save settings to JSON</Text>
                                 </Pressable>
                                 <Pressable style={styles.managementTile} android_ripple={{ color: colors.ripple, foreground: true }} onPress={openDataDirectory}>
                                     <Ionicons name="folder-outline" size={24} color={colors.brand} />

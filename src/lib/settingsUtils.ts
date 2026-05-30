@@ -137,6 +137,21 @@ export const applyMigrations = (settings: any, rawSettings?: any): { settings: a
         logWithTimestamp("[SettingsManager] Migrated ocrThreshold to debug category.")
     }
 
+    // Migration: Move enableMessageIdDisplay and overlayButtonSizeDP from misc to debug category.
+    const misc = (migratedSettings as any).misc
+    if (misc?.enableMessageIdDisplay !== undefined) {
+        migratedSettings.debug.enableMessageIdDisplay = misc.enableMessageIdDisplay
+        delete misc.enableMessageIdDisplay
+        anyMigrated = true
+        logWithTimestamp("[SettingsManager] Migrated enableMessageIdDisplay to debug category.")
+    }
+    if (misc?.overlayButtonSizeDP !== undefined) {
+        migratedSettings.debug.overlayButtonSizeDP = misc.overlayButtonSizeDP
+        delete misc.overlayButtonSizeDP
+        anyMigrated = true
+        logWithTimestamp("[SettingsManager] Migrated overlayButtonSizeDP to debug category.")
+    }
+
     // After moving all OCR settings, delete the empty ocr object.
     if (migratedSettings && (migratedSettings as any).ocr && Object.keys((migratedSettings as any).ocr).length === 0) {
         delete (migratedSettings as any).ocr

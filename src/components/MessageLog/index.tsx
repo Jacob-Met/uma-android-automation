@@ -601,8 +601,8 @@ const MessageLog = () => {
      * @returns The rendered log item.
      */
     const renderLogItem = useCallback(
-        ({ item }: { item: LogMessage }) => <LogItem item={item} fontSize={fontSize} onLongPress={handleLongPress} enableMessageIdDisplay={settings.misc.enableMessageIdDisplay} />,
-        [fontSize, handleLongPress, settings.misc.enableMessageIdDisplay]
+        ({ item }: { item: LogMessage }) => <LogItem item={item} fontSize={fontSize} onLongPress={handleLongPress} enableMessageIdDisplay={settings.debug.enableMessageIdDisplay} />,
+        [fontSize, handleLongPress, settings.debug.enableMessageIdDisplay]
     )
 
     /**
