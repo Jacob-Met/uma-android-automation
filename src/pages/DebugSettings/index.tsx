@@ -45,7 +45,6 @@ interface DebugTestDescriptor {
     description: string
 }
 
-/** Order matches the previous CustomCheckbox list so behavior is identical after the visual swap to Switch rows. */
 const DEBUG_TESTS: DebugTestDescriptor[] = [
     {
         key: "debugMode_startTemplateMatchingTest",
