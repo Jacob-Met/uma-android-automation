@@ -212,6 +212,12 @@ const searchConfig: SearchOption[] = [
         page: "TrainingSettings",
         parentId: "training-year-milestone-targets",
     },
+    {
+        id: "training-scoring-sandbox",
+        title: "Scoring Sandbox",
+        description: "Preview which training the bot would pick for a hypothetical scenario.",
+        page: "TrainingSettings",
+    },
     // ============================================================
     // Training Event Settings
     // ============================================================
