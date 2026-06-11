@@ -141,6 +141,18 @@ abstract class Campaign(game: Game) : Task(game) {
     /** Returns the preferred inventory item to cure the given negative status, or null if none. */
     open fun getPreferredCureItemForNegativeStatus(statusName: String): String? = null
 
+    /**
+     * Whether training analysis may assume Good-Luck Charm will mitigate failure for this option.
+     * Scenario implementations (e.g. Trackblazer) override with inventory, pool, and min-gain checks.
+     */
+    open fun assumesGoodLuckCharmMitigation(stat: StatName, failureChance: Int, mainStatGain: Int): Boolean = false
+
+    /**
+     * Whether Good-Luck Charm and/or energy-restoring items remain available this turn.
+     * Used to avoid skipping training analysis or resting when mitigation is still possible.
+     */
+    open fun hasTrainingMitigationItemsAvailable(): Boolean = false
+
     /** Schedules an inventory item to be used at the start of the next turn. */
     fun schedulePostEventCureUse(itemName: String) {
         pendingPostEventCureItem = itemName

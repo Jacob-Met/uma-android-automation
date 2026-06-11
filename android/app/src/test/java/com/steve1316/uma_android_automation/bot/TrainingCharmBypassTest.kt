@@ -21,9 +21,9 @@ class TrainingCharmBypassTest {
     }
 
     @Test
-    @DisplayName("Low-gain charm skip applies even when failure is below threshold (GUTS parity)")
-    fun testLowGainCharmSkipAppliesBelowFailureThreshold() {
-        assertTrue(
+    @DisplayName("Low-gain charm skip does not apply when failure is within threshold (e.g. 0% without charm)")
+    fun testLowGainCharmSkipDoesNotApplyBelowFailureThreshold() {
+        assertFalse(
             Training.wouldSkipForLowGainCharm(
                 allowCharmForStat = true,
                 climaxForceCharmTraining = false,
@@ -103,6 +103,41 @@ class TrainingCharmBypassTest {
                 enableRiskyTraining = false,
                 riskyTrainingMinStatGain = 40,
                 riskyTrainingMaxFailureChance = 30,
+            ),
+        )
+    }
+
+    @Test
+    @DisplayName("Charm bypass requires failure above threshold unless zero-energy emergency")
+    fun testWouldAllowCharmBypassForStat() {
+        assertFalse(
+            Training.wouldAllowCharmBypassForStat(
+                failureChance = 0,
+                mainStatGain = 10,
+                effectiveFailureChance = 25,
+                climaxForceCharmTraining = false,
+                minStatGainForCharm = 25,
+                allowLowGainCharmAtZeroEnergy = false,
+            ),
+        )
+        assertTrue(
+            Training.wouldAllowCharmBypassForStat(
+                failureChance = 40,
+                mainStatGain = 30,
+                effectiveFailureChance = 25,
+                climaxForceCharmTraining = false,
+                minStatGainForCharm = 25,
+                allowLowGainCharmAtZeroEnergy = false,
+            ),
+        )
+        assertTrue(
+            Training.wouldAllowCharmBypassForStat(
+                failureChance = 40,
+                mainStatGain = 10,
+                effectiveFailureChance = 25,
+                climaxForceCharmTraining = false,
+                minStatGainForCharm = 25,
+                allowLowGainCharmAtZeroEnergy = true,
             ),
         )
     }

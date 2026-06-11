@@ -1,8 +1,8 @@
-# Uma Android Automation — Custom Trackblazer Fork (v1.0.0)
+# Uma Android Automation — Custom Trackblazer Fork (v1.0.1)
 
 ![GitHub last commit](https://img.shields.io/github/last-commit/Jacob-Met/uma-android-automation/custom?logo=GitHub) ![GitHub release](https://img.shields.io/github/v/release/Jacob-Met/uma-android-automation?include_prereleases&label=release&logo=GitHub)
 
-Jacob-Met’s **custom Trackblazer fork**, branched from upstream **v5.6.1** and released as **1.0.0** (`custom-v1.0.0`).
+Jacob-Met’s **custom Trackblazer fork**, branched from upstream **v5.6.1** and released as **1.0.1** (`custom-v1.0.1`).
 
 This is **not** upstream [steve1316/uma-android-automation](https://github.com/steve1316/uma-android-automation) **v5.7.3**. It installs as a **separate app** (`com.steve1316.uma_android_automation.custom`) so you can run it alongside the official build.
 
@@ -12,12 +12,12 @@ This is **not** upstream [steve1316/uma-android-automation](https://github.com/s
 
 ## Download
 
-Get APKs from **[Releases → custom-v1.0.0](https://github.com/Jacob-Met/uma-android-automation/releases/tag/custom-v1.0.0)**:
+Get APKs from **[Releases → custom-v1.0.1](https://github.com/Jacob-Met/uma-android-automation/releases/tag/custom-v1.0.1)**:
 
 | APK | Use for |
 |-----|---------|
-| `v1.0.0-UmaAndroidAutomation-Custom-arm64-v8a-release.apk` | Physical phones / most emulators |
-| `v1.0.0-UmaAndroidAutomation-Custom-x86_64-release.apk` | x86 emulators (e.g. LDPlayer) |
+| `v1.0.1-UmaAndroidAutomation-Custom-arm64-v8a-release.apk` | Physical phones / most emulators |
+| `v1.0.1-UmaAndroidAutomation-Custom-x86_64-release.apk` | x86 emulators (e.g. LDPlayer) |
 
 **Package ID:** `com.steve1316.uma_android_automation.custom`  
 **Logcat filter:** `package:com.steve1316.uma_android_automation.custom [UAA]`
@@ -93,7 +93,16 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 
 ---
 
-## Recent fixes (1.0.0)
+## Recent fixes (1.0.1)
+
+- Charm no longer assumed globally when in inventory; per-stat queue rules (min gain, pool, mood, Wit)
+- No rest at high energy when a 0%-failure stat exists; safe fallback + pre-item mitigation retry
+- Full stat scan skipped only when failure exceeds threshold and no charm/energy mitigation items available
+- Pool-reserve override (min gain ≥ override) still triggers full scan when charms are at reserve floor
+- `allowLowGainCharmAtZeroEnergy` only at 0% energy (was ≤50%)
+- Accurate logs for depleted energy vs high failure on first tab
+
+## Prior fixes (1.0.0)
 
 - Charm vs energy blocking when charm does not queue
 - Forced-train trap — backs out when execute would be blocked
@@ -136,7 +145,7 @@ yarn install --ignore-scripts   # if tree-sitter native build fails on Node 26+
 cd android && ./gradlew assembleRelease
 ```
 
-APKs export to `../apk/` as `v1.0.0-UmaAndroidAutomation-Custom-<arch>-release.apk`.
+APKs export to `../apk/` as `v1.0.1-UmaAndroidAutomation-Custom-<arch>-release.apk`.
 
 ---
 
@@ -145,6 +154,7 @@ APKs export to `../apk/` as `v1.0.0-UmaAndroidAutomation-Custom-<arch>-release.a
 | Ref | Meaning |
 |-----|---------|
 | `custom` | Active development branch |
+| `custom-v1.0.1` | Release tag for 1.0.1 APKs |
 | `custom-v1.0.0` | Release tag for 1.0.0 APKs |
 
 Upstream reference: [steve1316/uma-android-automation @ v5.6.1](https://github.com/steve1316/uma-android-automation/tree/v5.6.1)
