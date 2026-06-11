@@ -30,7 +30,7 @@ This fork targets **Trackblazer tuning and reliability**, not parity with the la
 
 ### You get (custom only)
 
-Everything in the sections below — deep Trackblazer item/training logic, Wit rules, failure mitigation, pause/resume, run summary export, custom defaults, and side-by-side packaging.
+Everything in the sections below — deep Trackblazer item/training logic, Wit rules, failure mitigation, run summary export, custom defaults, and side-by-side packaging.
 
 ### Upstream v5.7.3 has (not in this fork)
 
@@ -82,7 +82,6 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 
 ### Debug & QoL
 
-- **Pause / Resume overlay** — floating pause button during runs (optional)
 - **Run summary CSV export** — training click counts + stat gains + race rows at career end (optional)
 - **Purchased label detection** — shop sync improvements
 - **Custom default settings** — see [docs/fork-custom-defaults-comparison.csv](docs/fork-custom-defaults-comparison.csv) for fork vs vanilla defaults

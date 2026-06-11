@@ -258,7 +258,6 @@ ${longTargetsString}
 
 ---------- Debug Options ----------
 🐛 Debug Mode: ${settings.debug.enableDebugMode ? "✅" : "❌"}
-⏸️ Pause / Resume: ${settings.debug.enablePauseResume ? "✅" : "❌"}
 📄 Run Summary CSV: ${settings.debug.enableRunSummaryExport ? "✅" : "❌"}
 🔍 OCR Threshold: ${settings.debug.ocrThreshold}
 🔍 Minimum Template Match Confidence: ${settings.debug.templateMatchConfidence}

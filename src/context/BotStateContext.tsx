@@ -188,7 +188,6 @@ export interface Settings {
     // Debug settings
     debug: {
         enableDebugMode: boolean
-        enablePauseResume: boolean
         enableRunSummaryExport: boolean
         ocrThreshold: number
         templateMatchConfidence: number
@@ -485,7 +484,6 @@ export const defaultSettings: Settings = {
     },
     debug: {
         enableDebugMode: false,
-        enablePauseResume: false,
         enableRunSummaryExport: false,
         ocrThreshold: 230,
         templateMatchConfidence: 0.8,

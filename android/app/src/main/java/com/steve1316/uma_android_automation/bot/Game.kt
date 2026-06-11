@@ -18,8 +18,6 @@ import com.steve1316.uma_android_automation.bot.campaigns.UnityCup
 import com.steve1316.uma_android_automation.bot.campaigns.UraFinale
 import com.steve1316.uma_android_automation.components.LabelConnecting
 import com.steve1316.uma_android_automation.components.LabelNowLoading
-import com.steve1316.uma_android_automation.utils.BotPauseController
-import com.steve1316.uma_android_automation.utils.PauseOverlayManager
 import com.steve1316.uma_android_automation.utils.CustomImageUtils
 import com.steve1316.uma_android_automation.utils.RunSummaryTracker
 import com.steve1316.uma_android_automation.utils.UmaPresetApplier
@@ -125,7 +123,6 @@ class Game(val myContext: Context) {
 
         var remainingMillis = totalMillis
         while (remainingMillis > 0) {
-            BotPauseController.waitIfPaused()
             if (!BotService.isRunning) {
                 throw InterruptedException()
             }
@@ -294,10 +291,8 @@ class Game(val myContext: Context) {
         val packageInfo = myContext.packageManager.getPackageInfo(myContext.packageName, 0)
         MessageLog.i(TAG, "[INFO] Bot version: ${packageInfo.versionName} (${packageInfo.versionCode})\n\n")
 
-        BotPauseController.reset()
         RunSummaryTracker.reset(scenario)
         UmaPresetApplier.resetSession()
-        PauseOverlayManager.show(myContext)
 
         // Start debug tests here if enabled. Otherwise, proceed with regular bot operations.
         // A small delay here to ensure any notifications are out of the way.
@@ -320,7 +315,6 @@ class Game(val myContext: Context) {
         }
 
         MessageLog.i(TAG, "[INFO] Total runtime of ${MessageLog.formatElapsedTime(startTime, System.currentTimeMillis())} and stopped at ${MessageLog.getSystemTimeString()}.")
-        PauseOverlayManager.hide()
 
         // Wait to make sure Discord webhook message queue gets fully processed before terminating Bot Thread.
         if (DiscordUtils.enableDiscordNotifications) {

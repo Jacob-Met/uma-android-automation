@@ -2,7 +2,6 @@ Setting,Type,Current Default,Your Value
 general.trainingWaitDelay,number (seconds),0.1,
 general.dialogTapDelay,number (seconds),0.1,
 misc.enableAutoLoadUmaPreset,boolean,false,
-debug.enablePauseResume,boolean,false,
 debug.enableRunSummaryExport,boolean,false,
 racing.enableSkipRaceSimulation,boolean,true,
 racing.agendaWaitDelay,number (seconds),0.5,

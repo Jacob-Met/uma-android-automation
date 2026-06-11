@@ -16,7 +16,7 @@ Adjustments
 - Add Wit training rules (skip low-priority, never-click-empty, prefer rest, friendship-bar exceptions).
 - Add Junior/pre-debut friendship and top-3 main-gain training priority.
 - Add per-skill hint level targets in skill plans.
-- Add pause/resume overlay, run summary export, and auto-load Uma preset support.
+- Add run summary export and auto-load Uma preset support.
 - Add trainer friendship influence scaling and extensive Trackblazer scenario override settings.
 
 Fixes

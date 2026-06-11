@@ -1074,13 +1074,6 @@ const searchConfig: SearchOption[] = [
         page: "DebugSettings",
     },
     {
-        id: "enable-pause-resume",
-        title: "Enable Pause / Resume",
-        description:
-            "Shows a floating pause/resume overlay while the bot runs. Resume skips in-game agenda load and skill point check for one turn before continuing training logic.",
-        page: "DebugSettings",
-    },
-    {
         id: "enable-run-summary-export",
         title: "Export Run Summary CSV at Career End",
         description: "Writes a CSV at career complete with Uma name, supports, training click totals per stat, training vs race stat gain totals, and per-race gain rows.",

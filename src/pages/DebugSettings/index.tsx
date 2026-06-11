@@ -222,23 +222,6 @@ const DebugSettings = () => {
                             )}
 
                             <CustomCheckbox
-                                searchId="enable-pause-resume"
-                                checked={debug.enablePauseResume}
-                                onCheckedChange={(checked) => {
-                                    updateDebug({ enablePauseResume: checked })
-                                }}
-                                label="Enable Pause / Resume"
-                                description="Shows a floating pause/resume overlay while the bot runs (red/stationary = running, green/spinning = paused). Pause keeps the bot thread alive so you can intervene manually. Resume skips the in-game agenda load and skill point check for that turn, then continues training logic."
-                                className="my-2"
-                            />
-
-                            {debug.enablePauseResume && (
-                                <WarningContainer style={{ marginTop: 8 }}>
-                                    Experimental: pause/resume changes normal turn flow. Leave disabled unless you need mid-run manual control.
-                                </WarningContainer>
-                            )}
-
-                            <CustomCheckbox
                                 searchId="enable-run-summary-export"
                                 checked={debug.enableRunSummaryExport}
                                 onCheckedChange={(checked) => {

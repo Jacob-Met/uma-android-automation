@@ -68,7 +68,6 @@ import com.steve1316.uma_android_automation.types.RunningStyle
 import com.steve1316.uma_android_automation.types.StatName
 import com.steve1316.uma_android_automation.types.Trainee
 import com.steve1316.uma_android_automation.StartModule
-import com.steve1316.uma_android_automation.utils.BotPauseController
 import com.steve1316.uma_android_automation.utils.RunSummaryTracker
 import com.steve1316.uma_android_automation.utils.UmaPresetApplier
 import com.steve1316.uma_android_automation.utils.ScrollList
@@ -1647,19 +1646,11 @@ abstract class Campaign(game: Game) : Task(game) {
             return false
         }
 
-        BotPauseController.waitIfPaused()
-
         // Scenario-specific pre-update hook.
         onBeforeMainScreenUpdate()
 
-        val skipPostResumeChecks = BotPauseController.consumeSkipPostResumeChecksOnce()
-
         // Perform first-time setup of loading the user's race agenda if needed.
-        if (skipPostResumeChecks) {
-            MessageLog.i(TAG, "[PAUSE] Skipping in-game race agenda load on post-resume turn.")
-        } else {
-            racing.loadUserRaceAgenda()
-        }
+        racing.loadUserRaceAgenda()
 
         val sourceBitmap = game.imageUtils.getSourceBitmap()
 
@@ -1710,7 +1701,7 @@ abstract class Campaign(game: Game) : Task(game) {
 
         // Perform global checks (skill point check, stop at date, finals stop).
         // These can throw CampaignBreakpointException or InterruptedException to stop the bot.
-        if (performGlobalChecks(skipSkillPointCheck = skipPostResumeChecks)) {
+        if (performGlobalChecks()) {
             return true
         }
 
@@ -1813,10 +1804,9 @@ abstract class Campaign(game: Game) : Task(game) {
     /**
      * Performs global bot checks such as skill point thresholds and target date stops.
      *
-     * @param skipSkillPointCheck When true, skip the skill point threshold check for this pass (post-resume intervention).
      * @return True if a check was handled, false otherwise.
      */
-    open fun performGlobalChecks(skipSkillPointCheck: Boolean = false): Boolean {
+    open fun performGlobalChecks(): Boolean {
         // Now check if we need to handle skills before finals.
         if (!bHasHandledPreFinalsCheck && date.day == 72 && skillPlan.skillPlans["preFinals"]?.bIsEnabled ?: false) {
             ButtonSkills.click(game.imageUtils)
@@ -1837,9 +1827,7 @@ abstract class Campaign(game: Game) : Task(game) {
             bHasHandledSkillPointCheck = false
         }
 
-        if (skipSkillPointCheck) {
-            MessageLog.i(TAG, "[PAUSE] Skipping skill point check on post-resume turn.")
-        } else if (!bHasHandledSkillPointCheck && enableSkillPointCheck && trainee.skillPoints >= skillPointsRequired) {
+        if (!bHasHandledSkillPointCheck && enableSkillPointCheck && trainee.skillPoints >= skillPointsRequired) {
             if (skillPlan.skillPlans["skillPointCheck"]?.bIsEnabled ?: false) {
                 // Ensure we are actually at the Main screen before attempting to navigate.
                 // If not, we skip the skill purchase for now and retry on the next turn.
@@ -2013,8 +2001,6 @@ abstract class Campaign(game: Game) : Task(game) {
      */
     override fun process(): TaskResult? {
         try {
-            BotPauseController.waitIfPaused()
-
             // We always check for dialogs first.
             if (tryHandleAllDialogs()) {
                 return null
