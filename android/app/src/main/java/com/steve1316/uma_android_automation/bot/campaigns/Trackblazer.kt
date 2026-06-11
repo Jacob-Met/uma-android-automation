@@ -2891,7 +2891,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         // Fast path: Already on the training screen from irregular training evaluation.
         if (bIsIrregularTraining) {
             MessageLog.i(TAG, "[TRACKBLAZER] Using existing irregular training analysis (already on Training screen).")
-            val trainingSelected: StatName? = training.recommendTraining(args = mapOf("isIrregularEvaluation" to true, "irregularTrainingMinStatGain" to minIrregularGain))
+            var trainingSelected: StatName? = training.recommendTraining(args = mapOf("isIrregularEvaluation" to true, "irregularTrainingMinStatGain" to minIrregularGain))
             if (trainingSelected != null && training.lastSelectionSource != SelectionSource.ANALYSIS) {
                 MessageLog.i(TAG, "[TRACKBLAZER] On-screen evaluation used fallback (${training.lastSelectionSource}): $trainingSelected.")
             }
