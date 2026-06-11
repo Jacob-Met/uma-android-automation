@@ -63,6 +63,7 @@ export function buildSettingsBanner(settings: Settings): string {
 
     return `🏁 Campaign Selected: ${settings.general.scenario !== "" ? `${settings.general.scenario}` : "Please select one in the Select Campaign option"}
 👤 Profile Selected: ${settings.misc.currentProfileName ? `${settings.misc.currentProfileName}` : "Default Profile"}
+🐴 Auto-Load Uma Preset: ${settings.misc.enableAutoLoadUmaPreset ? "✅" : "❌"}
 
 ---------- Training Event Options ----------
 🎭 Special Event Overrides: ${
@@ -86,6 +87,7 @@ export function buildSettingsBanner(settings: Settings): string {
             : `${Object.keys(settings.trainingEvent.scenarioEventOverrides).length} Scenario Event Override(s) applied`
     }
 🔋 Prioritize Energy Options: ${settings.trainingEvent.enablePrioritizeEnergyOptions ? "✅" : "❌"}
+🥗 Avoid Slow Metabolism Without Cure: ${settings.trainingEvent.avoidSlowMetabolismWithoutCure ? "✅" : "❌"}
 🔍 Enable Automatic OCR retry: ${settings.trainingEvent.enableAutomaticOCRRetry ? "✅" : "❌"}
 🔍 Minimum OCR Confidence: ${settings.trainingEvent.ocrConfidence}
 🔍 Hide OCR String Comparison Results: ${settings.trainingEvent.enableHideOCRComparisonResults ? "✅" : "❌"}
@@ -115,9 +117,14 @@ export function buildSettingsBanner(settings: Settings): string {
 ✨ Focus on Sparks for Stat Targets: ${settings.training.focusOnSparkStatTarget.length === 0 ? "None" : settings.training.focusOnSparkStatTarget.join(", ")}
 📏 Preferred Distance Override: ${settings.training.preferredDistanceOverride === "Default" ? "Default" : settings.training.preferredDistanceOverride}
 🌈 Enable Rainbow Training Bonus: ${settings.training.enableRainbowTrainingBonus ? "✅" : "❌"}
+👩‍🏫 Akikawa & Etsuko Friendship Influence: ${settings.training.trainerFriendshipInfluence}%
 💡 Prioritize Skill Hints: ${settings.training.enablePrioritizeSkillHints ? "✅" : "❌"}
 ☀️ Must Rest Before Summer: ${settings.training.mustRestBeforeSummer ? "✅" : "❌"}
 🎯 Train Wit During Finale: ${settings.training.trainWitDuringFinale ? "✅" : "❌"}
+🍀 Charm on Low-Priority Wit: ${settings.training.enableLuckyCharmWitTraining ? "✅" : "❌"} (top-3 Wit always normal)
+🛏️ Prefer Rest Over Wit: ${settings.training.preferRestOverWitTraining ? "✅" : "❌"}${settings.training.preferRestOverWitTraining && settings.training.enableWitTrainingFriendshipBarException ? ` (Wit bar exception: ≥${settings.training.witTrainingFriendshipBarMinimum})` : ""}
+🎯 Skip Low-Priority Wit: ${settings.training.skipLowPriorityWitWhenMainStatsFail ? "✅" : "❌"}${settings.training.skipLowPriorityWitWhenMainStatsFail ? ` (top-3 bars ≥${settings.training.top3FriendshipBarMinimum ?? 1}${settings.training.enableJuniorTop3MainStatGainPriority ? `, main gain ≥${settings.training.juniorTop3MainStatGainMinimum ?? 20}` : ""})` : ""}
+🚫 Never Click Empty Wit: ${settings.training.enableNeverClickEmptyWitTraining ? "✅" : "❌"}
 🔍 Training Analysis Validation: ${settings.training.enableTrainingAnalysisValidation ? "✅" : "❌"}
 🤖 Enable YOLO Stat Detection: ${settings.training.enableYoloStatDetection ? "✅" : "❌"}
 🎯 Classic Year Milestone: ${settings.training.classicMilestonePercent}%
@@ -132,6 +139,9 @@ ${longTargetsString}
 ---------- Racing Options ----------
 👥 Prioritize Farming Fans: ${settings.racing.enableFarmingFans ? "✅" : "❌"}
 ⏰ Modulo Days to Farm Fans: ${settings.racing.enableFarmingFans ? `${settings.racing.daysToRunExtraRaces} days` : "❌"}
+⏭️ Skip Race Simulation: ${settings.racing.enableSkipRaceSimulation ? "✅" : "❌"}
+📋 Agenda Wait Delay: ${settings.racing.agendaWaitDelay}s
+🎯 Per-Distance Strategy Wait Delay: ${settings.racing.enablePerDistanceStrategy ? `${settings.racing.raceStrategyWaitDelay ?? 0.5}s` : "N/A (disabled)"}
 🚫 Ignore Consecutive Race Warning: ${settings.racing.ignoreConsecutiveRaceWarning ? "✅" : "❌"}
 ⚡ Ignore Low Energy Racing Block: ${settings.racing.ignoreLowEnergyRacingBlock ? "✅" : "❌"}
 🔄 Disable Race Retries: ${settings.racing.disableRaceRetries ? "✅" : "❌"}
@@ -159,7 +169,15 @@ ${longTargetsString}
 🔒 Solver Manual Turn Locks: ${smartRaceSolverLockCount} locked turn(s)
 
 ---------- Skill Options ----------
-🔍 Skill Point Check: ${settings.skills.enableSkillPointCheck ? `Stop on ${settings.skills.skillPointCheck} Skill Points or more` : "❌"}
+🔍 Skill Point Check: ${settings.skills.enableSkillPointCheck ? `Stop on ${settings.skills.skillPointCheck} Skill Points or more` : "❌"}${
+        settings.skills.plans.skillPointCheck?.enabled && (settings.skills.plans.skillPointCheck.minHintLevelToPurchase ?? 0) > 0
+            ? `\n\t💡 Min hint level (planned): ${settings.skills.plans.skillPointCheck.minHintLevelToPurchase}${
+                  (settings.skills.plans.skillPointCheck.skillHintLevels ?? "").trim()
+                      ? ` (${(settings.skills.plans.skillPointCheck.skillHintLevels ?? "").split(",").filter(Boolean).length} skill override(s))`
+                      : ""
+              }`
+            : ""
+    }
 🏃 Running Style Override: ${settings.skills.preferredRunningStyle}
 🛣️ Track Distance Override: ${settings.skills.preferredTrackDistance}
 🛣️ Track Surface Override: ${settings.skills.preferredTrackSurface}
@@ -169,7 +187,15 @@ ${longTargetsString}
                   settings.skills.plans.preFinals.enableBuyNegativeSkills ? "✅" : "❌"
               }\n\t💸 Spending Strategy: ${settings.skills.plans.preFinals.strategy ? "✅" : "❌"}\n\t🚫 Blacklisted Skills: ${csvCount(
                   settings.skills.plans.preFinals.blacklist
-              )}\n\t🎨 Excluded Categories: ${formatExcludedCategories(settings.skills.plans.preFinals)}`
+              )}\n\t🎨 Excluded Categories: ${formatExcludedCategories(settings.skills.plans.preFinals)}${
+                  (settings.skills.plans.preFinals.minHintLevelToPurchase ?? 0) > 0
+                      ? `\n\t💡 Min hint level (planned): ${settings.skills.plans.preFinals.minHintLevelToPurchase}${
+                            (settings.skills.plans.preFinals.skillHintLevels ?? "").trim()
+                                ? ` (${(settings.skills.plans.preFinals.skillHintLevels ?? "").split(",").filter(Boolean).length} skill override(s))`
+                                : ""
+                        }`
+                      : ""
+              }`
             : ""
     }
 📅 CareerComplete Skill Plan: ${settings.skills.plans.careerComplete.enabled ? "✅" : "❌"}${
@@ -185,13 +211,36 @@ ${longTargetsString}
 ---------- Scenario Overrides ----------
 🏁 Trackblazer Consecutive Races Limit: ${settings.scenarioOverrides?.trackblazerConsecutiveRacesLimit}
 🔋 Trackblazer Energy Threshold: ${settings.scenarioOverrides?.trackblazerEnergyThreshold}
+🔋 Trackblazer Energy Item High-Failure Train: ${settings.scenarioOverrides?.trackblazerEnableEnergyItemForHighFailureTraining ? "✅" : "❌"}${settings.scenarioOverrides?.trackblazerEnableEnergyItemForHighFailureTraining ? ` (Vita20 +${settings.scenarioOverrides?.trackblazerVita20FailureAboveMinimum ?? 10}%, Vita40 +${settings.scenarioOverrides?.trackblazerVita40FailureAboveMinimum ?? 20}%, Vita65 +${settings.scenarioOverrides?.trackblazerVita65FailureAboveMinimum ?? 50}%, gain ≥${settings.scenarioOverrides?.trackblazerEnergyItemMinMainStatGain ?? 20}; +65/+100 ignore margin unless charm)` : ""}
 🛍️ Trackblazer Shop Check Grades: ${settings.scenarioOverrides?.trackblazerShopCheckGrades?.join(", ")}
 🛍️ Trackblazer Shop Check Frequency: ${settings.scenarioOverrides?.trackblazerShopCheckFrequency}
 🛍️ Trackblazer Excluded Items: ${settings.scenarioOverrides?.trackblazerExcludedItems?.length === 0 ? "None" : settings.scenarioOverrides?.trackblazerExcludedItems?.join(", ")}
+🍀 Trackblazer Climax Charm Training: ${settings.scenarioOverrides?.trackblazerEnableClimaxCharmTraining ? "✅" : "❌"}
+🍀 Save Failure Mitigation Pool (65–72): ${settings.scenarioOverrides?.trackblazerSaveGoodLuckCharmForSummer ? "✅" : "❌"}${settings.scenarioOverrides?.trackblazerSaveGoodLuckCharmForSummer ? ` (reserve ${settings.scenarioOverrides?.trackblazerFailureMitigationPoolReserve ?? 4} Charm/+65/+100, override gain ≥${settings.scenarioOverrides?.trackblazerSummerCharmOverrideMinStatGain ?? 30}; free in Summer)` : ""}
 ✨ Trackblazer Min Stat Gain for Charm: ${settings.scenarioOverrides?.trackblazerMinStatGainForCharm}
 ✨ Trackblazer Low Main Stat Gain Item Floor: ${settings.scenarioOverrides?.trackblazerLowMainStatGainItemFloor}
+📣 Trackblazer Coaching Megaphone Min Gain: ${settings.scenarioOverrides?.trackblazerCoachingMegaphoneMinStatGain}
+📣 Trackblazer Motivating Megaphone Min Gain: ${settings.scenarioOverrides?.trackblazerMotivatingMegaphoneMinStatGain}
+📣 Trackblazer Empowering Megaphone Min Gain: ${settings.scenarioOverrides?.trackblazerEmpoweringMegaphoneMinStatGain}
+🦶 Trackblazer Speed Ankle Weight Min Gain: ${settings.scenarioOverrides?.trackblazerSpeedAnkleWeightMinStatGain}
+🦶 Trackblazer Stamina Ankle Weight Min Gain: ${settings.scenarioOverrides?.trackblazerStaminaAnkleWeightMinStatGain}
+🦶 Trackblazer Power Ankle Weight Min Gain: ${settings.scenarioOverrides?.trackblazerPowerAnkleWeightMinStatGain}
+🦶 Trackblazer Guts Ankle Weight Min Gain: ${settings.scenarioOverrides?.trackblazerGutsAnkleWeightMinStatGain}
+☀️ Trackblazer Ankle Weight Summer Reserve: ${settings.scenarioOverrides?.trackblazerAnkleWeightSummerReserve}
+☀️ Trackblazer Megaphone Summer Reserve (total): ${settings.scenarioOverrides?.trackblazerMegaphoneSummerReserve}
+🔋 Trackblazer Energy Item Reserve: ${settings.scenarioOverrides?.trackblazerEnergyItemReserve}
+🧁 Trackblazer Cupcake Reserve: ${settings.scenarioOverrides?.trackblazerCupcakeReserve}
+🔨 Trackblazer Master Hammer Finale Reserve: ${settings.scenarioOverrides?.trackblazerMasterHammerFinaleReserve}
+🔨 Trackblazer Artisan Hammer Min Stock G3: ${settings.scenarioOverrides?.trackblazerArtisanHammerMinStockForG3}
+🔨 Trackblazer Artisan Hammer Min Stock G2: ${settings.scenarioOverrides?.trackblazerArtisanHammerMinStockForG2}
+✨ Trackblazer Glow Stick Final Reserve: ${settings.scenarioOverrides?.trackblazerGlowStickFinalReserve}
+✨ Trackblazer Glow Stick Min Fans: ${settings.scenarioOverrides?.trackblazerGlowStickMinFans}
 🔄 Trackblazer Max Retries per Race: ${settings.scenarioOverrides?.trackblazerMaxRetriesPerRace}
 🔄 Trackblazer Whistle Forces Training: ${settings.scenarioOverrides?.trackblazerWhistleForcesTraining ? "✅" : "❌"}
+📯 Save Reset Whistles for Summer: ${settings.scenarioOverrides?.trackblazerSaveResetWhistlesForSummer ? "✅" : "❌"}
+📯 Save Reset Whistles for Finale: ${settings.scenarioOverrides?.trackblazerSaveResetWhistlesForFinale ? "✅" : "❌"}
+📯 Whistle Priority Min Rainbows: ${settings.scenarioOverrides?.trackblazerWhistlePriorityMinRainbow ?? 0}
+📯 Post-Whistle Recovery: ${settings.scenarioOverrides?.trackblazerWhistlePostShuffleMinFailure || 0}% fail / ${settings.scenarioOverrides?.trackblazerWhistlePostShuffleMinMainGain || 0} min gain
 🔄 Trackblazer Retry Grades: ${settings.scenarioOverrides?.trackblazerRetryRacesBeforeFinalGrades?.join(", ")}
 ✨ Trackblazer Enable Irregular Training: ${settings.scenarioOverrides?.trackblazerEnableIrregularTraining ? "✅" : "❌"}
 ✨ Trackblazer Irregular Training Min Gain: ${settings.scenarioOverrides?.trackblazerIrregularTrainingMinStatGain}
@@ -204,9 +253,13 @@ ${longTargetsString}
 🛑 Stop At Date: ${settings.general.enableStopAtDate ? `✅ (${settings.general.stopAtDates.join(", ")})` : "❌"}
 ⏰ Wait Delay: ${settings.general.waitDelay}s
 ⏰ Dialog Wait Delay: ${settings.general.dialogWaitDelay}s
+⏰ Training Wait Delay: ${settings.general.trainingWaitDelay ?? 0.5}s
+⏰ Dialog Multi-Tap Delay: ${settings.general.dialogTapDelay ?? 0.15}s
 
 ---------- Debug Options ----------
 🐛 Debug Mode: ${settings.debug.enableDebugMode ? "✅" : "❌"}
+⏸️ Pause / Resume: ${settings.debug.enablePauseResume ? "✅" : "❌"}
+📄 Run Summary CSV: ${settings.debug.enableRunSummaryExport ? "✅" : "❌"}
 🔍 OCR Threshold: ${settings.debug.ocrThreshold}
 🔍 Minimum Template Match Confidence: ${settings.debug.templateMatchConfidence}
 🔍 Custom Scale: ${settings.debug.templateMatchCustomScale}

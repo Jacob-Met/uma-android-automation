@@ -77,6 +77,8 @@ class SkillPlan(private val game: Game, private val campaign: Campaign) {
                             skillBlacklist = skillBlacklist,
                             excludedTypes = excludedTypes,
                             bExcludeUniqueSkills = planData.optBoolean("excludeUniqueSkills", false),
+                            minHintLevelToPurchase = planData.optInt("minHintLevelToPurchase", 4).coerceIn(0, 5),
+                            skillHintLevels = parseSkillHintLevels(planData.optString("skillHintLevels", "")),
                         )
                 }
                 plansMap
@@ -123,6 +125,8 @@ class SkillPlan(private val game: Game, private val campaign: Campaign) {
      * @property skillBlacklist Names of skills to exclude from purchase regardless of strategy.
      * @property excludedTypes Skill type categories (GREEN / YELLOW / BLUE / RED) to exclude wholesale.
      * @property bExcludeUniqueSkills Whether to exclude all inherited unique skills from purchase, even if listed in the plan.
+     * @property minHintLevelToPurchase Minimum inferred hint level required before a planned skill is bought during a run (0 = any).
+     * @property skillHintLevels Per-skill hint overrides keyed by skill name. Missing entries use [minHintLevelToPurchase].
      */
     data class SkillPlanSettings(
         val bIsEnabled: Boolean,
@@ -132,6 +136,8 @@ class SkillPlan(private val game: Game, private val campaign: Campaign) {
         val skillBlacklist: List<String> = emptyList(),
         val excludedTypes: Set<SkillType> = emptySet(),
         val bExcludeUniqueSkills: Boolean = false,
+        val minHintLevelToPurchase: Int = 0,
+        val skillHintLevels: Map<String, Int> = emptyMap(),
     )
 
     companion object {
@@ -385,6 +391,42 @@ class SkillPlan(private val game: Game, private val campaign: Campaign) {
      * @param settings The [SkillPlanSettings] holding the blacklist and excluded categories.
      * @return True if the entry should be skipped, false otherwise.
      */
+    /** Parses `id:level` CSV into skill-name keyed hint overrides. */
+    private fun parseSkillHintLevels(raw: String): Map<String, Int> {
+        if (raw.isBlank()) {
+            return emptyMap()
+        }
+        return raw
+            .split(",")
+            .mapNotNull { part ->
+                val pieces = part.trim().split(":")
+                if (pieces.size != 2) {
+                    return@mapNotNull null
+                }
+                val id = pieces[0].trim().toIntOrNull() ?: return@mapNotNull null
+                val level = pieces[1].trim().toIntOrNull()?.coerceIn(0, 5) ?: return@mapNotNull null
+                val name = game.skillDatabase.getSkillName(id) ?: return@mapNotNull null
+                name to level
+            }.toMap()
+    }
+
+    /** Resolves the minimum hint level for a planned skill, using per-skill overrides when set. */
+    private fun minHintLevelForPlannedSkill(skillName: String, settings: SkillPlanSettings): Int =
+        settings.skillHintLevels[skillName] ?: settings.minHintLevelToPurchase
+
+    /**
+     * Returns true when [entry] is on the skill list, available, and meets [minHintLevel] (0 = any hint level).
+     */
+    private fun plannedEntryMeetsHintLevel(entry: SkillListEntry, minHintLevel: Int): Boolean {
+        if (minHintLevel <= 0) {
+            return true
+        }
+        if (!entry.bIsAvailable) {
+            return false
+        }
+        return entry.hintLevel >= minHintLevel
+    }
+
     private fun isBlacklisted(entry: SkillListEntry, settings: SkillPlanSettings): Boolean =
         entry.name in settings.skillBlacklist ||
             entry.skillData.type in settings.excludedTypes ||
@@ -463,6 +505,16 @@ class SkillPlan(private val game: Game, private val campaign: Campaign) {
 
             // Skip skills the user has both planned AND blacklisted. Blacklist takes precedence to keep behavior predictable.
             if (isBlacklisted(entry, skillPlanSettings)) {
+                continue
+            }
+
+            val minHintLevel = minHintLevelForPlannedSkill(name, skillPlanSettings)
+            if (minHintLevel > 0 && !plannedEntryMeetsHintLevel(entry, minHintLevel)) {
+                val overrideLabel = if (name in skillPlanSettings.skillHintLevels) "skill-specific" else "plan default"
+                MessageLog.i(
+                    TAG,
+                    "[SKILLS] Skipping planned skill \"$name\" — hint level ${if (entry.bIsAvailable) entry.hintLevel else "N/A"} < required $minHintLevel ($overrideLabel).",
+                )
                 continue
             }
 
@@ -871,20 +923,19 @@ class SkillPlan(private val game: Game, private val campaign: Campaign) {
         }
 
         // Determine which skill plan to execute based on the current context.
+        val resolvedPlanName: String =
+            skillPlanName ?: if (bIsCareerComplete) "careerComplete" else "preFinals"
         val skillPlanSettings: SkillPlanSettings =
-            if (skillPlanName == null) {
-                if (bIsCareerComplete) {
-                    skillPlans["careerComplete"]!!
+            skillPlans[resolvedPlanName]?.let { plan ->
+                // Career-complete always buys planned targets regardless of hint level.
+                if (resolvedPlanName == "careerComplete") {
+                    plan.copy(minHintLevelToPurchase = 0, skillHintLevels = emptyMap())
                 } else {
-                    skillPlans["preFinals"]!!
+                    plan
                 }
-            } else {
-                val tmpPlan: SkillPlanSettings? = skillPlans[skillPlanName]
-                if (tmpPlan == null) {
-                    MessageLog.e(TAG, "[ERROR] start:: Invalid skill plan name: $skillPlanName")
-                    return false
-                }
-                tmpPlan
+            } ?: run {
+                MessageLog.e(TAG, "[ERROR] start:: Invalid skill plan name: $resolvedPlanName")
+                return false
             }
 
         // If no purchasing options are enabled, exit early to avoid unnecessary scanning.

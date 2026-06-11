@@ -22,6 +22,10 @@ interface SkillPlanSettingsConfig {
     excludeRedSkills: boolean
     /** When true, all inherited unique (legacy) skills are excluded from this plan's purchases, even if listed in the plan. */
     excludeUniqueSkills: boolean
+    /** Minimum inferred hint level before planned skills are purchased during a run (0 = any). Ignored on Career Complete. */
+    minHintLevelToPurchase: number
+    /** Per-skill hint overrides as `id:level` CSV (e.g. `123:5,456:3`). Missing IDs use [minHintLevelToPurchase]. */
+    skillHintLevels: string
 }
 
 /**
@@ -39,6 +43,8 @@ export interface Settings {
         stopAtDates: string[]
         waitDelay: number
         dialogWaitDelay: number
+        trainingWaitDelay: number
+        dialogTapDelay: number
     }
 
     // Racing settings
@@ -55,6 +61,10 @@ export interface Settings {
         enableUserInGameRaceAgenda: boolean
         limitRacesToInGameAgenda: boolean
         skipSummerTrainingForAgenda: boolean
+        enableSkipRaceSimulation: boolean
+        agendaWaitDelay: number
+        /** Extra pacing after opening the running-style dialog when per-distance strategy is enabled. */
+        raceStrategyWaitDelay: number
         selectedUserAgenda: string
         customAgendaTitle: string
         juniorYearRaceStrategy: string
@@ -90,6 +100,7 @@ export interface Settings {
     // Training Event settings
     trainingEvent: {
         enablePrioritizeEnergyOptions: boolean
+        avoidSlowMetabolismWithoutCure: boolean
         enableAutomaticOCRRetry: boolean
         ocrConfidence: number
         enableHideOCRComparisonResults: boolean
@@ -105,6 +116,7 @@ export interface Settings {
         formattedSettingsString: string
         enableMessageIdDisplay: boolean
         currentProfileName: string
+        enableAutoLoadUmaPreset: boolean
         messageLogFontSize: number
         overlayButtonSizeDP: number
     }
@@ -119,12 +131,22 @@ export interface Settings {
         disableTrainingOnMaxedStat: boolean
         focusOnSparkStatTarget: string[]
         enableRainbowTrainingBonus: boolean
+        trainerFriendshipInfluence: number
         preferredDistanceOverride: string
         mustRestBeforeSummer: boolean
         enableRiskyTraining: boolean
         riskyTrainingMinStatGain: number
         riskyTrainingMaxFailureChance: number
         trainWitDuringFinale: boolean
+        enableLuckyCharmWitTraining: boolean
+        preferRestOverWitTraining: boolean
+        skipLowPriorityWitWhenMainStatsFail: boolean
+        enableNeverClickEmptyWitTraining: boolean
+        enableWitTrainingFriendshipBarException: boolean
+        witTrainingFriendshipBarMinimum: number
+        top3FriendshipBarMinimum: number
+        enableJuniorTop3MainStatGainPriority: boolean
+        juniorTop3MainStatGainMinimum: number
         enablePrioritizeSkillHints: boolean
         enableTrainingAnalysisValidation: boolean
         enableYoloStatDetection: boolean
@@ -166,6 +188,8 @@ export interface Settings {
     // Debug settings
     debug: {
         enableDebugMode: boolean
+        enablePauseResume: boolean
+        enableRunSummaryExport: boolean
         ocrThreshold: number
         templateMatchConfidence: number
         templateMatchCustomScale: number
@@ -203,11 +227,34 @@ export interface Settings {
     scenarioOverrides: {
         trackblazerConsecutiveRacesLimit: number
         trackblazerEnergyThreshold: number
+        trackblazerEnableEnergyItemForHighFailureTraining: boolean
+        trackblazerVita20FailureAboveMinimum: number
+        trackblazerVita40FailureAboveMinimum: number
+        trackblazerVita65FailureAboveMinimum: number
+        trackblazerEnergyItemMinMainStatGain: number
         trackblazerShopCheckGrades: string[]
+        trackblazerEnableClimaxCharmTraining: boolean
         trackblazerMinStatGainForCharm: number
         trackblazerLowMainStatGainItemFloor: number
+        trackblazerCoachingMegaphoneMinStatGain: number
+        trackblazerMotivatingMegaphoneMinStatGain: number
+        trackblazerEmpoweringMegaphoneMinStatGain: number
+        trackblazerSpeedAnkleWeightMinStatGain: number
+        trackblazerStaminaAnkleWeightMinStatGain: number
+        trackblazerPowerAnkleWeightMinStatGain: number
+        trackblazerGutsAnkleWeightMinStatGain: number
+        trackblazerAnkleWeightSummerReserve: number
+        trackblazerMegaphoneSummerReserve: number
         trackblazerMaxRetriesPerRace: number
         trackblazerWhistleForcesTraining: boolean
+        trackblazerSaveResetWhistlesForSummer: boolean
+        trackblazerSaveResetWhistlesForFinale: boolean
+        trackblazerSaveGoodLuckCharmForSummer: boolean
+        trackblazerFailureMitigationPoolReserve: number
+        trackblazerSummerCharmOverrideMinStatGain: number
+        trackblazerWhistlePriorityMinRainbow: number
+        trackblazerWhistlePostShuffleMinFailure: number
+        trackblazerWhistlePostShuffleMinMainGain: number
         trackblazerRetryRacesBeforeFinalGrades: string[]
         trackblazerEnableIrregularTraining: boolean
         trackblazerIrregularTrainingMinStatGain: number
@@ -215,6 +262,13 @@ export interface Settings {
         trackblazerShopCheckFrequency: number
         trackblazerPreferredDistances: string[]
         trackblazerPreferredSurfaces: string[]
+        trackblazerEnergyItemReserve: number
+        trackblazerCupcakeReserve: number
+        trackblazerMasterHammerFinaleReserve: number
+        trackblazerArtisanHammerMinStockForG3: number
+        trackblazerArtisanHammerMinStockForG2: number
+        trackblazerGlowStickFinalReserve: number
+        trackblazerGlowStickMinFans: number
     }
 }
 
@@ -228,6 +282,8 @@ export const defaultSettings: Settings = {
         stopAtDates: ["Senior January Early"],
         waitDelay: 0.5,
         dialogWaitDelay: 0.5,
+        trainingWaitDelay: 0.1,
+        dialogTapDelay: 0.1,
     },
     racing: {
         enableFarmingFans: false,
@@ -242,6 +298,9 @@ export const defaultSettings: Settings = {
         enableUserInGameRaceAgenda: false,
         limitRacesToInGameAgenda: true,
         skipSummerTrainingForAgenda: false,
+        enableSkipRaceSimulation: true,
+        agendaWaitDelay: 0.5,
+        raceStrategyWaitDelay: 0.5,
         selectedUserAgenda: "Agenda 1",
         customAgendaTitle: "",
         juniorYearRaceStrategy: "Default",
@@ -295,6 +354,8 @@ export const defaultSettings: Settings = {
                     excludeGreenSkills: false,
                     excludeRedSkills: false,
                     excludeUniqueSkills: false,
+                    minHintLevelToPurchase: 4,
+                    skillHintLevels: "",
                 }
                 return acc
             },
@@ -303,6 +364,7 @@ export const defaultSettings: Settings = {
     },
     trainingEvent: {
         enablePrioritizeEnergyOptions: false,
+        avoidSlowMetabolismWithoutCure: true,
         enableAutomaticOCRRetry: true,
         ocrConfidence: 90,
         enableHideOCRComparisonResults: true,
@@ -364,6 +426,7 @@ export const defaultSettings: Settings = {
         formattedSettingsString: "",
         enableMessageIdDisplay: false,
         currentProfileName: "",
+        enableAutoLoadUmaPreset: false,
         messageLogFontSize: 8,
         overlayButtonSizeDP: 40,
     },
@@ -376,12 +439,22 @@ export const defaultSettings: Settings = {
         disableTrainingOnMaxedStat: true,
         focusOnSparkStatTarget: ["Speed", "Stamina", "Power"],
         enableRainbowTrainingBonus: false,
+        trainerFriendshipInfluence: 0,
         preferredDistanceOverride: "Auto",
         mustRestBeforeSummer: false,
         enableRiskyTraining: false,
         riskyTrainingMinStatGain: 20,
         riskyTrainingMaxFailureChance: 30,
         trainWitDuringFinale: false,
+        enableLuckyCharmWitTraining: true,
+        preferRestOverWitTraining: true,
+        skipLowPriorityWitWhenMainStatsFail: true,
+        enableNeverClickEmptyWitTraining: true,
+        enableWitTrainingFriendshipBarException: true,
+        witTrainingFriendshipBarMinimum: 2,
+        top3FriendshipBarMinimum: 2,
+        enableJuniorTop3MainStatGainPriority: true,
+        juniorTop3MainStatGainMinimum: 20,
         enablePrioritizeSkillHints: false,
         enableTrainingAnalysisValidation: false,
         enableYoloStatDetection: false,
@@ -412,6 +485,8 @@ export const defaultSettings: Settings = {
     },
     debug: {
         enableDebugMode: false,
+        enablePauseResume: false,
+        enableRunSummaryExport: false,
         ocrThreshold: 230,
         templateMatchConfidence: 0.8,
         templateMatchCustomScale: 1.0,
@@ -443,11 +518,34 @@ export const defaultSettings: Settings = {
     scenarioOverrides: {
         trackblazerConsecutiveRacesLimit: 5,
         trackblazerEnergyThreshold: 40,
+        trackblazerEnableEnergyItemForHighFailureTraining: true,
+        trackblazerVita20FailureAboveMinimum: 10,
+        trackblazerVita40FailureAboveMinimum: 20,
+        trackblazerVita65FailureAboveMinimum: 50,
+        trackblazerEnergyItemMinMainStatGain: 30,
         trackblazerShopCheckGrades: ["G1", "G2", "G3"],
-        trackblazerMinStatGainForCharm: 30,
+        trackblazerEnableClimaxCharmTraining: true,
+        trackblazerMinStatGainForCharm: 25,
         trackblazerLowMainStatGainItemFloor: 15,
+        trackblazerCoachingMegaphoneMinStatGain: 15,
+        trackblazerMotivatingMegaphoneMinStatGain: 25,
+        trackblazerEmpoweringMegaphoneMinStatGain: 30,
+        trackblazerSpeedAnkleWeightMinStatGain: 25,
+        trackblazerStaminaAnkleWeightMinStatGain: 0,
+        trackblazerPowerAnkleWeightMinStatGain: 20,
+        trackblazerGutsAnkleWeightMinStatGain: 0,
+        trackblazerAnkleWeightSummerReserve: 2,
+        trackblazerMegaphoneSummerReserve: 2,
         trackblazerMaxRetriesPerRace: 1,
-        trackblazerWhistleForcesTraining: true,
+        trackblazerWhistleForcesTraining: false,
+        trackblazerSaveResetWhistlesForSummer: true,
+        trackblazerSaveResetWhistlesForFinale: true,
+        trackblazerSaveGoodLuckCharmForSummer: true,
+        trackblazerFailureMitigationPoolReserve: 4,
+        trackblazerSummerCharmOverrideMinStatGain: 30,
+        trackblazerWhistlePriorityMinRainbow: 1,
+        trackblazerWhistlePostShuffleMinFailure: 0,
+        trackblazerWhistlePostShuffleMinMainGain: 0,
         trackblazerRetryRacesBeforeFinalGrades: ["G1", "G2", "G3"],
         trackblazerEnableIrregularTraining: false,
         trackblazerIrregularTrainingMinStatGain: 30,
@@ -455,6 +553,13 @@ export const defaultSettings: Settings = {
         trackblazerShopCheckFrequency: 3,
         trackblazerPreferredDistances: [] as string[],
         trackblazerPreferredSurfaces: [] as string[],
+        trackblazerEnergyItemReserve: 1,
+        trackblazerCupcakeReserve: 1,
+        trackblazerMasterHammerFinaleReserve: 2,
+        trackblazerArtisanHammerMinStockForG3: 3,
+        trackblazerArtisanHammerMinStockForG2: 2,
+        trackblazerGlowStickFinalReserve: 1,
+        trackblazerGlowStickMinFans: 20000,
     },
 }
 

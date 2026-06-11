@@ -67,6 +67,10 @@ import com.steve1316.uma_android_automation.types.RaceGrade
 import com.steve1316.uma_android_automation.types.RunningStyle
 import com.steve1316.uma_android_automation.types.StatName
 import com.steve1316.uma_android_automation.types.Trainee
+import com.steve1316.uma_android_automation.StartModule
+import com.steve1316.uma_android_automation.utils.BotPauseController
+import com.steve1316.uma_android_automation.utils.RunSummaryTracker
+import com.steve1316.uma_android_automation.utils.UmaPresetApplier
 import com.steve1316.uma_android_automation.utils.ScrollList
 import org.opencv.core.Point
 import java.util.concurrent.CountDownLatch
@@ -126,8 +130,23 @@ abstract class Campaign(game: Game) : Task(game) {
     /** Flag to track whether the bot should force Wit training during the pre-summer turn. */
     var bForcedWitTraining: Boolean = false
 
+    /** Item queued for use at the start of the next turn after accepting a Slow Metabolism event with a cure item available. */
+    var pendingPostEventCureItem: String? = null
+
     /** Flag to track if the bot should force a specific target mood during recovery. */
     var forcedTargetMood: Mood? = null
+
+    /** Whether a cure item is available in inventory for the given negative status. */
+    open fun hasCureForNegativeStatus(statusName: String): Boolean = false
+
+    /** Returns the preferred inventory item to cure the given negative status, or null if none. */
+    open fun getPreferredCureItemForNegativeStatus(statusName: String): String? = null
+
+    /** Schedules an inventory item to be used at the start of the next turn. */
+    fun schedulePostEventCureUse(itemName: String) {
+        pendingPostEventCureItem = itemName
+        MessageLog.i(TAG, "[CAMPAIGN] Scheduled $itemName for use at the start of the next turn.")
+    }
 
     /** Whether the bot should attempt the crane game. */
     protected val enableCraneGameAttempt: Boolean = SettingsHelper.getBooleanSetting("general", "enableCraneGameAttempt")
@@ -552,6 +571,14 @@ abstract class Campaign(game: Game) : Task(game) {
                 // Read the trainee's name once per run while the dialog is still open.
                 if (trainee.name.isEmpty()) {
                     trainee.readName(game.imageUtils)
+                }
+                RunSummaryTracker.setUmaName(trainee.name)
+
+                if (trainee.name.isNotEmpty()) {
+                    val presetName = UmaPresetApplier.tryApplyForDetectedUma(game.myContext, trainee.name)
+                    if (presetName != null) {
+                        StartModule.sendUmaPresetAppliedEvent(trainee.name, presetName)
+                    }
                 }
 
                 if (trainee.runningStyle != prevRunningStyle) {
@@ -1620,11 +1647,19 @@ abstract class Campaign(game: Game) : Task(game) {
             return false
         }
 
+        BotPauseController.waitIfPaused()
+
         // Scenario-specific pre-update hook.
         onBeforeMainScreenUpdate()
 
+        val skipPostResumeChecks = BotPauseController.consumeSkipPostResumeChecksOnce()
+
         // Perform first-time setup of loading the user's race agenda if needed.
-        racing.loadUserRaceAgenda()
+        if (skipPostResumeChecks) {
+            MessageLog.i(TAG, "[PAUSE] Skipping in-game race agenda load on post-resume turn.")
+        } else {
+            racing.loadUserRaceAgenda()
+        }
 
         val sourceBitmap = game.imageUtils.getSourceBitmap()
 
@@ -1675,7 +1710,7 @@ abstract class Campaign(game: Game) : Task(game) {
 
         // Perform global checks (skill point check, stop at date, finals stop).
         // These can throw CampaignBreakpointException or InterruptedException to stop the bot.
-        if (performGlobalChecks()) {
+        if (performGlobalChecks(skipSkillPointCheck = skipPostResumeChecks)) {
             return true
         }
 
@@ -1771,15 +1806,17 @@ abstract class Campaign(game: Game) : Task(game) {
             MessageLog.e(TAG, "[ERROR] performTurnStartUpdates:: Date change operations threads timed out.")
         } finally {
             MessageLog.disableOutput = false
+            RunSummaryTracker.applyStatSnapshot(trainee.stats.asMap())
         }
     }
 
     /**
      * Performs global bot checks such as skill point thresholds and target date stops.
      *
+     * @param skipSkillPointCheck When true, skip the skill point threshold check for this pass (post-resume intervention).
      * @return True if a check was handled, false otherwise.
      */
-    open fun performGlobalChecks(): Boolean {
+    open fun performGlobalChecks(skipSkillPointCheck: Boolean = false): Boolean {
         // Now check if we need to handle skills before finals.
         if (!bHasHandledPreFinalsCheck && date.day == 72 && skillPlan.skillPlans["preFinals"]?.bIsEnabled ?: false) {
             ButtonSkills.click(game.imageUtils)
@@ -1800,7 +1837,9 @@ abstract class Campaign(game: Game) : Task(game) {
             bHasHandledSkillPointCheck = false
         }
 
-        if (!bHasHandledSkillPointCheck && enableSkillPointCheck && trainee.skillPoints >= skillPointsRequired) {
+        if (skipSkillPointCheck) {
+            MessageLog.i(TAG, "[PAUSE] Skipping skill point check on post-resume turn.")
+        } else if (!bHasHandledSkillPointCheck && enableSkillPointCheck && trainee.skillPoints >= skillPointsRequired) {
             if (skillPlan.skillPlans["skillPointCheck"]?.bIsEnabled ?: false) {
                 // Ensure we are actually at the Main screen before attempting to navigate.
                 // If not, we skip the skill purchase for now and retry on the next turn.
@@ -1974,6 +2013,8 @@ abstract class Campaign(game: Game) : Task(game) {
      */
     override fun process(): TaskResult? {
         try {
+            BotPauseController.waitIfPaused()
+
             // We always check for dialogs first.
             if (tryHandleAllDialogs()) {
                 return null
@@ -2046,6 +2087,9 @@ abstract class Campaign(game: Game) : Task(game) {
 
                 // Print the final Trainee information.
                 trainee.logInfo()
+
+                RunSummaryTracker.setUmaName(trainee.name)
+                RunSummaryTracker.writeExport(game.myContext)
 
                 return TaskResult.Success(
                     TaskResultCode.TASK_RESULT_COMPLETE,

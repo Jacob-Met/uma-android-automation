@@ -221,6 +221,34 @@ const DebugSettings = () => {
                                 <WarningContainer style={{ marginTop: 8 }}>⚠️ Significantly extends the average runtime of the bot due to increased IO operations.</WarningContainer>
                             )}
 
+                            <CustomCheckbox
+                                searchId="enable-pause-resume"
+                                checked={debug.enablePauseResume}
+                                onCheckedChange={(checked) => {
+                                    updateDebug({ enablePauseResume: checked })
+                                }}
+                                label="Enable Pause / Resume"
+                                description="Shows a floating pause/resume overlay while the bot runs (red/stationary = running, green/spinning = paused). Pause keeps the bot thread alive so you can intervene manually. Resume skips the in-game agenda load and skill point check for that turn, then continues training logic."
+                                className="my-2"
+                            />
+
+                            {debug.enablePauseResume && (
+                                <WarningContainer style={{ marginTop: 8 }}>
+                                    Experimental: pause/resume changes normal turn flow. Leave disabled unless you need mid-run manual control.
+                                </WarningContainer>
+                            )}
+
+                            <CustomCheckbox
+                                searchId="enable-run-summary-export"
+                                checked={debug.enableRunSummaryExport}
+                                onCheckedChange={(checked) => {
+                                    updateDebug({ enableRunSummaryExport: checked })
+                                }}
+                                label="Export Run Summary CSV at Career End"
+                                description="When enabled, writes a CSV to the app's run_summaries folder at career complete with Uma name, supports detected during training, total training clicks per stat, training vs race stat gain totals, and per-race gain rows."
+                                className="my-2"
+                            />
+
                             {/* Template Match Confidence Slider */}
                             <CustomSlider
                                 searchId="template-match-confidence"

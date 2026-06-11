@@ -18,7 +18,11 @@ import com.steve1316.uma_android_automation.bot.campaigns.UnityCup
 import com.steve1316.uma_android_automation.bot.campaigns.UraFinale
 import com.steve1316.uma_android_automation.components.LabelConnecting
 import com.steve1316.uma_android_automation.components.LabelNowLoading
+import com.steve1316.uma_android_automation.utils.BotPauseController
+import com.steve1316.uma_android_automation.utils.PauseOverlayManager
 import com.steve1316.uma_android_automation.utils.CustomImageUtils
+import com.steve1316.uma_android_automation.utils.RunSummaryTracker
+import com.steve1316.uma_android_automation.utils.UmaPresetApplier
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.opencv.core.Point
@@ -57,6 +61,12 @@ class Game(val myContext: Context) {
 
     /** The wait delay specifically for dialog interactions. */
     val dialogWaitDelay: Double = SettingsHelper.getDoubleSetting("general", "dialogWaitDelay")
+
+    /** Extra pacing on the training screen (analysis, stat OCR, backing out). */
+    val trainingWaitDelay: Double = SettingsHelper.getDoubleSetting("general", "trainingWaitDelay", 0.1)
+
+    /** Delay between taps when performing multi-tap dialog / button spam (taps > 1). */
+    val dialogTapDelay: Double = SettingsHelper.getDoubleSetting("general", "dialogTapDelay", 0.1)
 
     /** Holds the task instance corresponding to the selected scenario. */
     val task: Task =
@@ -115,6 +125,7 @@ class Game(val myContext: Context) {
 
         var remainingMillis = totalMillis
         while (remainingMillis > 0) {
+            BotPauseController.waitIfPaused()
             if (!BotService.isRunning) {
                 throw InterruptedException()
             }
@@ -191,8 +202,12 @@ class Game(val myContext: Context) {
      * @param ignoreWaiting Flag to ignore checking if the game is busy loading.
      */
     fun tap(x: Double, y: Double, imageName: String? = null, taps: Int = 1, ignoreWaiting: Boolean = false) {
-        // Perform the tap.
-        gestureUtils.tap(x, y, imageName, taps = taps)
+        repeat(taps.coerceAtLeast(1)) { index ->
+            gestureUtils.tap(x, y, imageName, taps = 1)
+            if (index < taps - 1) {
+                wait(dialogTapDelay, skipWaitingForLoading = true)
+            }
+        }
 
         if (!ignoreWaiting) {
             // Now check if the game is waiting for a server response from the tap and wait if necessary.
@@ -279,6 +294,11 @@ class Game(val myContext: Context) {
         val packageInfo = myContext.packageManager.getPackageInfo(myContext.packageName, 0)
         MessageLog.i(TAG, "[INFO] Bot version: ${packageInfo.versionName} (${packageInfo.versionCode})\n\n")
 
+        BotPauseController.reset()
+        RunSummaryTracker.reset(scenario)
+        UmaPresetApplier.resetSession()
+        PauseOverlayManager.show(myContext)
+
         // Start debug tests here if enabled. Otherwise, proceed with regular bot operations.
         // A small delay here to ensure any notifications are out of the way.
         wait(3.0)
@@ -300,6 +320,7 @@ class Game(val myContext: Context) {
         }
 
         MessageLog.i(TAG, "[INFO] Total runtime of ${MessageLog.formatElapsedTime(startTime, System.currentTimeMillis())} and stopped at ${MessageLog.getSystemTimeString()}.")
+        PauseOverlayManager.hide()
 
         // Wait to make sure Discord webhook message queue gets fully processed before terminating Bot Thread.
         if (DiscordUtils.enableDiscordNotifications) {

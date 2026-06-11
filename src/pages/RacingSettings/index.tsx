@@ -5,6 +5,7 @@ import { useTheme } from "../../context/ThemeContext"
 import { RacingContext, defaultSettings, Settings } from "../../context/BotStateContext"
 import { SearchPageProvider } from "../../context/SearchPageContext"
 import CustomCheckbox from "../../components/CustomCheckbox"
+import CustomSlider from "../../components/CustomSlider"
 import CustomSelect from "../../components/CustomSelect"
 import CustomTitle from "../../components/CustomTitle"
 import { Input } from "../../components/ui/input"
@@ -13,6 +14,18 @@ import PageHeader from "../../components/PageHeader"
 import WarningContainer from "../../components/WarningContainer"
 import SearchableItem from "../../components/SearchableItem"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
+
+/** Available race strategy values for blanket and per-distance pickers. */
+const RACE_STRATEGY_OPTIONS = [
+    { value: "Default", label: "Default" },
+    { value: "Auto", label: "Auto" },
+    { value: "Front", label: "Front" },
+    { value: "Pace", label: "Pace" },
+    { value: "Late", label: "Late" },
+    { value: "End", label: "End" },
+] as const
+
+const PER_DISTANCE_BUCKETS = ["Short", "Mile", "Medium", "Long"] as const
 
 /**
  * The Racing Settings page.
@@ -47,6 +60,9 @@ const RacingSettings = () => {
         limitRacesToInGameAgenda,
         skipSummerTrainingForAgenda,
         customAgendaTitle,
+        enableSkipRaceSimulation,
+        agendaWaitDelay,
+        raceStrategyWaitDelay,
     } = racingSettings
 
     /**
@@ -108,6 +124,29 @@ const RacingSettings = () => {
                     opacity: 0.7,
                     marginTop: 4,
                 },
+                perDistanceGroupLabel: {
+                    fontSize: 12,
+                    fontWeight: "600",
+                    letterSpacing: 1,
+                    color: colors.foreground,
+                    opacity: 0.6,
+                    marginTop: 12,
+                    marginBottom: 8,
+                },
+                perDistanceBody: {
+                    gap: 8,
+                    marginBottom: 8,
+                },
+                perDistanceItem: {
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                },
+                perDistanceDistanceLabel: {
+                    flex: 1,
+                    fontSize: 16,
+                    color: colors.foreground,
+                },
             }),
         [colors]
     )
@@ -119,6 +158,17 @@ const RacingSettings = () => {
             <SearchPageProvider page="RacingSettings" scrollViewRef={scrollViewRef}>
                 <ScrollView ref={scrollViewRef} nestedScrollEnabled={true} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
                     <View className="m-1">
+                        <View style={styles.section}>
+                            <CustomCheckbox
+                                searchId="enable-skip-race-simulation"
+                                checked={enableSkipRaceSimulation}
+                                onCheckedChange={(checked) => updateRacingSetting("enableSkipRaceSimulation", checked)}
+                                label="Skip Race Simulation (View Results)"
+                                description="When enabled (default), the bot always clicks View Results on the race prep screen and never taps Race Again. When disabled, it runs the full race simulation via the manual race button instead."
+                                className="my-2"
+                            />
+                        </View>
+
                         <View style={styles.section}>
                             <CustomCheckbox
                                 searchId="enable-farming-fans"
@@ -207,12 +257,17 @@ const RacingSettings = () => {
                                 description="When enabled, the bot will automatically stop when it encounters a mandatory race, allowing you to manually handle them."
                                 className="my-2"
                             />
+                        </View>
+
+                        <CustomTitle title="Strategy" />
+
+                        <View style={styles.inputContainer}>
                             <CustomCheckbox
                                 searchId="enable-per-distance-strategy"
                                 checked={enablePerDistanceStrategy}
                                 onCheckedChange={(checked) => updateRacingSetting("enablePerDistanceStrategy", checked)}
                                 label="Per-Distance Strategy"
-                                description="When enabled, allows setting different race strategies for each track distance (Short, Mile, Medium, Long) instead of a single strategy for all races."
+                                description="When enabled, set a different running style for each track distance (Short, Mile, Medium, Long). Applies to extra races and mandatory/debut/goal races."
                                 className="my-2"
                             />
                         </View>
@@ -225,14 +280,7 @@ const RacingSettings = () => {
                                         searchId="junior-year-race-strategy"
                                         searchTitle="Junior Year Race Strategy"
                                         searchDescription="The race strategy to use for all races during Junior Year."
-                                        options={[
-                                            { value: "Default", label: "Default" },
-                                            { value: "Auto", label: "Auto" },
-                                            { value: "Front", label: "Front" },
-                                            { value: "Pace", label: "Pace" },
-                                            { value: "Late", label: "Late" },
-                                            { value: "End", label: "End" },
-                                        ]}
+                                        options={[...RACE_STRATEGY_OPTIONS]}
                                         value={juniorYearRaceStrategy}
                                         onValueChange={(value) => updateRacingSetting("juniorYearRaceStrategy", value)}
                                         placeholder="Select strategy"
@@ -248,14 +296,7 @@ const RacingSettings = () => {
                                         searchId="original-race-strategy"
                                         searchTitle="Original Race Strategy"
                                         searchDescription="The race strategy to reset to after Junior Year. The bot will use this strategy for races in Year 2 and beyond."
-                                        options={[
-                                            { value: "Default", label: "Default" },
-                                            { value: "Auto", label: "Auto" },
-                                            { value: "Front", label: "Front" },
-                                            { value: "Pace", label: "Pace" },
-                                            { value: "Late", label: "Late" },
-                                            { value: "End", label: "End" },
-                                        ]}
+                                        options={[...RACE_STRATEGY_OPTIONS]}
                                         value={originalRaceStrategy}
                                         onValueChange={(value) => updateRacingSetting("originalRaceStrategy", value)}
                                         placeholder="Select strategy"
@@ -270,63 +311,74 @@ const RacingSettings = () => {
                             <>
                                 <View style={styles.inputContainer}>
                                     <Text style={styles.inputDescription}>
-                                        Set a different race strategy for each track distance. If Auto is selected, the bot will auto-select the best strategy. If Default is selected, the bot will not
-                                        change whatever strategy is currently in effect.
+                                        Set a different running style for each distance. Auto picks the best style. Default leaves the in-game style unchanged. The bot re-applies the correct style
+                                        when the distance or year bucket changes.
                                     </Text>
                                 </View>
                                 <View style={styles.inputContainer}>
-                                    <Text style={styles.inputLabel}>Junior Year Per-Distance Strategy</Text>
-                                    {(["Short", "Mile", "Medium", "Long"] as const).map((distance) => (
-                                        <View key={`junior-${distance}`} style={{ marginBottom: 8 }}>
-                                            <Text style={[styles.inputDescription, { marginBottom: 4 }]}>{distance}</Text>
-                                            <CustomSelect
-                                                searchId={`junior-strategy-${distance.toLowerCase()}`}
-                                                searchTitle={`Junior Year ${distance} Distance Strategy`}
-                                                searchDescription={`The race strategy to use for ${distance.toLowerCase()} distance races during Junior Year.`}
-                                                options={[
-                                                    { value: "Default", label: "Default" },
-                                                    { value: "Auto", label: "Auto" },
-                                                    { value: "Front", label: "Front" },
-                                                    { value: "Pace", label: "Pace" },
-                                                    { value: "Late", label: "Late" },
-                                                    { value: "End", label: "End" },
-                                                ]}
-                                                value={juniorYearPerDistanceStrategies?.[distance] ?? "Default"}
-                                                onValueChange={(value) => {
-                                                    const updated = { ...juniorYearPerDistanceStrategies, [distance]: value }
-                                                    updateRacingSetting("juniorYearPerDistanceStrategies", updated)
-                                                }}
-                                                placeholder="Select strategy"
-                                            />
-                                        </View>
-                                    ))}
+                                    <Text style={styles.perDistanceGroupLabel}>JUNIOR YEAR</Text>
+                                    <View style={styles.perDistanceBody}>
+                                        {PER_DISTANCE_BUCKETS.map((distance) => (
+                                            <View key={`junior-${distance}`} style={styles.perDistanceItem}>
+                                                <Text style={styles.perDistanceDistanceLabel}>{distance}</Text>
+                                                <CustomSelect
+                                                    searchId={`junior-strategy-${distance.toLowerCase()}`}
+                                                    searchTitle={`Junior Year ${distance} Distance Strategy`}
+                                                    searchDescription={`The race strategy to use for ${distance.toLowerCase()} distance races during Junior Year.`}
+                                                    width={140}
+                                                    options={[...RACE_STRATEGY_OPTIONS]}
+                                                    value={juniorYearPerDistanceStrategies?.[distance] ?? "Default"}
+                                                    onValueChange={(value) => {
+                                                        const updated = { ...juniorYearPerDistanceStrategies, [distance]: value }
+                                                        updateRacingSetting("juniorYearPerDistanceStrategies", updated)
+                                                    }}
+                                                    placeholder="Default"
+                                                />
+                                            </View>
+                                        ))}
+                                    </View>
                                 </View>
                                 <View style={styles.inputContainer}>
-                                    <Text style={styles.inputLabel}>Original Per-Distance Strategy</Text>
-                                    {(["Short", "Mile", "Medium", "Long"] as const).map((distance) => (
-                                        <View key={`original-${distance}`} style={{ marginBottom: 8 }}>
-                                            <Text style={[styles.inputDescription, { marginBottom: 4 }]}>{distance}</Text>
-                                            <CustomSelect
-                                                searchId={`original-strategy-${distance.toLowerCase()}`}
-                                                searchTitle={`Original ${distance} Distance Strategy`}
-                                                searchDescription={`The race strategy to use for ${distance.toLowerCase()} distance races in Year 2 and beyond.`}
-                                                options={[
-                                                    { value: "Default", label: "Default" },
-                                                    { value: "Auto", label: "Auto" },
-                                                    { value: "Front", label: "Front" },
-                                                    { value: "Pace", label: "Pace" },
-                                                    { value: "Late", label: "Late" },
-                                                    { value: "End", label: "End" },
-                                                ]}
-                                                value={originalPerDistanceStrategies?.[distance] ?? "Default"}
-                                                onValueChange={(value) => {
-                                                    const updated = { ...originalPerDistanceStrategies, [distance]: value }
-                                                    updateRacingSetting("originalPerDistanceStrategies", updated)
-                                                }}
-                                                placeholder="Select strategy"
-                                            />
-                                        </View>
-                                    ))}
+                                    <Text style={[styles.perDistanceGroupLabel, { marginTop: 0 }]}>CLASSIC AND SENIOR YEAR</Text>
+                                    <View style={styles.perDistanceBody}>
+                                        {PER_DISTANCE_BUCKETS.map((distance) => (
+                                            <View key={`original-${distance}`} style={styles.perDistanceItem}>
+                                                <Text style={styles.perDistanceDistanceLabel}>{distance}</Text>
+                                                <CustomSelect
+                                                    searchId={`original-strategy-${distance.toLowerCase()}`}
+                                                    searchTitle={`Original ${distance} Distance Strategy`}
+                                                    searchDescription={`The race strategy to use for ${distance.toLowerCase()} distance races in Year 2 and beyond.`}
+                                                    width={140}
+                                                    options={[...RACE_STRATEGY_OPTIONS]}
+                                                    value={originalPerDistanceStrategies?.[distance] ?? "Default"}
+                                                    onValueChange={(value) => {
+                                                        const updated = { ...originalPerDistanceStrategies, [distance]: value }
+                                                        updateRacingSetting("originalPerDistanceStrategies", updated)
+                                                    }}
+                                                    placeholder="Default"
+                                                />
+                                            </View>
+                                        ))}
+                                    </View>
+                                </View>
+                                <View style={styles.inputContainer}>
+                                    <CustomSlider
+                                        searchId="race-strategy-wait-delay"
+                                        searchCondition={enablePerDistanceStrategy}
+                                        parentId="enable-per-distance-strategy"
+                                        value={raceStrategyWaitDelay}
+                                        placeholder={defaultSettings.racing.raceStrategyWaitDelay}
+                                        onValueChange={(value) => updateRacingSetting("raceStrategyWaitDelay", value)}
+                                        onSlidingComplete={(value) => updateRacingSetting("raceStrategyWaitDelay", value)}
+                                        min={0}
+                                        max={3}
+                                        step={0.05}
+                                        label="Per-Distance Race Strategy Wait Delay"
+                                        labelUnit="s"
+                                        showValue={true}
+                                        showLabels={true}
+                                        description="Extra wait after opening the running-style dialog when per-distance strategy is enabled. Increase if style buttons are clicked before the dialog finishes loading."
+                                    />
                                 </View>
                             </>
                         )}
@@ -341,6 +393,26 @@ const RacingSettings = () => {
                                 className="my-2"
                             />
                             {enableForceRacing && <WarningContainer>⚠️ Warning: Enabling this will override all other racing settings and they will be ignored.</WarningContainer>}
+                        </View>
+
+                        <View style={styles.section}>
+                            <CustomSlider
+                                searchId="agenda-wait-delay"
+                                searchCondition={enableUserInGameRaceAgenda}
+                                parentId="enable-user-in-game-race-agenda"
+                                value={agendaWaitDelay}
+                                placeholder={defaultSettings.racing.agendaWaitDelay}
+                                onValueChange={(value) => updateRacingSetting("agendaWaitDelay", value)}
+                                onSlidingComplete={(value) => updateRacingSetting("agendaWaitDelay", value)}
+                                min={0}
+                                max={3}
+                                step={0.05}
+                                label="Agenda Selection Wait Delay"
+                                labelUnit="s"
+                                showValue={true}
+                                showLabels={true}
+                                description="Extra pacing while opening the agenda tab, scrolling the agenda list, and confirming load. Does not affect general dialog or race flow delays."
+                            />
                         </View>
 
                         <CustomCheckbox

@@ -25,6 +25,7 @@ import com.steve1316.automation_library.utils.MessageLog
 import com.steve1316.automation_library.utils.MyAccessibilityService
 import com.steve1316.automation_library.utils.SettingsHelper
 import com.steve1316.uma_android_automation.bot.Game
+import com.steve1316.uma_android_automation.utils.BotPauseController
 import com.steve1316.uma_android_automation.utils.LogStreamServer
 import dev.kord.common.entity.Snowflake
 import dev.kord.core.Kord
@@ -47,6 +48,16 @@ class StartModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         private val TAG = "[${MainActivity.loggerTag}]StartModule"
         private var reactContext: ReactApplicationContext? = null
         private var emitter: DeviceEventManagerModule.RCTDeviceEventEmitter? = null
+
+        fun sendUmaPresetAppliedEvent(umaName: String, presetName: String) {
+            val params = Arguments.createMap()
+            params.putString("umaName", umaName)
+            params.putString("presetName", presetName)
+            if (emitter == null) {
+                emitter = reactContext?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            }
+            emitter?.emit("UmaPresetApplied", params)
+        }
     }
 
     private val context: Context = reactContext.applicationContext
@@ -161,7 +172,41 @@ class StartModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     /** This is called when the Stop button is pressed and will begin stopping the MediaProjection service. */
     @ReactMethod
     fun stop() {
+        BotPauseController.reset()
         stopProjection()
+    }
+
+    /** Pauses the bot loop without stopping screen capture. Requires enablePauseResume in settings. */
+    @ReactMethod
+    fun pause() {
+        if (BotPauseController.pause()) {
+            sendEvent("BotPause", "Paused")
+        }
+    }
+
+    /** Resumes a paused bot. Skips agenda load and skill point check for one turn. Requires enablePauseResume in settings. */
+    @ReactMethod
+    fun resume() {
+        if (BotPauseController.resume()) {
+            sendEvent("BotPause", "Running")
+        }
+    }
+
+    /**
+     * Returns whether pause/resume is enabled in settings and whether the bot is currently paused.
+     *
+     * @param promise Resolves `{ enabled: boolean, paused: boolean }`.
+     */
+    @ReactMethod
+    fun getPauseStatus(promise: Promise) {
+        try {
+            val map = Arguments.createMap()
+            map.putBoolean("enabled", BotPauseController.isFeatureEnabled())
+            map.putBoolean("paused", BotPauseController.isPaused())
+            promise.resolve(map)
+        } catch (e: Exception) {
+            promise.reject("PAUSE_STATUS_ERROR", "Failed to retrieve pause status: ${e.message}")
+        }
     }
 
     /** Opens the system Accessibility settings page to allow the user to toggle the service off and on. */

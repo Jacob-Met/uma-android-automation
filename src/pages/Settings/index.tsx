@@ -1,6 +1,6 @@
 import { useMemo, useContext, useEffect, useState, useRef, useCallback } from "react"
 import { SearchPageProvider } from "../../context/SearchPageContext"
-import { BotMetaContext, GeneralMiscContext } from "../../context/BotStateContext"
+import { BotMetaContext, GeneralMiscContext, RacingContext, SkillsContext, TrainingContext, ScenarioOverridesContext, Settings as BotSettings } from "../../context/BotStateContext"
 import { InteractionManager, ScrollView, StyleSheet, Text, View } from "react-native"
 import { Snackbar } from "react-native-paper"
 import { useNavigation } from "@react-navigation/native"
@@ -20,6 +20,9 @@ import SearchableItem from "../../components/SearchableItem"
 import { useSettings } from "../../context/SettingsContext"
 import { useSettingsFileManager } from "../../hooks/useSettingsFileManager"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
+import { Input } from "../../components/ui/input"
+import { databaseManager, DatabaseUmaPreset } from "../../lib/database"
+import { extractUmaPresetSettings, normalizeUmaPresetName } from "../../lib/umaPresetUtils"
 
 /**
  * The main Settings page of the application.
@@ -33,11 +36,68 @@ const Settings = () => {
 
     const { readyStatus, defaultSettings } = useContext(BotMetaContext)
     const { general, misc, updateGeneral, updateMisc } = useContext(GeneralMiscContext)
+    const { training, trainingStatTarget } = useContext(TrainingContext)
+    const { racing } = useContext(RacingContext)
+    const { skills } = useContext(SkillsContext)
+    const { scenarioOverrides } = useContext(ScenarioOverridesContext)
     const { colors } = useTheme()
     const navigation = useNavigation()
 
     const { openDataDirectory, resetSettings } = useSettings()
     const { handleImportSettings, handleExportSettings, showImportDialog, setShowImportDialog, showResetDialog, setShowResetDialog } = useSettingsFileManager()
+
+    const [umaPresets, setUmaPresets] = useState<DatabaseUmaPreset[]>([])
+    const [umaPresetNameInput, setUmaPresetNameInput] = useState("")
+    const [umaPresetMessage, setUmaPresetMessage] = useState<string | null>(null)
+
+    const refreshUmaPresets = useCallback(async () => {
+        try {
+            await databaseManager.initialize()
+            setUmaPresets(await databaseManager.getAllUmaPresets())
+        } catch {
+            setUmaPresets([])
+        }
+    }, [])
+
+    useEffect(() => {
+        if (readyStatus) {
+            refreshUmaPresets()
+        }
+    }, [readyStatus, refreshUmaPresets])
+
+    const handleSaveUmaPreset = useCallback(async () => {
+        const trimmed = umaPresetNameInput.trim()
+        if (!trimmed) {
+            setUmaPresetMessage("Enter the Uma Musume name exactly as OCR detects it (from the aptitude/details dialog).")
+            return
+        }
+
+        const snapshot: BotSettings = {
+            ...(defaultSettings as BotSettings),
+            training,
+            trainingStatTarget,
+            racing,
+            skills,
+            scenarioOverrides,
+        }
+
+        try {
+            await databaseManager.saveUmaPreset(trimmed, normalizeUmaPresetName(trimmed), extractUmaPresetSettings(snapshot))
+            setUmaPresetNameInput("")
+            setUmaPresetMessage(`Saved preset for "${trimmed}" (training, racing, skills, scenario items). Training event overrides stay global.`)
+            await refreshUmaPresets()
+        } catch (error) {
+            setUmaPresetMessage(`Failed to save preset: ${error instanceof Error ? error.message : String(error)}`)
+        }
+    }, [umaPresetNameInput, defaultSettings, training, trainingStatTarget, racing, skills, scenarioOverrides, refreshUmaPresets])
+
+    const handleDeleteUmaPreset = useCallback(
+        async (id: number) => {
+            await databaseManager.deleteUmaPreset(id)
+            await refreshUmaPresets()
+        },
+        [refreshUmaPresets]
+    )
 
     const styles = useMemo(
         () =>
@@ -383,7 +443,47 @@ const Settings = () => {
                     labelUnit="s"
                     showValue={true}
                     showLabels={true}
-                    description="Sets the delay between clicking a button that opens dialog and actually handling the dialog. Lowering this will make the bot run faster at an increased risk of the bot incorrectly handling dialogs that pop up."
+                    description="Delay after opening a dialog/popup before the bot reads or handles it (events, rest, race results, shop, etc.)."
+                />
+
+                <CustomSlider
+                    searchId="settings-training-wait-delay"
+                    value={general.trainingWaitDelay}
+                    placeholder={defaultSettings.general.trainingWaitDelay}
+                    onValueChange={(value) => {
+                        updateGeneral({ trainingWaitDelay: value })
+                    }}
+                    onSlidingComplete={(value) => {
+                        updateGeneral({ trainingWaitDelay: value })
+                    }}
+                    min={0.0}
+                    max={2.0}
+                    step={0.1}
+                    label="Training Wait Delay"
+                    labelUnit="s"
+                    showValue={true}
+                    showLabels={true}
+                    description="Pacing on the training screen only: entering training, OCR/analysis pauses, backing out to rest. Does not affect general navigation or dialog handling."
+                />
+
+                <CustomSlider
+                    searchId="settings-dialog-tap-delay"
+                    value={general.dialogTapDelay}
+                    placeholder={defaultSettings.general.dialogTapDelay}
+                    onValueChange={(value) => {
+                        updateGeneral({ dialogTapDelay: value })
+                    }}
+                    onSlidingComplete={(value) => {
+                        updateGeneral({ dialogTapDelay: value })
+                    }}
+                    min={0.0}
+                    max={1.0}
+                    step={0.05}
+                    label="Dialog Multi-Tap Delay"
+                    labelUnit="s"
+                    showValue={true}
+                    showLabels={true}
+                    description="Pause between taps when the bot spam-clicks a button (taps=3/5 on training buttons, race continue, etc.). Separate from dialog wait delay."
                 />
 
                 <CustomSlider
@@ -405,6 +505,55 @@ const Settings = () => {
                     showLabels={true}
                     description="Sets the size of the floating overlay button in density-independent pixels (dp). Higher values make the button easier to tap."
                 />
+
+                <Separator style={{ marginVertical: 16 }} />
+
+                <CustomTitle
+                    searchId="settings-uma-presets-title"
+                    title="Uma Musume Presets"
+                    description="Link a full training/racing/skills/scenario-items prefab to a detected Uma name. Training event overrides always stay global."
+                />
+
+                <CustomCheckbox
+                    searchId="enable-auto-load-uma-preset"
+                    checked={misc.enableAutoLoadUmaPreset}
+                    onCheckedChange={(checked) => updateMisc({ enableAutoLoadUmaPreset: checked })}
+                    label="Auto-Load Uma Preset on Detection"
+                    description="When enabled, the bot loads the matching preset the first time it OCR-reads the Uma name from the aptitude/details dialog (umamusume_details). Does not change wait delays, debug, or training event overrides."
+                    className="my-2"
+                />
+
+                <WarningContainer style={{ marginBottom: 12 }}>
+                    <Text style={{ color: colors.warningText, lineHeight: 20 }}>
+                        Detection uses color-filtered OCR on the brown trainee name in the Uma details popup (first time per run). Match names case-insensitively — use the exact spelling the bot logs as
+                        {" "}
+                        <Text style={{ fontWeight: "bold" }}>[TRAINEE] Name: ...</Text>. If a run already started, restart the bot so training fields picked at startup refresh.
+                    </Text>
+                </WarningContainer>
+
+                <Input
+                    placeholder='Uma name (e.g. "Oguri Cap")'
+                    value={umaPresetNameInput}
+                    onChangeText={setUmaPresetNameInput}
+                    style={{ color: colors.foreground, backgroundColor: colors.secondary, marginBottom: 8 }}
+                />
+
+                <CustomButton onPress={handleSaveUmaPreset} variant="default" style={{ marginBottom: 8 }}>
+                    Save Current Settings as Uma Preset
+                </CustomButton>
+
+                {umaPresetMessage && (
+                    <Text style={{ color: colors.mutedForeground, marginBottom: 8, lineHeight: 18 }}>{umaPresetMessage}</Text>
+                )}
+
+                {umaPresets.map((preset) => (
+                    <View key={preset.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <Text style={{ color: colors.foreground, flex: 1 }}>{preset.uma_name}</Text>
+                        <CustomButton onPress={() => handleDeleteUmaPreset(preset.id)} variant="destructive" style={{ width: 90 }}>
+                            Delete
+                        </CustomButton>
+                    </View>
+                ))}
 
                 <Separator style={{ marginVertical: 16 }} />
 

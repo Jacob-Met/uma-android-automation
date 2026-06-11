@@ -6,6 +6,7 @@ import { SkillsContext, defaultSettings } from "../../context/BotStateContext"
 import { SkillPlanSettingsProps } from "./config"
 import CustomSelect from "../../components/CustomSelect"
 import CustomCheckbox from "../../components/CustomCheckbox"
+import CustomSlider from "../../components/CustomSlider"
 import CustomButton from "../../components/CustomButton"
 import CustomScrollView from "../../components/CustomScrollView"
 import PageHeader from "../../components/PageHeader"
@@ -16,6 +17,7 @@ import { CircleCheckBig, Trash2 } from "lucide-react-native"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
 import skillsData from "../../data/skills.json"
 import icons from "../SkillSettings/icons"
+import { parseSkillHintLevels, serializeSkillHintLevels } from "../../lib/skillHintLevels"
 
 /**
  * Represents a skill entry from the `skills.json` data file.
@@ -75,7 +77,31 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
     // Merge current skills settings with defaults to handle missing properties.
     const combinedConfig = { ...defaultSettings.skills.plans, ...skills.plans }
 
-    const { enabled, strategy, enableBuyNegativeSkills, plan, blacklist, excludeGreenSkills, excludeRedSkills, excludeUniqueSkills } = combinedConfig[planKey]
+    const {
+        enabled,
+        strategy,
+        enableBuyNegativeSkills,
+        plan,
+        blacklist,
+        excludeGreenSkills,
+        excludeRedSkills,
+        excludeUniqueSkills,
+        minHintLevelToPurchase,
+        skillHintLevels,
+    } = combinedConfig[planKey]
+
+    const applyHintLevelGate = planKey === "skillPointCheck" || planKey === "preFinals"
+
+    const hintLevelLabels: Record<number, string> = {
+        0: "Any (0% off)",
+        1: "Lv.1+ (10% off)",
+        2: "Lv.2+ (20% off)",
+        3: "Lv.3+ (30% off)",
+        4: "Lv.4+ (35% off)",
+        5: "Lv.5 max (40% off)",
+    }
+
+    const parsedHintLevels = useMemo(() => parseSkillHintLevels(skillHintLevels), [skillHintLevels])
 
     const [searchQuery, setSearchQuery] = useState("")
     const [showSelected, setShowSelected] = useState(false)
@@ -130,6 +156,23 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
      * If the skill is already present in the plan, it will be removed. Otherwise, it is added to the plan.
      * @param skill The specific skill instance to add or remove.
      */
+    const updateSkillHintLevel = useCallback(
+        (skillId: number, level: number) => {
+            const next = { ...parsedHintLevels, [skillId]: level }
+            updateSkillsSetting("skillHintLevels", serializeSkillHintLevels(next))
+        },
+        [parsedHintLevels, updateSkillsSetting]
+    )
+
+    const clearSkillHintLevel = useCallback(
+        (skillId: number) => {
+            const next = { ...parsedHintLevels }
+            delete next[skillId]
+            updateSkillsSetting("skillHintLevels", serializeSkillHintLevels(next))
+        },
+        [parsedHintLevels, updateSkillsSetting]
+    )
+
     const handleSkillPress = useCallback(
         (skill: Skill) => {
             const targetKey: "plan" | "blacklist" = selectionMode
@@ -138,9 +181,26 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
 
             const newIds: number[] = isSelected ? currentIds.filter((id) => id !== skill.id) : [...currentIds, skill.id]
 
+            if (targetKey === "plan" && isSelected) {
+                const nextHints = { ...parsedHintLevels }
+                delete nextHints[skill.id]
+                updateSkills((prev) => ({
+                    ...prev,
+                    plans: {
+                        ...prev.plans,
+                        [planKey]: {
+                            ...prev.plans[planKey],
+                            plan: newIds.join(","),
+                            skillHintLevels: serializeSkillHintLevels(nextHints),
+                        },
+                    },
+                }))
+                return
+            }
+
             updateSkillsSetting(targetKey, newIds.join(","))
         },
-        [selectionMode, planIds, blacklistIds, updateSkillsSetting]
+        [selectionMode, planIds, blacklistIds, parsedHintLevels, planKey, updateSkills, updateSkillsSetting]
     )
 
     /**
@@ -275,6 +335,24 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
                         style={{ marginTop: 16 }}
                     />
                 </View>
+                {applyHintLevelGate && (
+                    <View style={styles.inputContainer}>
+                        <CustomSlider
+                            searchId={`min-hint-level-${planKey}`}
+                            value={minHintLevelToPurchase ?? 0}
+                            placeholder={defaultSettings.skills.plans[planKey].minHintLevelToPurchase}
+                            onValueChange={(value) => updateSkillsSetting("minHintLevelToPurchase", value)}
+                            onSlidingComplete={(value) => updateSkillsSetting("minHintLevelToPurchase", value)}
+                            min={0}
+                            max={5}
+                            step={1}
+                            label="Minimum Hint Level for Planned Skills"
+                            showValue={true}
+                            showLabels={true}
+                            description={`Plan-wide default during the run. ${hintLevelLabels[minHintLevelToPurchase ?? 0] ?? ""}. Set to 0 to buy at any price. Override individual planned skills below. Career Complete always ignores hint gates.`}
+                        />
+                    </View>
+                )}
                 <View style={styles.inputContainer}>
                     <Text style={styles.inputLabel}>Skill Type Filters</Text>
                     <Text style={[styles.inputDescription, { marginTop: 0, marginBottom: 8 }]}>
@@ -370,6 +448,19 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
                 <Text style={styles.summary}>Buy Negative Skills: {enableBuyNegativeSkills ? "Yes" : "No"}</Text>
                 <Text style={styles.summary}>Excluded Categories: {categoryText}</Text>
                 {renderSkillBulletList("Planned Skills", planIds)}
+                {applyHintLevelGate && Object.keys(parsedHintLevels).length > 0 && (
+                    <>
+                        <Text style={styles.summary}>Per-Skill Hint Overrides ({Object.keys(parsedHintLevels).length}):</Text>
+                        {Object.entries(parsedHintLevels).map(([id, level]) => {
+                            const skillName = skillData.find((s) => s.id === Number(id))?.name_en ?? `Unknown (ID ${id})`
+                            return (
+                                <Text key={`hint-${id}`} style={styles.summaryBullet}>
+                                    - {skillName}: {hintLevelLabels[level] ?? `Lv.${level}+`}
+                                </Text>
+                            )
+                        })}
+                    </>
+                )}
                 {renderSkillBulletList("Blacklisted Skills", blacklistIds)}
             </View>
         )
@@ -426,19 +517,53 @@ const SkillPlanSettings: FC<SkillPlanSettingsProps> = ({ planKey, name, title, d
                         <CustomScrollView
                             targetProps={{
                                 data: filteredSkills,
-                                renderItem: ({ item: skill }) => (
-                                    <TouchableOpacity onPress={() => handleSkillPress(skill)} style={styles.skillItem}>
-                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                                            <Image source={icons[skill.icon_id]} style={{ width: 64, height: 64, marginRight: 8 }} />
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={styles.skillName}>{skill.name_en}</Text>
-                                                <Text style={styles.skillDescription}>{skill.desc_en}</Text>
-                                                <Text style={styles.skillSubtext}>ID: {skill.id}</Text>
-                                            </View>
-                                            {activeIds.includes(skill.id) && <CircleCheckBig size={18} color={selectionMode === "plan" ? "green" : "red"} />}
+                                renderItem: ({ item: skill }) => {
+                                    const isPlanned = selectionMode === "plan" && planIds.includes(skill.id)
+                                    const hasHintOverride = parsedHintLevels[skill.id] !== undefined
+                                    const effectiveHintLevel = hasHintOverride ? parsedHintLevels[skill.id] : (minHintLevelToPurchase ?? 0)
+                                    return (
+                                        <View style={{ marginBottom: 8 }}>
+                                            <TouchableOpacity onPress={() => handleSkillPress(skill)} style={styles.skillItem}>
+                                                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                                    <Image source={icons[skill.icon_id]} style={{ width: 64, height: 64, marginRight: 8 }} />
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={styles.skillName}>{skill.name_en}</Text>
+                                                        <Text style={styles.skillDescription}>{skill.desc_en}</Text>
+                                                        <Text style={styles.skillSubtext}>ID: {skill.id}</Text>
+                                                    </View>
+                                                    {activeIds.includes(skill.id) && <CircleCheckBig size={18} color={selectionMode === "plan" ? "green" : "red"} />}
+                                                </View>
+                                            </TouchableOpacity>
+                                            {applyHintLevelGate && isPlanned && (
+                                                <View style={[styles.skillItem, { marginTop: 0, paddingTop: 8 }]}>
+                                                    <CustomSlider
+                                                        searchId={`skill-hint-level-${planKey}-${skill.id}`}
+                                                        value={effectiveHintLevel}
+                                                        placeholder={minHintLevelToPurchase ?? 0}
+                                                        onValueChange={(value) => updateSkillHintLevel(skill.id, value)}
+                                                        onSlidingComplete={(value) => updateSkillHintLevel(skill.id, value)}
+                                                        min={0}
+                                                        max={5}
+                                                        step={1}
+                                                        label={`Min Hint: ${skill.name_en}`}
+                                                        showValue={true}
+                                                        showLabels={true}
+                                                        description={
+                                                            hasHintOverride
+                                                                ? `Skill-specific override — ${hintLevelLabels[effectiveHintLevel] ?? ""}`
+                                                                : `Using plan default (${hintLevelLabels[minHintLevelToPurchase ?? 0] ?? ""}). Slide to override this skill.`
+                                                        }
+                                                    />
+                                                    {hasHintOverride && (
+                                                        <CustomButton onPress={() => clearSkillHintLevel(skill.id)} variant="outline" style={{ marginTop: 8, alignSelf: "flex-start" }}>
+                                                            Reset to plan default
+                                                        </CustomButton>
+                                                    )}
+                                                </View>
+                                            )}
                                         </View>
-                                    </TouchableOpacity>
-                                ),
+                                    )
+                                },
                                 nestedScrollEnabled: true,
                             }}
                             position="right"

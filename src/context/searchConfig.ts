@@ -43,7 +43,37 @@ const searchConfig: SearchOption[] = [
     {
         id: "settings-wait-delay",
         title: "Wait Delay",
-        description: "Sets the delay between actions and imaging operations. Lowering this will make the bot run much faster.",
+        description: "General pacing and loading-spinner polling between navigation actions.",
+        page: "SettingsMain",
+    },
+    {
+        id: "settings-dialog-wait-delay",
+        title: "Dialog Wait Delay",
+        description: "Delay after opening a dialog before the bot handles it (events, rest, races, shop, etc.).",
+        page: "SettingsMain",
+    },
+    {
+        id: "settings-training-wait-delay",
+        title: "Training Wait Delay",
+        description: "Pacing on the training screen only: analysis, OCR pauses, backing out to rest.",
+        page: "SettingsMain",
+    },
+    {
+        id: "settings-dialog-tap-delay",
+        title: "Dialog Multi-Tap Delay",
+        description: "Pause between taps when spam-clicking buttons (training taps=3, race continue, etc.).",
+        page: "SettingsMain",
+    },
+    {
+        id: "settings-uma-presets-title",
+        title: "Uma Musume Presets",
+        description: "Per-Uma prefabs for training, racing, skills, and scenario item overrides. Training event overrides stay global.",
+        page: "SettingsMain",
+    },
+    {
+        id: "enable-auto-load-uma-preset",
+        title: "Auto-Load Uma Preset on Detection",
+        description: "Loads a linked preset when OCR reads the Uma name from the aptitude/details dialog.",
         page: "SettingsMain",
     },
     {
@@ -158,10 +188,80 @@ const searchConfig: SearchOption[] = [
         page: "TrainingSettings",
     },
     {
+        id: "enable-lucky-charm-wit-training",
+        title: "Allow Good-Luck Charm on Low-Priority Wit",
+        description:
+            "When Wit is not in top-3 stat prioritization, controls whether Good-Luck Charm can bypass failure thresholds for Wit. Wit in top-3 priority always uses normal charm rules.",
+        page: "TrainingSettings",
+    },
+    {
+        id: "prefer-rest-over-wit-training",
+        title: "Prefer Rest Over Wit Training",
+        description: "When enabled, energy-recovery Wit paths rest or use recreation instead of Wit when Wit is not in top-3 stat prioritization (except turn 75).",
+        page: "TrainingSettings",
+    },
+    {
+        id: "skip-low-priority-wit-when-main-stats-fail",
+        title: "Skip Low-Priority Wit When Main Stats Fail",
+        description:
+            "When enabled and Wit is not top-3 priority: Classic/Senior skips Wit when all main stats exceed the failure threshold; Junior/pre-debut uses Wit bars, optional top-3 main stat gain, then top-3 friendship bars. Never on turn 75.",
+        page: "TrainingSettings",
+    },
+    {
+        id: "enable-never-click-empty-top3-priority-training",
+        title: "Never Click Empty Top-3 Priority Training",
+        description:
+            "When enabled, never execute a top-3 priority training with zero qualifying Uma/Riko/Sirius bars below orange if another top-3 priority training has at least the Top-3 Friendship Bar Minimum below-orange bars. Applies all years.",
+        page: "TrainingSettings",
+    },
+    {
+        id: "enable-junior-top3-main-stat-gain-priority",
+        title: "Junior Top-3 Main Stat Gain Priority",
+        description:
+            "Sub-option under Skip Low-Priority Wit. During Junior/pre-debut, pick a top-3 priority training when main stat gain meets the minimum, regardless of friendship bars.",
+        page: "TrainingSettings",
+        parentId: "skip-low-priority-wit-when-main-stats-fail",
+    },
+    {
+        id: "junior-top3-main-stat-gain-minimum",
+        title: "Junior Top-3 Minimum Main Stat Gain",
+        description: "Minimum main stat gain required for the Junior top-3 main stat gain priority pick.",
+        page: "TrainingSettings",
+        parentId: "enable-junior-top3-main-stat-gain-priority",
+    },
+    {
+        id: "top3-friendship-bar-minimum",
+        title: "Top-3 Friendship Bar Minimum (Junior / Pre-debut)",
+        description:
+            "During Junior/pre-debut with skip-low-priority-Wit enabled, prefer a top-3 priority training over Wit when it has this many qualifying friendship bars below orange. Also used by Never Click Empty Top-3 Priority Training (all years). Akikawa/Etsuko excluded.",
+        page: "TrainingSettings",
+    },
+    {
+        id: "enable-wit-training-friendship-bar-exception",
+        title: "Wit Friendship Bar Exception",
+        description:
+            "When Prefer Rest Over Wit is enabled and Wit is not in top-3 stat prioritization, still train Wit if enough Uma/Riko/Sirius supports (excluding Akikawa and Etsuko) have friendship bars below orange on Wit.",
+        page: "TrainingSettings",
+    },
+    {
+        id: "wit-training-friendship-bar-minimum",
+        title: "Wit Friendship Bar Minimum",
+        description:
+            "Minimum qualifying friendship bars below orange on Wit to train Wit anyway (Prefer Rest override and Junior/pre-debut skip-low-priority-Wit). Akikawa/Etsuko excluded.",
+        page: "TrainingSettings",
+    },
+    {
         id: "enable-rainbow-training-bonus",
         title: "Enable Rainbow Training Bonus",
         description:
             "When enabled (Year 2+), rainbow trainings receive a significant bonus to their score, making them more likely to be selected. This is highly dependent on device configuration and may result in false positives.",
+        page: "TrainingSettings",
+    },
+    {
+        id: "trainer-friendship-influence",
+        title: "Akikawa & Etsuko Friendship Influence",
+        description:
+            "Scales how much Yayoi Akikawa and Etsuko Otonashi friendship bars affect training selection. 100% is current behavior; 0% ignores their bars in friendship scoring.",
         page: "TrainingSettings",
     },
     {
@@ -213,6 +313,13 @@ const searchConfig: SearchOption[] = [
         title: "Prioritize Energy Options",
         description:
             "When enabled, the bot will prioritize training event choices that provide energy recovery or avoid energy consumption, helping to maintain optimal energy levels for training sessions.",
+        page: "TrainingEventSettings",
+    },
+    {
+        id: "avoid-slow-metabolism-without-cure",
+        title: "Avoid Slow Metabolism Without Cure",
+        description:
+            "Avoid event options that grant Slow Metabolism unless Smart Scale or Miracle Cure is in inventory. Manual overrides still apply; cure is used next turn if taken.",
         page: "TrainingEventSettings",
     },
     {
@@ -270,6 +377,19 @@ const searchConfig: SearchOption[] = [
     // ============================================================
     // Racing Settings
     // ============================================================
+    {
+        id: "enable-skip-race-simulation",
+        title: "Skip Race Simulation (View Results)",
+        description: "Always click View Results on the race prep screen and never tap Race Again. Disable to run full race simulation.",
+        page: "RacingSettings",
+    },
+    {
+        id: "agenda-wait-delay",
+        title: "Agenda Selection Wait Delay",
+        description: "Extra pacing while loading and selecting the in-game race agenda.",
+        page: "RacingSettings",
+        parentId: "enable-user-in-game-race-agenda",
+    },
     {
         id: "enable-farming-fans",
         title: "Enable Farming Fans",
@@ -335,8 +455,16 @@ const searchConfig: SearchOption[] = [
     {
         id: "enable-per-distance-strategy",
         title: "Per-Distance Strategy",
-        description: "When enabled, allows setting different race strategies for each track distance instead of a single strategy for all races.",
+        description:
+            "When enabled, set a different running style for each track distance (Short, Mile, Medium, Long). Applies to extra races and mandatory/debut/goal races.",
         page: "RacingSettings",
+    },
+    {
+        id: "race-strategy-wait-delay",
+        title: "Per-Distance Race Strategy Wait Delay",
+        description: "Extra wait after opening the running-style dialog when per-distance strategy is enabled.",
+        page: "RacingSettings",
+        parentId: "enable-per-distance-strategy",
     },
     {
         id: "junior-strategy-short",
@@ -594,6 +722,13 @@ const searchConfig: SearchOption[] = [
         page: "SkillPlanSettingsSkillPointCheck",
         parentId: "enable-skill-plan-skillPointCheck",
     },
+    {
+        id: "min-hint-level-skillPointCheck",
+        title: "Minimum Hint Level for Planned Skills",
+        description: "Plan-wide default hint gate during the run. Override individual planned skills with per-skill sliders. Career Complete ignores this.",
+        page: "SkillPlanSettingsSkillPointCheck",
+        parentId: "enable-skill-plan-skillPointCheck",
+    },
 
     // ============================================================
     // Skill Plan Settings — Pre-Finals
@@ -629,6 +764,13 @@ const searchConfig: SearchOption[] = [
         id: "exclude-unique-skills-SkillPlanSettingsPreFinals",
         title: "Skip All Unique Skills",
         description: "When enabled, no inherited unique (legacy) skills will be purchased by this plan, even if they appear in the planned skills list.",
+        page: "SkillPlanSettingsPreFinals",
+        parentId: "enable-skill-plan-preFinals",
+    },
+    {
+        id: "min-hint-level-preFinals",
+        title: "Minimum Hint Level for Planned Skills",
+        description: "Plan-wide default hint gate during the run. Override individual planned skills with per-skill sliders. Career Complete ignores this.",
         page: "SkillPlanSettingsPreFinals",
         parentId: "enable-skill-plan-preFinals",
     },
@@ -683,13 +825,20 @@ const searchConfig: SearchOption[] = [
     {
         id: "trackblazer-energy-threshold",
         title: "Trackblazer Energy Threshold",
-        description: "Sets the energy threshold below which the bot will use energy recovery items in the Trackblazer scenario.",
+        description: "Energy threshold for using recovery items before training in Trackblazer (not at main-screen entry). Emergency race recovery is separate.",
         page: "ScenarioOverridesSettings",
     },
     {
         id: "trackblazer-shop-check-grades",
         title: "Trackblazer Shop Check Grades",
         description: "Select which race grades should trigger a shop check after the race in the Trackblazer scenario.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-enable-climax-charm-training",
+        title: "Trackblazer Enable Climax Charm Training",
+        description:
+            "During Trackblazer Climax (turns 73–75), aggressively trains with Good-Luck Charms on the highest non-maxed stat instead of resting. Turn off to use normal charm rules during Climax.",
         page: "ScenarioOverridesSettings",
     },
     {
@@ -706,6 +855,106 @@ const searchConfig: SearchOption[] = [
         page: "ScenarioOverridesSettings",
     },
     {
+        id: "trackblazer-coaching-megaphone-min-stat-gain",
+        title: "Trackblazer Coaching Megaphone Min Main Stat Gain",
+        description:
+            "Sets the minimum main stat gain required before using a Coaching Megaphone during training in the Trackblazer scenario. Set to 0 to disable. Ignored during summer training.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-motivating-megaphone-min-stat-gain",
+        title: "Trackblazer Motivating Megaphone Min Main Stat Gain",
+        description:
+            "Sets the minimum main stat gain required before using a Motivating Megaphone during training in the Trackblazer scenario. Set to 0 to disable. Ignored during summer training.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-empowering-megaphone-min-stat-gain",
+        title: "Trackblazer Empowering Megaphone Min Main Stat Gain",
+        description:
+            "Sets the minimum main stat gain required before using an Empowering Megaphone during training in the Trackblazer scenario. Set to 0 to disable. Ignored during summer training.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-speed-ankle-weight-min-stat-gain",
+        title: "Trackblazer Speed Ankle Weight Min Main Stat Gain",
+        description: "Sets the minimum main stat gain required before using Speed Ankle Weights during training in the Trackblazer scenario. Set to 0 to disable.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-stamina-ankle-weight-min-stat-gain",
+        title: "Trackblazer Stamina Ankle Weight Min Main Stat Gain",
+        description: "Sets the minimum main stat gain required before using Stamina Ankle Weights during training in the Trackblazer scenario. Set to 0 to disable.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-power-ankle-weight-min-stat-gain",
+        title: "Trackblazer Power Ankle Weight Min Main Stat Gain",
+        description: "Sets the minimum main stat gain required before using Power Ankle Weights during training in the Trackblazer scenario. Set to 0 to disable.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-guts-ankle-weight-min-stat-gain",
+        title: "Trackblazer Guts Ankle Weight Min Main Stat Gain",
+        description: "Sets the minimum main stat gain required before using Guts Ankle Weights during training in the Trackblazer scenario. Set to 0 to disable.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-ankle-weight-summer-reserve",
+        title: "Trackblazer Ankle Weights Summer Reserve",
+        description: "Number of each ankle weight type to hold back outside summer training in the Trackblazer scenario. Set to 0 to disable.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-megaphone-summer-reserve",
+        title: "Trackblazer Megaphone Summer Reserve",
+        description:
+            "Total megaphone units to hold back outside summer training in Trackblazer (best tier reserved first: Empowering, then Motivating, then Coaching). Set to 0 to disable.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-energy-item-reserve",
+        title: "Trackblazer Energy Item Emergency Reserve",
+        description: "Number of energy items (lowest-tier first) to keep reserved for emergency race recovery in the Trackblazer scenario.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-cupcake-reserve",
+        title: "Trackblazer Cupcake Reserve for Kale Juice Synergy",
+        description: "Number of cupcakes to keep so the mood penalty from Royal Kale Juice can be offset in the Trackblazer scenario.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-master-hammer-finale-reserve",
+        title: "Trackblazer Master Cleat Hammer Finale Reserve",
+        description: "Master Cleat Hammers held back for Finale days in the Trackblazer scenario.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-artisan-hammer-min-stock-for-g3",
+        title: "Trackblazer Artisan Hammer Min Stock for G3",
+        description: "Minimum Artisan Cleat Hammer inventory before spending one on a G3 race in the Trackblazer scenario.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-artisan-hammer-min-stock-for-g2",
+        title: "Trackblazer Artisan Hammer Min Stock for G2",
+        description: "Minimum Artisan Cleat Hammer inventory before spending one on a G2 race in the Trackblazer scenario.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-glow-stick-final-reserve",
+        title: "Trackblazer Glow Stick Final-Day Reserve",
+        description: "Glow Sticks held back for Day 75 (the Final) in the Trackblazer scenario.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-glow-stick-min-fans",
+        title: "Trackblazer Glow Stick Minimum Fans",
+        description: "Minimum projected fan gain on a race before using a Glow Stick in the Trackblazer scenario.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
         id: "trackblazer-max-retries-per-race",
         title: "Trackblazer Max Retries per Race",
         description: "Sets the maximum number of retries allowed for a single race in the Trackblazer scenario.",
@@ -716,6 +965,36 @@ const searchConfig: SearchOption[] = [
         title: "Trackblazer Reset Whistle Forces Training",
         description:
             "Whether or not using a Reset Whistle means it can ignore the failure chance thresholds in the Training Settings page. If enabled, the bot will pick the best available training after usage even if it's risky.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-save-reset-whistles-for-summer",
+        title: "Save Reset Whistles for Summer",
+        description: "When enabled, Reset Whistles are only used during Summer training.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-save-reset-whistles-for-finale",
+        title: "Save Reset Whistles for Finale",
+        description: "Do not use Reset Whistles on Senior turns 65–72; allow again on Finale turns 73–75.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-whistle-priority-min-rainbow",
+        title: "Whistle Priority Min Rainbows",
+        description: "During Summer and Finale: train a top-3 priority stat with enough rainbows instead of Reset Whistle. Requires qualifying orange Uma/Riko/Sirius friendship bars on screen. 0 disables.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-whistle-post-shuffle-min-failure",
+        title: "Post-Whistle Recovery Min Failure %",
+        description: "During Summer and Finale: after a Reset Whistle reshuffle, recover energy when failure is at/above this and main gain is below the paired min gain threshold.",
+        page: "ScenarioOverridesSettings",
+    },
+    {
+        id: "trackblazer-whistle-post-shuffle-min-main-gain",
+        title: "Post-Whistle Recovery Min Main Gain",
+        description: "Paired with Post-Whistle Recovery Min Failure %. During Summer and Finale only, before Good-Luck Charm.",
         page: "ScenarioOverridesSettings",
     },
     {
@@ -792,6 +1071,19 @@ const searchConfig: SearchOption[] = [
         id: "enable-debug-mode",
         title: "Enable Debug Mode",
         description: "Allows debugging messages in the log and test images to be created in the /temp/ folder.",
+        page: "DebugSettings",
+    },
+    {
+        id: "enable-pause-resume",
+        title: "Enable Pause / Resume",
+        description:
+            "Shows a floating pause/resume overlay while the bot runs. Resume skips in-game agenda load and skill point check for one turn before continuing training logic.",
+        page: "DebugSettings",
+    },
+    {
+        id: "enable-run-summary-export",
+        title: "Export Run Summary CSV at Career End",
+        description: "Writes a CSV at career complete with Uma name, supports, training click totals per stat, training vs race stat gain totals, and per-race gain rows.",
         page: "DebugSettings",
     },
     {

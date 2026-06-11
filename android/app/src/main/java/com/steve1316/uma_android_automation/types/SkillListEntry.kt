@@ -108,6 +108,12 @@ class SkillListEntry(
     val discount: Double
         get() = calculateDiscount()
 
+    /**
+     * Inferred hint level from [discount]: 0 = none (0%), 1 = 10%, 2 = 20%, 3 = 30%, 4 = 35%, 5 = 40% (max).
+     */
+    val hintLevel: Int
+        get() = DISCOUNT_VALUES.indexOf(discount).coerceAtLeast(0)
+
     /** The amount of rank gained upon purchasing this skill. */
     val evaluationPoints: Int
         get() = calculateEvaluationPoints()

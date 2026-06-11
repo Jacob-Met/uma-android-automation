@@ -16,6 +16,8 @@ import com.steve1316.uma_android_automation.types.DateYear
 import com.steve1316.uma_android_automation.types.GameDate
 import com.steve1316.uma_android_automation.types.StatName
 import com.steve1316.uma_android_automation.utils.CustomImageUtils.BarFillResult
+import com.steve1316.uma_android_automation.utils.CustomImageUtils.StatBlock
+import org.opencv.core.Point
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
@@ -276,7 +278,345 @@ class TrainingScoringTest {
 
         val score = scoreFriendshipTraining(trainingWithOnlyOrange)
 
-        assertEquals(0.0, score, "A zero score should be given with only orange bars for the training")
+        assertEquals(Double.NEGATIVE_INFINITY, score, "Only orange bars should not contribute to friendship scoring")
+    }
+
+    @Test
+    @DisplayName("Akikawa friendship bars are ignored when trainer friendship influence is 0")
+    fun testAkikawaBarsIgnoredAtZeroInfluence() {
+        val akikawaBlock = StatBlock("trainer_support", Point(0.0, 0.0), "Yayoi Akikawa")
+        val akikawaBlueBar =
+            BarFillResult(
+                statName = StatName.SPEED,
+                fillPercent = 50.0,
+                filledSegments = 2,
+                dominantColor = "blue",
+                statBlock = akikawaBlock,
+            )
+        val regularBlueBar = BarFillResult(statName = StatName.STAMINA, fillPercent = 50.0, filledSegments = 2, dominantColor = "blue")
+
+        val akikawaTraining =
+            createDefaultTrainingOption(
+                name = StatName.SPEED,
+                relationshipBars = arrayListOf(akikawaBlueBar),
+            )
+        val regularTraining =
+            createDefaultTrainingOption(
+                name = StatName.STAMINA,
+                relationshipBars = arrayListOf(regularBlueBar),
+            )
+
+        assertEquals(Double.NEGATIVE_INFINITY, scoreFriendshipTraining(akikawaTraining, 0))
+        assertEquals(2.5, scoreFriendshipTraining(regularTraining, 0), 0.001)
+        assertEquals(2.5, scoreFriendshipTraining(akikawaTraining, 100), 0.001)
+    }
+
+    @Test
+    @DisplayName("Wit friendship bar exception counts non-Akikawa/Etsuko bars below orange only")
+    fun testCountNonAkikawaEtsukoFriendshipBarsBelowOrange() {
+        val akikawaBlock = StatBlock("trainer_support", Point(0.0, 0.0), "Yayoi Akikawa")
+        val etsukoBlock = StatBlock("trainer_support", Point(0.0, 0.0), "Etsuko Otonashi")
+        val kashimotoBlock = StatBlock("trainer_support", Point(0.0, 0.0), "Riko Kashimoto")
+
+        val bars =
+            arrayListOf(
+                BarFillResult(StatName.WIT, 50.0, 2, "blue"),
+                BarFillResult(StatName.WIT, 50.0, 2, "green"),
+                BarFillResult(StatName.WIT, 100.0, 5, "orange"),
+                BarFillResult(StatName.WIT, 50.0, 2, "blue", akikawaBlock),
+                BarFillResult(StatName.WIT, 50.0, 2, "green", etsukoBlock),
+                BarFillResult(StatName.WIT, 50.0, 2, "blue", kashimotoBlock),
+            )
+
+        assertEquals(3, Training.countNonAkikawaEtsukoFriendshipBarsBelowOrange(bars))
+        assertTrue(Training.isLuckyCharmAllowedForStat(StatName.SPEED, enableLuckyCharmWitTraining = false))
+        assertFalse(Training.isLuckyCharmAllowedForStat(StatName.WIT, enableLuckyCharmWitTraining = false))
+        assertTrue(Training.isLuckyCharmAllowedForStat(StatName.WIT, enableLuckyCharmWitTraining = false, witInTopStatPriorities = true))
+        assertTrue(Training.isLuckyCharmAllowedForStat(StatName.WIT, enableLuckyCharmWitTraining = true))
+    }
+
+    @Test
+    @DisplayName("Junior friendship bar comparison beats Wit on configured stack matchups")
+    fun testJuniorFriendshipBarComparison() {
+        val blueBar = BarFillResult(StatName.SPEED, 50.0, 2, "blue")
+        val orangeBar = BarFillResult(StatName.SPEED, 100.0, 5, "orange")
+        val top3Heavy = Training.qualifyingFriendshipBarStats(listOf(blueBar, blueBar, orangeBar))
+        val top3TwoBelow = Training.qualifyingFriendshipBarStats(listOf(blueBar, blueBar))
+        val top3OneBelow = Training.qualifyingFriendshipBarStats(listOf(blueBar, orangeBar))
+
+        assertTrue(Training.shouldTop3FriendshipBeatWit(top3Heavy, witBelowOrange = 2))
+        assertFalse(Training.shouldTop3FriendshipBeatWit(top3TwoBelow, witBelowOrange = 2))
+        assertTrue(Training.shouldTop3FriendshipBeatWit(top3TwoBelow, witBelowOrange = 1))
+        assertFalse(Training.shouldTop3FriendshipBeatWit(top3OneBelow, witBelowOrange = 1))
+
+        assertTrue(Training.isSingleOrangeSingleBelowOrangePattern(top3OneBelow))
+        assertFalse(
+            Training.isJuniorTop3FriendshipCandidateEligible(
+                top3OneBelow,
+                mainGain = 10,
+                minTop3Bars = 2,
+                enableMainGainOverride = true,
+                minMainGain = 20,
+                witBelowOrange = 0,
+            ),
+        )
+        assertTrue(
+            Training.isJuniorTop3FriendshipCandidateEligible(
+                top3OneBelow,
+                mainGain = 25,
+                minTop3Bars = 2,
+                enableMainGainOverride = true,
+                minMainGain = 20,
+                witBelowOrange = 0,
+            ),
+        )
+        assertTrue(
+            Training.isJuniorTop3FriendshipCandidateEligible(
+                top3OneBelow,
+                mainGain = 25,
+                minTop3Bars = 2,
+                enableMainGainOverride = true,
+                minMainGain = 20,
+                witBelowOrange = 1,
+            ),
+        )
+        assertFalse(
+            Training.isJuniorTop3FriendshipCandidateEligible(
+                top3OneBelow,
+                mainGain = 15,
+                minTop3Bars = 2,
+                enableMainGainOverride = true,
+                minMainGain = 20,
+                witBelowOrange = 1,
+            ),
+        )
+        assertFalse(
+            Training.isJuniorTop3FriendshipCandidateEligible(
+                top3OneBelow,
+                mainGain = 25,
+                minTop3Bars = 2,
+                enableMainGainOverride = false,
+                minMainGain = 20,
+                witBelowOrange = 0,
+            ),
+        )
+        assertTrue(
+            Training.isJuniorTop3FriendshipCandidateEligible(
+                top3TwoBelow,
+                mainGain = 0,
+                minTop3Bars = 2,
+                enableMainGainOverride = false,
+                minMainGain = 20,
+                witBelowOrange = 1,
+            ),
+        )
+    }
+
+    @Test
+    @DisplayName("Summer one-bar Wit exception allows Wit when bar counts qualify and top-3 has no override")
+    fun testSummerOneBarWitSelection() {
+        val belowOrangeByStat =
+            mapOf(
+                StatName.WIT to 1,
+                StatName.SPEED to 1,
+                StatName.STAMINA to 0,
+                StatName.POWER to 1,
+            )
+
+        assertTrue(
+            Training.shouldAllowSummerOneBarWitSelection(
+                isSummer = true,
+                witBelowOrange = 1,
+                belowOrangeCountByStat = belowOrangeByStat,
+                hasTop3Override = false,
+            ),
+        )
+        assertFalse(
+            Training.shouldAllowSummerOneBarWitSelection(
+                isSummer = false,
+                witBelowOrange = 1,
+                belowOrangeCountByStat = belowOrangeByStat,
+                hasTop3Override = false,
+            ),
+        )
+        assertFalse(
+            Training.shouldAllowSummerOneBarWitSelection(
+                isSummer = true,
+                witBelowOrange = 2,
+                belowOrangeCountByStat = belowOrangeByStat + (StatName.WIT to 2),
+                hasTop3Override = false,
+            ),
+        )
+        assertFalse(
+            Training.shouldAllowSummerOneBarWitSelection(
+                isSummer = true,
+                witBelowOrange = 1,
+                belowOrangeCountByStat = belowOrangeByStat + (StatName.SPEED to 2),
+                hasTop3Override = false,
+            ),
+        )
+        assertFalse(
+            Training.shouldAllowSummerOneBarWitSelection(
+                isSummer = true,
+                witBelowOrange = 1,
+                belowOrangeCountByStat = belowOrangeByStat,
+                hasTop3Override = true,
+            ),
+        )
+    }
+
+    @Test
+    @DisplayName("Summer top-3 override blocks one-bar Wit when rainbow or main gain threshold is met")
+    fun testSummerTop3WitOverride() {
+        val priorities = listOf(StatName.SPEED, StatName.STAMINA, StatName.POWER, StatName.WIT, StatName.GUTS)
+        val trainable = setOf(StatName.SPEED, StatName.STAMINA, StatName.WIT)
+
+        assertTrue(
+            Training.hasSummerTop3WitOverride(
+                statPrioritization = priorities,
+                trainableStats = trainable,
+                mainStatGainByStat = mapOf(StatName.SPEED to 10, StatName.STAMINA to 5),
+                numRainbowByStat = mapOf(StatName.SPEED to 1),
+            ),
+        )
+        assertTrue(
+            Training.hasSummerTop3WitOverride(
+                statPrioritization = priorities,
+                trainableStats = trainable,
+                mainStatGainByStat = mapOf(StatName.SPEED to 25, StatName.STAMINA to 5),
+                numRainbowByStat = mapOf(StatName.SPEED to 0),
+            ),
+        )
+        assertFalse(
+            Training.hasSummerTop3WitOverride(
+                statPrioritization = priorities,
+                trainableStats = trainable,
+                mainStatGainByStat = mapOf(StatName.SPEED to 24, StatName.STAMINA to 5),
+                numRainbowByStat = mapOf(StatName.SPEED to 0),
+            ),
+        )
+        assertFalse(
+            Training.hasSummerTop3WitOverride(
+                statPrioritization = priorities,
+                trainableStats = setOf(StatName.WIT),
+                mainStatGainByStat = emptyMap(),
+                numRainbowByStat = emptyMap(),
+            ),
+        )
+    }
+
+    @Test
+    @DisplayName("Rainbow whistle orange gate counts qualifying Uma/Riko/Sirius orange bars only")
+    fun testRainbowWhistleOrangeFriendshipGate() {
+        val akikawaBlock = StatBlock("trainer_support", Point(0.0, 0.0), "Yayoi Akikawa")
+        val umaOrange = BarFillResult(StatName.SPEED, 100.0, 5, "orange", StatBlock(StatName.SPEED.name, Point(0.0, 0.0)))
+        val akikawaOrange = BarFillResult(StatName.SPEED, 100.0, 5, "orange", akikawaBlock)
+
+        assertEquals(1, Training.qualifyingFriendshipBarStats(listOf(umaOrange)).orange)
+        assertEquals(0, Training.qualifyingFriendshipBarStats(listOf(akikawaOrange)).orange)
+        assertTrue(umaOrange.isRainbow)
+        assertFalse(akikawaOrange.isRainbow)
+    }
+
+    @Test
+    @DisplayName("Low-priority Wit skip helpers detect top-3 Wit priority and untrainable main stats")
+    fun testLowPriorityWitSkipHelpers() {
+        val witInTop3 = listOf(StatName.SPEED, StatName.STAMINA, StatName.WIT, StatName.POWER, StatName.GUTS)
+        val witFourth = listOf(StatName.SPEED, StatName.STAMINA, StatName.POWER, StatName.WIT, StatName.GUTS)
+
+        assertTrue(Training.isWitInTopStatPriorities(witInTop3))
+        assertFalse(Training.isWitInTopStatPriorities(witFourth))
+
+        assertTrue(Training.areAllMainStatsUntrainable(setOf(StatName.WIT)))
+        assertFalse(Training.areAllMainStatsUntrainable(setOf(StatName.WIT, StatName.SPEED)))
+        assertTrue(Training.areAllMainStatsUntrainable(emptySet()))
+    }
+
+    @Test
+    @DisplayName("Top-3 friendship bar picker prefers highest-priority trainable stat with qualifying bars")
+    fun testFindTop3PriorityStatWithFriendshipBars() {
+        val akikawaBlock = StatBlock("trainer_support", Point(0.0, 0.0), "Yayoi Akikawa")
+        val priority = listOf(StatName.SPEED, StatName.STAMINA, StatName.POWER, StatName.WIT, StatName.GUTS)
+
+        val speedBars =
+            listOf(
+                BarFillResult(StatName.SPEED, 100.0, 5, "orange"),
+                BarFillResult(StatName.SPEED, 50.0, 2, "blue"),
+            )
+        val staminaBars =
+            listOf(
+                BarFillResult(StatName.STAMINA, 50.0, 2, "green"),
+                BarFillResult(StatName.STAMINA, 50.0, 2, "blue"),
+                BarFillResult(StatName.STAMINA, 50.0, 2, "blue", akikawaBlock),
+            )
+        val powerBars = listOf(BarFillResult(StatName.POWER, 100.0, 5, "orange"))
+
+        val barsByStat =
+            mapOf(
+                StatName.SPEED to speedBars,
+                StatName.STAMINA to staminaBars,
+                StatName.POWER to powerBars,
+            )
+
+        assertEquals(
+            StatName.SPEED,
+            Training.findTop3PriorityStatWithFriendshipBars(
+                statPrioritization = priority,
+                trainableStats = setOf(StatName.SPEED, StatName.STAMINA, StatName.POWER, StatName.WIT),
+                relationshipBarsByStat = barsByStat,
+                minBars = 1,
+            ),
+        )
+
+        assertNull(
+            Training.findTop3PriorityStatWithFriendshipBars(
+                statPrioritization = priority,
+                trainableStats = setOf(StatName.POWER, StatName.WIT),
+                relationshipBarsByStat = barsByStat,
+                minBars = 1,
+            ),
+        )
+
+        assertEquals(
+            StatName.STAMINA,
+            Training.findTop3PriorityStatWithFriendshipBars(
+                statPrioritization = priority,
+                trainableStats = setOf(StatName.STAMINA, StatName.POWER, StatName.WIT),
+                relationshipBarsByStat = barsByStat,
+                minBars = 2,
+            ),
+        )
+    }
+
+    @Test
+    @DisplayName("Junior top-3 main stat gain picker ignores friendship bars")
+    fun testFindTop3PriorityStatWithMainStatGain() {
+        val priority = listOf(StatName.SPEED, StatName.STAMINA, StatName.POWER, StatName.WIT, StatName.GUTS)
+        val gains =
+            mapOf(
+                StatName.SPEED to 25,
+                StatName.STAMINA to 10,
+                StatName.POWER to 30,
+            )
+
+        assertEquals(
+            StatName.SPEED,
+            Training.findTop3PriorityStatWithMainStatGain(
+                statPrioritization = priority,
+                trainableStats = setOf(StatName.SPEED, StatName.STAMINA, StatName.POWER, StatName.WIT),
+                mainStatGainByStat = gains,
+                minMainGain = 20,
+            ),
+        )
+
+        assertNull(
+            Training.findTop3PriorityStatWithMainStatGain(
+                statPrioritization = priority,
+                trainableStats = setOf(StatName.STAMINA, StatName.WIT),
+                mainStatGainByStat = gains,
+                minMainGain = 20,
+            ),
+        )
     }
 
     // ============================================================================

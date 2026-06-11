@@ -29,6 +29,7 @@ import com.steve1316.uma_android_automation.types.DateYear
 import com.steve1316.uma_android_automation.types.GameDate
 import com.steve1316.uma_android_automation.types.StatName
 import com.steve1316.uma_android_automation.utils.CustomImageUtils
+import com.steve1316.uma_android_automation.utils.RunSummaryTracker
 import org.opencv.core.Point
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
@@ -59,6 +60,15 @@ enum class SelectionSource {
 
     /** Analysis returned no winner and `forceSelection=false`; first non-blacklisted returned for the caller to handle. */
     UNFORCED_DEFAULT,
+
+    /** Climax phase with a remaining Good-Luck Charm; highest non-maxed stat selected. */
+    CLIMAX_CHARM,
+
+    /** Junior/pre-debut: Wit or a top-3 priority stat selected for friendship-bar priority over rest. */
+    FRIENDSHIP_PRIORITY,
+
+    /** Junior/pre-debut: top-3 priority stat selected for high main stat gain regardless of friendship bars. */
+    MAIN_STAT_GAIN_PRIORITY,
 }
 
 open class Training(protected val game: Game, protected val campaign: Campaign) {
@@ -112,6 +122,12 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     /** Whether the rainbow training bonus is active. */
     private val enableRainbowTrainingBonus: Boolean = SettingsHelper.getBooleanSetting("training", "enableRainbowTrainingBonus")
 
+    /**
+     * How much Yayoi Akikawa and Etsuko Otonashi friendship bars influence training selection (0-100).
+     * 100 preserves current behavior; 0 ignores their bars in friendship scoring.
+     */
+    private val trainerFriendshipInfluence: Int = SettingsHelper.getIntSetting("training", "trainerFriendshipInfluence", 0)
+
     /** Whether to enable risky training logic. */
     private val enableRiskyTraining: Boolean = SettingsHelper.getBooleanSetting("training", "enableRiskyTraining")
 
@@ -123,6 +139,56 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
     /** Whether to force Wit training during the Finale. */
     private val trainWitDuringFinale: Boolean = SettingsHelper.getBooleanSetting("training", "trainWitDuringFinale")
+
+    /** Whether Good-Luck Charm may bypass failure thresholds for Wit when Wit is not in top-3 stat prioritization. */
+    private val enableLuckyCharmWitTraining: Boolean = SettingsHelper.getBooleanSetting("training", "enableLuckyCharmWitTraining", true)
+
+    /** Whether to prefer rest/recreation over Wit training for energy recovery paths. */
+    private val preferRestOverWitTraining: Boolean = SettingsHelper.getBooleanSetting("training", "preferRestOverWitTraining", true)
+
+    /**
+     * When enabled, skip low-priority Wit when main stats fail (Classic/Senior) or when friendship-bar rules do not justify Wit (Junior/pre-debut).
+     * Does not apply on turn 75.
+     */
+    private val skipLowPriorityWitWhenMainStatsFail: Boolean =
+        SettingsHelper.getBooleanSetting("training", "skipLowPriorityWitWhenMainStatsFail", true)
+
+    /**
+     * When enabled, never execute Wit training that has zero qualifying Uma/Riko/Sirius friendship bars below orange
+     * (Akikawa/Etsuko bars do not count). Wit in top-3 stat prioritization and the friendship-bar exception still apply.
+     */
+    private val enableNeverClickEmptyWitTraining: Boolean =
+        SettingsHelper.getBooleanSetting("training", "enableNeverClickEmptyWitTraining", true)
+
+    /** Minimum non-Akikawa/Etsuko friendship bars below orange on Wit to still train Wit when the exception is enabled. */
+    private val witTrainingFriendshipBarMinimum: Int = SettingsHelper.getIntSetting("training", "witTrainingFriendshipBarMinimum", 2)
+
+    /**
+     * During Junior/pre-debut with skip-low-priority-Wit enabled, prefer a top-3 priority stat over Wit when it has at least this many
+     * qualifying friendship bars below orange (mixed orange + below-orange bars still count the below-orange ones).
+     */
+    private val top3FriendshipBarMinimum: Int = SettingsHelper.getIntSetting("training", "top3FriendshipBarMinimum", 2)
+
+    /**
+     * During Junior/pre-debut with skip-low-priority-Wit enabled, prefer a top-3 priority stat when its main stat gain
+     * meets [juniorTop3MainStatGainMinimum], regardless of friendship bars on that training.
+     */
+    private val enableJuniorTop3MainStatGainPriority: Boolean =
+        SettingsHelper.getBooleanSetting("training", "enableJuniorTop3MainStatGainPriority", true)
+
+    /** Minimum main stat gain required for [enableJuniorTop3MainStatGainPriority] to pick a top-3 training. */
+    private val juniorTop3MainStatGainMinimum: Int = SettingsHelper.getIntSetting("training", "juniorTop3MainStatGainMinimum", 20)
+
+    /**
+     * When [preferRestOverWitTraining] is enabled, still train Wit if at least [witTrainingFriendshipBarMinimum]
+     * non-Akikawa/Etsuko friendship bars on Wit are below orange. Defaults to enabled unless legacy minimum was 0.
+     */
+    private val enableWitTrainingFriendshipBarException: Boolean =
+        SettingsHelper.getBooleanSetting(
+            "training",
+            "enableWitTrainingFriendshipBarException",
+            witTrainingFriendshipBarMinimum > 0,
+        )
 
     /** Whether to prioritize skill hints. */
     private val enablePrioritizeSkillHints: Boolean = SettingsHelper.getBooleanSetting("training", "enablePrioritizeSkillHints")
@@ -272,6 +338,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
      * @property skillHintsPerLocation Map of detected skill hints for each training.
      * @property enablePrioritizeSkillHints Whether to prioritize skill hints.
      * @property statsTrainedOverBuffer Set of stats that have already exceeded their cap buffer.
+     * @property trainerFriendshipInfluence Scales Akikawa/Etsuko friendship bar influence on training selection (0-100).
      */
     data class TrainingConfig(
         // Global configuration.
@@ -290,6 +357,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val skillHintsPerLocation: Map<StatName, Int> = StatName.entries.associateWith { 0 },
         val enablePrioritizeSkillHints: Boolean = false,
         val statsTrainedOverBuffer: Set<StatName> = emptySet(),
+        val trainerFriendshipInfluence: Int = 100,
     ) {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -312,6 +380,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             if (skillHintsPerLocation != other.skillHintsPerLocation) return false
             if (enablePrioritizeSkillHints != other.enablePrioritizeSkillHints) return false
             if (statsTrainedOverBuffer != other.statsTrainedOverBuffer) return false
+            if (trainerFriendshipInfluence != other.trainerFriendshipInfluence) return false
 
             return true
         }
@@ -332,11 +401,266 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             result = 31 * result + skillHintsPerLocation.hashCode()
             result = 31 * result + enablePrioritizeSkillHints.hashCode()
             result = 31 * result + statsTrainedOverBuffer.hashCode()
+            result = 31 * result + trainerFriendshipInfluence
             return result
         }
     }
 
     companion object {
+        private val AKIKAWA_ETSUKO_TRAINER_NAMES = setOf("Yayoi Akikawa", "Etsuko Otonashi")
+
+        /** Returns true when the bar belongs to Yayoi Akikawa or Etsuko Otonashi. */
+        fun isAkikawaOrEtsukoBar(bar: CustomImageUtils.BarFillResult): Boolean = bar.isTrainerSupport && bar.trainerName in AKIKAWA_ETSUKO_TRAINER_NAMES
+
+        /** Whether charm-backed training should be skipped for low main-stat gain at risky failure chance. */
+        fun wouldSkipForLowGainCharm(
+            allowCharmForStat: Boolean,
+            climaxForceCharmTraining: Boolean,
+            allowLowGainCharmAtZeroEnergy: Boolean,
+            failureChanceExceedsThreshold: Boolean,
+            mainStatGainBelowMin: Boolean,
+        ): Boolean =
+            allowCharmForStat &&
+                !climaxForceCharmTraining &&
+                !allowLowGainCharmAtZeroEnergy &&
+                failureChanceExceedsThreshold &&
+                mainStatGainBelowMin
+
+        /** Effective failure ceiling for a training option, including risky-training overrides. */
+        fun effectiveFailureThresholdForMainGain(
+            mainStatGain: Int,
+            maximumFailureChance: Int,
+            enableRiskyTraining: Boolean,
+            riskyTrainingMinStatGain: Int,
+            riskyTrainingMaxFailureChance: Int,
+        ): Int =
+            if (enableRiskyTraining && mainStatGain >= riskyTrainingMinStatGain) {
+                riskyTrainingMaxFailureChance
+            } else {
+                maximumFailureChance
+            }
+
+        /** True when [failureChance] exceeds the allowed threshold for [mainStatGain]. */
+        fun exceedsFailureThreshold(
+            failureChance: Int,
+            mainStatGain: Int,
+            maximumFailureChance: Int,
+            enableRiskyTraining: Boolean,
+            riskyTrainingMinStatGain: Int,
+            riskyTrainingMaxFailureChance: Int,
+        ): Boolean =
+            failureChance >
+                effectiveFailureThresholdForMainGain(
+                    mainStatGain,
+                    maximumFailureChance,
+                    enableRiskyTraining,
+                    riskyTrainingMinStatGain,
+                    riskyTrainingMaxFailureChance,
+                )
+
+        /** True when execution must not proceed without Good-Luck Charm (or Climax force-charm). */
+        fun requiresFailureMitigationBeforeExecute(
+            failureChance: Int,
+            mainStatGain: Int,
+            charmUsed: Boolean,
+            climaxForceCharm: Boolean,
+            maximumFailureChance: Int,
+            enableRiskyTraining: Boolean,
+            riskyTrainingMinStatGain: Int,
+            riskyTrainingMaxFailureChance: Int,
+        ): Boolean {
+            if (climaxForceCharm || charmUsed) {
+                return false
+            }
+            return exceedsFailureThreshold(
+                failureChance,
+                mainStatGain,
+                maximumFailureChance,
+                enableRiskyTraining,
+                riskyTrainingMinStatGain,
+                riskyTrainingMaxFailureChance,
+            )
+        }
+
+        /** Counts Uma/Riko/Sirius friendship bars below orange, excluding Akikawa and Etsuko. */
+        fun countNonAkikawaEtsukoFriendshipBarsBelowOrange(bars: List<CustomImageUtils.BarFillResult>): Int =
+            bars.count { bar -> bar.dominantColor != "orange" && !isAkikawaOrEtsukoBar(bar) }
+
+        /** Friendship bar breakdown on a training option (Akikawa/Etsuko bars excluded). */
+        data class QualifyingFriendshipBarStats(
+            val belowOrange: Int,
+            val orange: Int,
+            val total: Int,
+        )
+
+        /** Summarizes qualifying Uma/Riko/Sirius friendship bars on a training option. */
+        fun qualifyingFriendshipBarStats(bars: List<CustomImageUtils.BarFillResult>): QualifyingFriendshipBarStats {
+            val qualifying = bars.filter { !isAkikawaOrEtsukoBar(it) }
+            return QualifyingFriendshipBarStats(
+                belowOrange = qualifying.count { it.dominantColor != "orange" },
+                orange = qualifying.count { it.dominantColor == "orange" },
+                total = qualifying.size,
+            )
+        }
+
+        /** True when the training shows exactly one orange and one below-orange qualifying bar. */
+        fun isSingleOrangeSingleBelowOrangePattern(stats: QualifyingFriendshipBarStats): Boolean =
+            stats.total == 2 && stats.orange == 1 && stats.belowOrange == 1
+
+        /**
+         * Junior/pre-debut: true when a top-3 priority training's friendship stack should beat Wit on bar counts.
+         * - 3+ qualifying bars with at least 2 below orange beats Wit with exactly 2 below orange.
+         * - 2+ below orange on top-3 beats Wit with exactly 1 below orange.
+         */
+        fun shouldTop3FriendshipBeatWit(top3: QualifyingFriendshipBarStats, witBelowOrange: Int): Boolean {
+            if (top3.total >= 3 && top3.belowOrange >= 2 && witBelowOrange == 2) {
+                return true
+            }
+            if (top3.belowOrange >= 2 && witBelowOrange == 1) {
+                return true
+            }
+            return false
+        }
+
+        /**
+         * Whether a top-3 priority training may be considered for Junior/pre-debut friendship selection.
+         * Mixed 1-orange / 1-below-orange stacks only qualify when [enableMainGainOverride] is on and main gain meets [minMainGain]
+         * (main-gain minimum bypasses the usual bar rules, including over Wit with below-orange bars).
+         */
+        fun isJuniorTop3FriendshipCandidateEligible(
+            stats: QualifyingFriendshipBarStats,
+            mainGain: Int,
+            minTop3Bars: Int,
+            enableMainGainOverride: Boolean,
+            minMainGain: Int,
+            @Suppress("UNUSED_PARAMETER") witBelowOrange: Int,
+        ): Boolean {
+            if (isSingleOrangeSingleBelowOrangePattern(stats)) {
+                return enableMainGainOverride && mainGain >= minMainGain
+            }
+            return stats.belowOrange >= minTop3Bars
+        }
+
+        /**
+         * Returns whether Good-Luck Charm may bypass failure thresholds for the given stat.
+         * Wit is always allowed when it is in top-[topN] stat prioritization; otherwise [enableLuckyCharmWitTraining] applies.
+         */
+        fun isLuckyCharmAllowedForStat(
+            statName: StatName,
+            enableLuckyCharmWitTraining: Boolean,
+            witInTopStatPriorities: Boolean = false,
+        ): Boolean = statName != StatName.WIT || enableLuckyCharmWitTraining || witInTopStatPriorities
+
+        /** Speed, Stamina, Power, and Guts — the non-Wit trainings checked before skipping low-priority Wit. */
+        val MAIN_STATS_EXCLUDING_WIT: List<StatName> = listOf(StatName.SPEED, StatName.STAMINA, StatName.POWER, StatName.GUTS)
+
+        /** Returns true when Wit appears within the first [topN] entries of [statPrioritization]. */
+        fun isWitInTopStatPriorities(statPrioritization: List<StatName>, topN: Int = 3): Boolean {
+            val witIndex = statPrioritization.indexOf(StatName.WIT)
+            return witIndex in 0 until topN
+        }
+
+        /** Returns true when none of [MAIN_STATS_EXCLUDING_WIT] are in [trainableStats]. */
+        fun areAllMainStatsUntrainable(trainableStats: Set<StatName>): Boolean = MAIN_STATS_EXCLUDING_WIT.none { it in trainableStats }
+
+        /** Minimum main stat gain on a top-3 training that blocks the summer one-bar Wit friendship exception. */
+        const val SUMMER_TOP3_WIT_OVERRIDE_MIN_MAIN_GAIN = 25
+
+        /**
+         * True when a top-3 priority stat has a rainbow or high main gain, blocking the summer one-bar Wit exception.
+         */
+        fun hasSummerTop3WitOverride(
+            statPrioritization: List<StatName>,
+            trainableStats: Set<StatName>,
+            mainStatGainByStat: Map<StatName, Int>,
+            numRainbowByStat: Map<StatName, Int>,
+            minMainGain: Int = SUMMER_TOP3_WIT_OVERRIDE_MIN_MAIN_GAIN,
+            topN: Int = 3,
+        ): Boolean =
+            statPrioritization.take(topN).any { stat ->
+                stat != StatName.WIT &&
+                    stat in trainableStats &&
+                    ((numRainbowByStat[stat] ?: 0) > 0 || (mainStatGainByStat[stat] ?: 0) >= minMainGain)
+            }
+
+        /**
+         * Summer (Classic/Senior Jul–Aug): Wit with exactly one below-orange bar is selectable when no other training
+         * has more than one below-orange bar, unless [hasTop3Override] is true.
+         */
+        fun shouldAllowSummerOneBarWitSelection(
+            isSummer: Boolean,
+            witBelowOrange: Int,
+            belowOrangeCountByStat: Map<StatName, Int>,
+            hasTop3Override: Boolean,
+        ): Boolean {
+            if (!isSummer || hasTop3Override || witBelowOrange != 1) {
+                return false
+            }
+            return belowOrangeCountByStat.filterKeys { it != StatName.WIT }.values.none { it > 1 }
+        }
+
+        /**
+         * First top-[topN] [statPrioritization] entry (excluding Wit) that is trainable and has at least [minBars]
+         * non-Akikawa/Etsuko friendship bars below orange.
+         */
+        fun findTop3PriorityStatWithFriendshipBars(
+            statPrioritization: List<StatName>,
+            trainableStats: Set<StatName>,
+            relationshipBarsByStat: Map<StatName, List<CustomImageUtils.BarFillResult>>,
+            minBars: Int,
+            topN: Int = 3,
+        ): StatName? =
+            statPrioritization
+                .take(topN)
+                .firstOrNull { stat ->
+                    stat != StatName.WIT &&
+                        stat in trainableStats &&
+                        countNonAkikawaEtsukoFriendshipBarsBelowOrange(relationshipBarsByStat[stat].orEmpty()) >= minBars
+                }
+
+        /** True when [stat] is in the first [topN] entries of [statPrioritization]. */
+        fun isStatInTopPriorities(stat: StatName, statPrioritization: List<StatName>, topN: Int = 3): Boolean =
+            stat in statPrioritization.take(topN)
+
+        /**
+         * First top-[topN] [statPrioritization] entry (excluding Wit) that is trainable with main stat gain at or above [minMainGain],
+         * regardless of friendship bars.
+         */
+        fun findTop3PriorityStatWithMainStatGain(
+            statPrioritization: List<StatName>,
+            trainableStats: Set<StatName>,
+            mainStatGainByStat: Map<StatName, Int>,
+            minMainGain: Int,
+            topN: Int = 3,
+        ): StatName? =
+            statPrioritization
+                .take(topN)
+                .firstOrNull { stat ->
+                    stat != StatName.WIT &&
+                        stat in trainableStats &&
+                        (mainStatGainByStat[stat] ?: 0) >= minMainGain
+                }
+
+        /** Converts the user-facing 0-100 influence setting into a 0.0-1.0 scale. */
+        fun akikawaEtsukoFriendshipScale(influencePercent: Int): Double = influencePercent.coerceIn(0, 100) / 100.0
+
+        /**
+         * Returns true when at least one relationship bar would contribute to friendship scoring under the current influence setting.
+         */
+        fun hasFriendshipScoringBars(training: TrainingOption, influencePercent: Int): Boolean {
+            val influenceScale = akikawaEtsukoFriendshipScale(influencePercent)
+            return training.relationshipBars.any { bar ->
+                when (bar.dominantColor) {
+                    "orange" -> false
+                    else ->
+                        if (isAkikawaOrEtsukoBar(bar)) {
+                            influenceScale > 0.0
+                        } else {
+                            true
+                        }
+                }
+            }
+        }
         /** The logging tag for this class. */
         internal val TAG: String = "[${MainActivity.loggerTag}]Training"
 
@@ -468,24 +792,31 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
          * This method prefers training options with the least relationship progress, specifically focusing on blue bars.
          *
          * @param training The [TrainingOption] to score.
+         * @param trainerFriendshipInfluence Scales Akikawa/Etsuko bar influence (0-100).
          * @return A score representing the relationship-building value.
          */
-        fun scoreFriendshipTraining(training: TrainingOption): Double {
+        fun scoreFriendshipTraining(training: TrainingOption, trainerFriendshipInfluence: Int = 100): Double {
             // Ignore the blacklist in favor of making sure we build up the relationship bars as fast as possible.
             MessageLog.v(TAG, "\n[TRAINING] Starting process to score ${training.name} Training with a focus on building relationship bars.")
 
             val barResults = training.relationshipBars
             if (barResults.isEmpty()) return Double.NEGATIVE_INFINITY
+            if (!hasFriendshipScoringBars(training, trainerFriendshipInfluence)) return Double.NEGATIVE_INFINITY
 
+            val influenceScale = akikawaEtsukoFriendshipScale(trainerFriendshipInfluence)
             var score = 0.0
             for (bar in barResults) {
-                val contribution =
+                var contribution =
                     when (bar.dominantColor) {
                         "orange" -> 0.0
                         "green" -> 1.0
                         "blue" -> 2.5
                         else -> 0.0
                     }
+                if (contribution <= 0.0) continue
+                if (isAkikawaOrEtsukoBar(bar)) {
+                    contribution *= influenceScale
+                }
                 score += contribution
             }
 
@@ -723,6 +1054,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         fun calculateRelationshipScore(config: TrainingConfig, training: TrainingOption): Double {
             if (training.relationshipBars.isEmpty()) return 0.0
 
+            val influenceScale = akikawaEtsukoFriendshipScale(config.trainerFriendshipInfluence)
             var score = 0.0
             var maxScore = 0.0
 
@@ -736,6 +1068,8 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     }
 
                 if (baseValue > 0) {
+                    if (isAkikawaOrEtsukoBar(bar) && influenceScale <= 0.0) continue
+
                     // Apply diminishing returns for relationship building.
                     val fillLevel = bar.fillPercent / 100.0
                     // Less valuable as bars fill up.
@@ -745,11 +1079,17 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     val earlyGameBonus = if (config.currentDate.year == DateYear.JUNIOR || config.currentDate.bIsPreDebut) 1.3 else 1.0
 
                     // Trainer support bonus to prioritize them slightly above regular supports.
-                    val trainerSupportBonus = if (bar.isTrainerSupport) 1.15 else 1.0
+                    val trainerSupportBonus =
+                        when {
+                            isAkikawaOrEtsukoBar(bar) -> 1.0 + (0.15 * influenceScale)
+                            bar.isTrainerSupport -> 1.15
+                            else -> 1.0
+                        }
+                    val barInfluenceScale = if (isAkikawaOrEtsukoBar(bar)) influenceScale else 1.0
 
-                    val contribution = baseValue * diminishingFactor * earlyGameBonus * trainerSupportBonus
+                    val contribution = baseValue * diminishingFactor * earlyGameBonus * trainerSupportBonus * barInfluenceScale
                     score += contribution
-                    maxScore += 2.5 * 1.3
+                    maxScore += 2.5 * 1.3 * barInfluenceScale
                 }
             }
 
@@ -837,9 +1177,10 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             // 3. Misc-aware scoring
             val miscScore = calculateMiscScore(config, training)
 
-            // Define scoring weights based on relationship bars presence.
-            val statWeight = if (training.relationshipBars.isNotEmpty()) 0.6 else 0.7
-            val relationshipWeight = if (training.relationshipBars.isNotEmpty()) 0.1 else 0.0
+            // Define scoring weights based on relationship bars that still contribute under the current influence setting.
+            val hasScoringBars = hasFriendshipScoringBars(training, config.trainerFriendshipInfluence)
+            val statWeight = if (hasScoringBars) 0.6 else 0.7
+            val relationshipWeight = if (hasScoringBars) 0.1 else 0.0
             val miscWeight = 0.3
 
             // Calculate weighted total score.
@@ -1108,21 +1449,23 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 return true
             }
 
-            // Now click on the desired stat button.
-            button.click(game.imageUtils)
-
-            // Small delay to allow the stats to appear before checking to avoid accidental skips
-            game.wait(0.1, skipWaitingForLoading = true)
-
-            // Poll for the header using whatever budget remains, with a guaranteed
-            // minimum of postClickBudgetMs regardless of how long getActiveStat took.
-
+            // Click and poll with retries — a single missed tap (common on GUTS/WIT after fast tab cycling)
+            // used to burn the full post-click budget and abort the entire analysis pass.
             val postClickDeadline = System.currentTimeMillis() + postClickBudgetMs
-            do {
-                if (header.check(game.imageUtils)) {
-                    return true
+            for (attempt in 0..2) {
+                if (System.currentTimeMillis() >= postClickDeadline) {
+                    break
                 }
-            } while (System.currentTimeMillis() < postClickDeadline)
+                button.click(game.imageUtils)
+                game.wait(0.2, skipWaitingForLoading = true)
+
+                val attemptDeadline = (System.currentTimeMillis() + 1200).coerceAtMost(postClickDeadline)
+                do {
+                    if (header.check(game.imageUtils)) {
+                        return true
+                    }
+                } while (System.currentTimeMillis() < attemptDeadline)
+            }
 
             MessageLog.w(TAG, "[WARN] goToStat:: Timed out while waiting for $statName training header.")
             return false
@@ -1136,7 +1479,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         fun recoverAndRetryFailureChance(): Int {
             // Back out to the Main screen.
             ButtonBack.click(game.imageUtils)
-            game.wait(1.0)
+            game.wait(game.trainingWaitDelay, skipWaitingForLoading = true)
             if (!campaign.checkMainScreen()) {
                 MessageLog.w(TAG, "[WARN] recoverAndRetryFailureChance:: Could not confirm Main screen after backing out. Aborting recovery.")
                 return -1
@@ -1147,7 +1490,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 MessageLog.w(TAG, "[WARN] recoverAndRetryFailureChance:: Could not click Training button to re-enter Training screen.")
                 return -1
             }
-            game.wait(0.5)
+            game.wait(game.trainingWaitDelay)
 
             // Re-establish SPEED as the active stat.
             if (!goToStat(StatName.SPEED)) {
@@ -1216,7 +1559,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     val firstHint = skillHintLocations.first()
 
                     game.tap(firstHint.x, firstHint.y, IconStatSkillHint.template.path, taps = 3)
-                    game.wait(1.0)
+                    game.wait(game.trainingWaitDelay, skipWaitingForLoading = true)
                     MessageLog.v(TAG, "[TRAINING] Process to execute skill hint training completed.")
                     return
                 } else {
@@ -1242,8 +1585,18 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
                 // Only go to a different stat if we aren't doing single training.
                 if (!singleTraining && !goToStat(statName)) {
-                    MessageLog.e(TAG, "[ERROR] analyzeTrainings:: Failed to click training button for $statName. Aborting training...")
-                    return
+                    MessageLog.w(
+                        TAG,
+                        "[WARN] analyzeTrainings:: Failed to navigate to $statName training tab. Retrying once after screen settle...",
+                    )
+                    game.wait(0.5)
+                    if (!goToStat(statName)) {
+                        MessageLog.w(
+                            TAG,
+                            "[WARN] analyzeTrainings:: Skipping $statName after navigation retries. Continuing with partial analysis.",
+                        )
+                        continue
+                    }
                 }
 
                 // Check if the currently selected training is restricted.
@@ -1404,7 +1757,9 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
                     // For Risky Training, filter out trainings that exceed the effective failure chance threshold or do not meet the minimum main stat gain threshold.
                     val mainStatGain = result.statGains[result.name] ?: 0
-                    if (!test && !ignoreFailureChance && result.failureChance > effectiveFailureChance) {
+                    val allowCharmForStat = ignoreFailureChance && isLuckyCharmAllowedForSelection(result.name)
+
+                    if (!test && !allowCharmForStat && result.failureChance > effectiveFailureChance) {
                         MessageLog.i(
                             TAG,
                             "[TRAINING] Skipping $statName training due to failure chance (${result.failureChance}%) exceeding the effective failure chance threshold ($effectiveFailureChance%).",
@@ -1412,7 +1767,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                         continue
                     }
 
-                    if (!test && ignoreFailureChance && result.failureChance > effectiveFailureChance && mainStatGain < 30) {
+                    if (!test && allowCharmForStat && result.failureChance > effectiveFailureChance && mainStatGain < 30) {
                         MessageLog.i(
                             TAG,
                             "[TRAINING] Skipping $statName training with Good-Luck Charm because main stat gain ($mainStatGain) is less than 30 and failure chance (${result.failureChance}%) is risky.",
@@ -1524,6 +1879,12 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val isIrregularEvaluation = args["isIrregularEvaluation"] as? Boolean ?: false
         val minStatGainForCharm = args["minStatGainForCharm"] as? Int ?: 30
         val irregularTrainingMinStatGain = args["irregularTrainingMinStatGain"] as? Int ?: 30
+        val climaxForceCharmTraining = args["climaxForceCharmTraining"] as? Boolean ?: false
+        val allowLowGainCharmAtZeroEnergy = args["allowLowGainCharmAtZeroEnergy"] as? Boolean ?: false
+        val postTrainingItemsRecheck = args["postTrainingItemsRecheck"] as? Boolean ?: false
+        @Suppress("UNCHECKED_CAST")
+        val preItemFailureSnapshot = args["preItemFailureSnapshot"] as? Map<StatName, Int> ?: emptyMap()
+        val charmUsedThisTurn = args["charmUsedThisTurn"] as? Boolean ?: false
         // Clear maps to ensure fresh results if reusing cached analysis.
         trainingMap.clear()
         skippedTrainingMap.clear()
@@ -1532,6 +1893,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         for (result in results) {
             // Check if risky training logic should apply based on main stat gain.
             val mainStatGain: Int = result.statGains[result.name] ?: 0
+            val mainStatGainForCharmThreshold = mainStatGain
             val effectiveFailureChance =
                 if (enableRiskyTraining && mainStatGain >= riskyTrainingMinStatGain) {
                     riskyTrainingMaxFailureChance
@@ -1539,17 +1901,40 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     maximumFailureChance
                 }
 
+            val allowCharmForStat = ignoreFailureChance && (climaxForceCharmTraining || isLuckyCharmAllowedForSelection(result.name))
+
+            val failureChanceForFiltering =
+                if (
+                    postTrainingItemsRecheck &&
+                        result.name == StatName.WIT &&
+                        charmUsedThisTurn &&
+                        !isLuckyCharmAllowedForSelection(StatName.WIT)
+                ) {
+                    val preFail = preItemFailureSnapshot[StatName.WIT]
+                    if (preFail != null && result.failureChance < preFail) {
+                        MessageLog.i(
+                            TAG,
+                            "[TRAINING] Post-item recheck: using pre-item Wit failure ($preFail%) instead of on-screen ${result.failureChance}% for threshold checks.",
+                        )
+                        preFail
+                    } else {
+                        result.failureChance
+                    }
+                } else {
+                    result.failureChance
+                }
+
             // Filter out trainings that exceed the effective failure chance threshold.
-            if (!test && !ignoreFailureChance && result.failureChance > effectiveFailureChance) {
+            if (!test && !allowCharmForStat && failureChanceForFiltering > effectiveFailureChance) {
                 val skipReason =
                     if (enableRiskyTraining && mainStatGain >= riskyTrainingMinStatGain) {
                         MessageLog.i(
                             TAG,
-                            "[TRAINING] Skipping ${result.name} training due to failure chance (${result.failureChance}%) exceeding risky threshold ($riskyTrainingMaxFailureChance%) despite high main stat gain of $mainStatGain.",
+                            "[TRAINING] Skipping ${result.name} training due to failure chance ($failureChanceForFiltering%) exceeding risky threshold ($riskyTrainingMaxFailureChance%) despite high main stat gain of $mainStatGain.",
                         )
                         "high failure chance (risky)"
                     } else {
-                        MessageLog.i(TAG, "[TRAINING] Skipping ${result.name} training due to failure chance (${result.failureChance}%) exceeding threshold ($maximumFailureChance%).")
+                        MessageLog.i(TAG, "[TRAINING] Skipping ${result.name} training due to failure chance ($failureChanceForFiltering%) exceeding threshold ($maximumFailureChance%).")
                         "high failure chance"
                     }
 
@@ -1570,10 +1955,19 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 continue
             }
 
-            if (!test && ignoreFailureChance && result.failureChance > effectiveFailureChance && mainStatGain < minStatGainForCharm) {
+            if (
+                !test &&
+                    wouldSkipForLowGainCharm(
+                        allowCharmForStat = allowCharmForStat,
+                        climaxForceCharmTraining = climaxForceCharmTraining,
+                        allowLowGainCharmAtZeroEnergy = allowLowGainCharmAtZeroEnergy,
+                        failureChanceExceedsThreshold = failureChanceForFiltering > effectiveFailureChance,
+                        mainStatGainBelowMin = mainStatGainForCharmThreshold < minStatGainForCharm,
+                    )
+            ) {
                 MessageLog.i(
                     TAG,
-                    "[TRAINING] Skipping ${result.name} training with Good-Luck Charm because main stat gain ($mainStatGain) is less than $minStatGainForCharm and failure chance (${result.failureChance}%) is risky.",
+                    "[TRAINING] Skipping ${result.name} training with Good-Luck Charm because main stat gain ($mainStatGainForCharmThreshold) is less than $minStatGainForCharm and failure chance ($failureChanceForFiltering%) is risky.",
                 )
 
                 // Store the skipped training for logging purposes.
@@ -1896,7 +2290,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
      */
     open fun scoreTraining(config: TrainingConfig, option: TrainingOption): Double {
         return if (campaign.date.bIsPreDebut || campaign.date.year == DateYear.JUNIOR) {
-            scoreFriendshipTraining(option)
+            scoreFriendshipTraining(option, config.trainerFriendshipInfluence)
         } else {
             calculateRawTrainingScore(config, option)
         }
@@ -1962,6 +2356,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 skillHintsPerLocation = skillHintsPerLocation,
                 enablePrioritizeSkillHints = enablePrioritizeSkillHints,
                 statsTrainedOverBuffer = statsTrainedOverBuffer,
+                trainerFriendshipInfluence = trainerFriendshipInfluence,
             )
 
         // Compute scores and determine the best training option.
@@ -1971,7 +2366,34 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val best: TrainingOption?
 
         scoringMode = getTrainingScoringMode()
-        trainingScores = trainingMap.values.associateWith { scoreTraining(trainingConfig, it) }
+
+        resolveJuniorPreDebutFriendshipPick()?.let { pick ->
+            MessageLog.i(TAG, "[TRAINING] ${pick.reason}")
+            lastSelectionSource = pick.source
+            return pick.stat
+        }
+
+        val skipLowPriorityWit = shouldSkipLowPriorityWit()
+        if (skipLowPriorityWit) {
+            val reason =
+                if (isFriendshipPriorityYear()) {
+                    "not in top-3 stat priority; Wit lacks qualifying friendship bars and a top-3 friendship target may exist"
+                } else {
+                    "not in top-3 stat priority; Speed/Stamina/Power/Guts all over failure threshold"
+                }
+            MessageLog.i(TAG, "[TRAINING] Skip low-priority Wit active: excluding Wit from selection ($reason).")
+        }
+        val blockEmptyWit = shouldBlockEmptyWitTraining()
+        if (blockEmptyWit) {
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Never-click-empty-Wit active: excluding Wit (no below-orange bars, all-orange/no-rainbow/≤1 hint, or Akikawa/Etsuko only).",
+            )
+        }
+        trainingScores =
+            trainingMap.values
+                .filter { (!skipLowPriorityWit && !blockEmptyWit) || it.name != StatName.WIT }
+                .associateWith { scoreTraining(trainingConfig, it) }
         skippedScores = skippedTrainingMap.values.associateWith { scoreTraining(trainingConfig, it) }
         best = trainingScores.maxByOrNull { it.value }?.key
 
@@ -1990,17 +2412,22 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             val topSkipped = skippedScores.maxByOrNull { it.value }
             if (topSkipped != null) {
                 val pick = topSkipped.key
-                val mainGain = pick.statGains[pick.name] ?: 0
-                MessageLog.i(
-                    TAG,
-                    "[TRAINING] Analysis rejected all trainings. forceSelection=true → picking highest-scored REJECTED training: " +
-                        "${pick.name} (score=${String.format("%.2f", topSkipped.value)}, fail=${pick.failureChance}%, mainGain=$mainGain). " +
-                        "This selection will execute despite analysis rejection.",
-                )
-                lastSelectionSource = SelectionSource.FORCED_FROM_SKIPPED
-                return pick.name
+                if (!((skipLowPriorityWit || blockEmptyWit) && pick.name == StatName.WIT)) {
+                    val mainGain = pick.statGains[pick.name] ?: 0
+                    MessageLog.i(
+                        TAG,
+                        "[TRAINING] Analysis rejected all trainings. forceSelection=true → picking highest-scored REJECTED training: " +
+                            "${pick.name} (score=${String.format("%.2f", topSkipped.value)}, fail=${pick.failureChance}%, mainGain=$mainGain). " +
+                            "This selection will execute despite analysis rejection.",
+                    )
+                    lastSelectionSource = SelectionSource.FORCED_FROM_SKIPPED
+                    return pick.name
+                }
             }
-            val defaulted = trainingMap.keys.firstOrNull { it !in blacklist }
+            val defaulted =
+                firstSelectableTraining(
+                    excludeLowPriorityWit = skipLowPriorityWit || blockEmptyWit,
+                )
             MessageLog.i(
                 TAG,
                 "[TRAINING] Analysis produced no scored entries. forceSelection=true → defaulting to first non-blacklisted training: ${defaulted ?: "none available"}.",
@@ -2009,7 +2436,10 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             return defaulted
         }
 
-        val unforced = trainingMap.keys.firstOrNull { it !in blacklist }
+        val unforced =
+            firstSelectableTraining(
+                excludeLowPriorityWit = skipLowPriorityWit || blockEmptyWit,
+            )
         MessageLog.i(
             TAG,
             "[TRAINING] Analysis returned no winning training. forceSelection=false → returning first non-blacklisted training: ${unforced ?: "none available"}. Caller decides whether to execute.",
@@ -2017,6 +2447,12 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         lastSelectionSource = SelectionSource.UNFORCED_DEFAULT
         return unforced
     }
+
+    /** First non-blacklisted training in [trainingMap], optionally excluding Wit. */
+    private fun firstSelectableTraining(excludeLowPriorityWit: Boolean): StatName? =
+        trainingMap.keys.firstOrNull { stat ->
+            stat !in blacklist && (!excludeLowPriorityWit || stat != StatName.WIT)
+        }
 
     /**
      * Log detailed selection reasoning and training analysis results for debugging.
@@ -2155,6 +2591,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
             selected.relationshipBars.forEach { bar ->
                 if (bar.isTrainerSupport && bar.trainerName != null) {
+                    if (isAkikawaOrEtsukoBar(bar) && config.trainerFriendshipInfluence <= 0) return@forEach
                     keyFactors.add("${bar.trainerName} is present (special trainer bonus).")
                 }
             }
@@ -2328,6 +2765,494 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     // //////////////////////////////////////////////////////////////////////////////////////////////////
     // //////////////////////////////////////////////////////////////////////////////////////////////////
 
+    /** Returns relationship bars detected on the Wit training option from the latest analysis. */
+    fun getWitRelationshipBars(): List<CustomImageUtils.BarFillResult> =
+        getRelationshipBarsFor(StatName.WIT)
+
+    /** Returns relationship bars for [stat] from the latest analysis or current training maps. */
+    fun getRelationshipBarsFor(stat: StatName): List<CustomImageUtils.BarFillResult> =
+        cachedAnalysisResults?.firstOrNull { it.name == stat }?.relationshipBars
+            ?: trainingMap[stat]?.relationshipBars
+            ?: skippedTrainingMap[stat]?.relationshipBars
+            ?: emptyList()
+
+    private fun relationshipBarsByStatForTrainable(): Map<StatName, List<CustomImageUtils.BarFillResult>> =
+        trainingMap.keys.associateWith { getRelationshipBarsFor(it) }
+
+    private fun findTop3PriorityStatWithFriendshipBarsForCurrentAnalysis(): StatName? =
+        findTop3PriorityStatWithFriendshipBars(
+            statPrioritization = statPrioritization,
+            trainableStats = trainingMap.keys,
+            relationshipBarsByStat = relationshipBarsByStatForTrainable(),
+            minBars = top3FriendshipBarMinimum.coerceAtLeast(1),
+        )
+
+    private fun findTop3PriorityStatWithMainStatGainForCurrentAnalysis(minMainGain: Int): StatName? =
+        findTop3PriorityStatWithMainStatGain(
+            statPrioritization = statPrioritization,
+            trainableStats = trainingMap.keys,
+            mainStatGainByStat = trainingMap.mapValues { (_, option) -> option.statGains[option.name] ?: 0 },
+            minMainGain = minMainGain,
+        )
+
+    /**
+     * Returns true when a Wit energy-recovery path should back out for rest/recreation instead.
+     * Turn 75 is excluded by callers since resting on the final turn has no benefit.
+     */
+    /** True during pre-debut and Junior year when friendship scoring takes priority over stat efficiency. */
+    fun isFriendshipPriorityYear(): Boolean = campaign.date.bIsPreDebut || campaign.date.year == DateYear.JUNIOR
+
+    private fun hasSummerTop3WitOverrideForCurrentAnalysis(): Boolean =
+        Companion.hasSummerTop3WitOverride(
+            statPrioritization = statPrioritization,
+            trainableStats = trainingMap.keys,
+            mainStatGainByStat = trainingMap.mapValues { (_, option) -> option.statGains[option.name] ?: 0 },
+            numRainbowByStat = trainingMap.mapValues { (_, option) -> option.numRainbow },
+        )
+
+    /**
+     * Summer: Wit with exactly one below-orange bar is selectable when no other training has >1 below-orange bars,
+     * unless a top-3 priority stat has a rainbow or ≥ [SUMMER_TOP3_WIT_OVERRIDE_MIN_MAIN_GAIN] main stat gain.
+     */
+    fun shouldAllowSummerOneBarWitSelection(): Boolean {
+        if (!campaign.date.isSummer() || StatName.WIT !in trainingMap.keys) {
+            return false
+        }
+        val belowOrangeByStat =
+            trainingMap.keys.associateWith { stat ->
+                countNonAkikawaEtsukoFriendshipBarsBelowOrange(getRelationshipBarsFor(stat))
+            }
+        return Companion.shouldAllowSummerOneBarWitSelection(
+            isSummer = true,
+            witBelowOrange = belowOrangeByStat[StatName.WIT] ?: 0,
+            belowOrangeCountByStat = belowOrangeByStat,
+            hasTop3Override = hasSummerTop3WitOverrideForCurrentAnalysis(),
+        )
+    }
+
+    /**
+     * Returns true when Wit should be skipped/excluded from selection.
+     * Classic/Senior: all main stats failed the failure threshold and Wit is not top-3 priority.
+     * Junior/pre-debut: no qualifying Wit friendship bars, or a top-3 priority stat has enough friendship bars (handled via [SelectionSource.FRIENDSHIP_PRIORITY]).
+     */
+    fun shouldSkipLowPriorityWit(): Boolean {
+        if (!skipLowPriorityWitWhenMainStatsFail) {
+            return false
+        }
+        if (campaign.date.day == 75) {
+            return false
+        }
+        if (isWitInTopStatPriorities(statPrioritization)) {
+            return false
+        }
+        if (isFriendshipPriorityYear()) {
+            return shouldSkipLowPriorityWitInFriendshipYear()
+        }
+        if (shouldAllowSummerOneBarWitSelection()) {
+            return false
+        }
+        if (!areAllMainStatsUntrainable(trainingMap.keys)) {
+            return false
+        }
+        return true
+    }
+
+    /** Result of Junior/pre-debut friendship-vs-Wit resolution. */
+    private data class JuniorFriendshipPick(val stat: StatName, val source: SelectionSource, val reason: String)
+
+    /**
+     * Junior/pre-debut friendship priority when Wit is low-priority and [skipLowPriorityWitWhenMainStatsFail] is enabled.
+     *
+     * Compares bar stacks before defaulting to Wit:
+     * - Top-3 with 3+ bars (≥2 below orange) beats Wit with 2 below orange.
+     * - Top-3 with ≥2 below orange beats Wit with 1 below orange.
+     * - Mixed 1-orange / 1-below-orange top-3 stacks only qualify via [enableJuniorTop3MainStatGainPriority] when main gain meets [juniorTop3MainStatGainMinimum]
+     *   (main-gain minimum bypasses bar comparison and can beat Wit with below-orange bars).
+     */
+    private fun resolveJuniorPreDebutFriendshipPick(): JuniorFriendshipPick? {
+        if (!skipLowPriorityWitWhenMainStatsFail || !isFriendshipPriorityYear() || isWitInTopStatPriorities(statPrioritization)) {
+            return null
+        }
+
+        val minWitBars = witTrainingFriendshipBarMinimum.coerceAtLeast(1)
+        val minTop3Bars = top3FriendshipBarMinimum.coerceAtLeast(1)
+        val minMainGain = juniorTop3MainStatGainMinimum.coerceAtLeast(1)
+        val witBarCount = countNonAkikawaEtsukoFriendshipBarsBelowOrange(getWitRelationshipBars())
+        val witTrainable = StatName.WIT in trainingMap.keys
+
+        val eligibleTop3Stat =
+            statPrioritization.take(3).firstOrNull { stat ->
+                if (stat == StatName.WIT || stat !in trainingMap.keys) {
+                    return@firstOrNull false
+                }
+                val mainGain = trainingMap[stat]?.statGains?.get(stat) ?: 0
+                isJuniorTop3FriendshipCandidateEligible(
+                    qualifyingFriendshipBarStats(getRelationshipBarsFor(stat)),
+                    mainGain,
+                    minTop3Bars,
+                    enableJuniorTop3MainStatGainPriority,
+                    minMainGain,
+                    witBarCount,
+                )
+            }
+
+        if (eligibleTop3Stat != null) {
+            val top3Stats = qualifyingFriendshipBarStats(getRelationshipBarsFor(eligibleTop3Stat))
+            if (shouldTop3FriendshipBeatWit(top3Stats, witBarCount)) {
+                return JuniorFriendshipPick(
+                    stat = eligibleTop3Stat,
+                    source = SelectionSource.FRIENDSHIP_PRIORITY,
+                    reason =
+                        "Junior/pre-debut friendship priority: selecting top-3 stat $eligibleTop3Stat " +
+                            "(stack ${top3Stats.total} bar(s), ${top3Stats.belowOrange} below orange) over Wit ($witBarCount below orange).",
+                )
+            }
+        }
+
+        if (enableJuniorTop3MainStatGainPriority) {
+            val mainGainPriorityStat = findTop3PriorityStatWithMainStatGainForCurrentAnalysis(minMainGain)
+            if (mainGainPriorityStat != null) {
+                val mainGain = trainingMap[mainGainPriorityStat]?.statGains?.get(mainGainPriorityStat) ?: 0
+                val mainGainStats = qualifyingFriendshipBarStats(getRelationshipBarsFor(mainGainPriorityStat))
+                val mixedBypass =
+                    isSingleOrangeSingleBelowOrangePattern(mainGainStats) &&
+                        enableJuniorTop3MainStatGainPriority &&
+                        mainGain >= minMainGain
+                return JuniorFriendshipPick(
+                    stat = mainGainPriorityStat,
+                    source = SelectionSource.MAIN_STAT_GAIN_PRIORITY,
+                    reason =
+                        "Junior/pre-debut main-stat priority: selecting top-3 stat $mainGainPriorityStat " +
+                            "(main gain $mainGain ≥ $minMainGain" +
+                            if (mixedBypass) {
+                                "; mixed 1-orange/1-below-orange stack — main-gain bypass over Wit ($witBarCount below orange)"
+                            } else {
+                                "; Wit had $witBarCount qualifying bar(s) below orange"
+                            } +
+                            ").",
+                )
+            }
+        }
+
+        if (witTrainable && witBarCount >= minWitBars) {
+            return JuniorFriendshipPick(
+                stat = StatName.WIT,
+                source = SelectionSource.FRIENDSHIP_PRIORITY,
+                reason =
+                    "Junior/pre-debut friendship priority: selecting Wit ($witBarCount qualifying bar(s) below orange; need ≥$minWitBars)" +
+                        if (eligibleTop3Stat != null) {
+                            " over top-3 alternative $eligibleTop3Stat (bar comparison did not favor top-3)."
+                        } else {
+                            " (Akikawa/Etsuko excluded)."
+                        },
+            )
+        }
+
+        if (eligibleTop3Stat != null) {
+            val top3Stats = qualifyingFriendshipBarStats(getRelationshipBarsFor(eligibleTop3Stat))
+            return JuniorFriendshipPick(
+                stat = eligibleTop3Stat,
+                source = SelectionSource.FRIENDSHIP_PRIORITY,
+                reason =
+                    "Junior/pre-debut friendship priority: selecting top-3 stat $eligibleTop3Stat " +
+                        "(${top3Stats.belowOrange} below-orange bar(s); Wit had $witBarCount, need ≥$minWitBars).",
+            )
+        }
+
+        MessageLog.i(
+            TAG,
+            "[TRAINING] Junior/pre-debut friendship priority: no pick (Wit $witBarCount below-orange bar(s), need ≥$minWitBars; no eligible top-3 target).",
+        )
+        return null
+    }
+
+    /** Returns true when Wit should be excluded from scoring during Junior/pre-debut friendship-priority turns. */
+    private fun shouldSkipLowPriorityWitInFriendshipYear(): Boolean {
+        val pick = resolveJuniorPreDebutFriendshipPick()
+        return pick == null || pick.stat != StatName.WIT
+    }
+
+    fun shouldPreferRestOverWitTraining(): Boolean {
+        if (!preferRestOverWitTraining) {
+            return false
+        }
+
+        if (isWitInTopStatPriorities(statPrioritization)) {
+            return false
+        }
+
+        if (enableWitTrainingFriendshipBarException && witTrainingFriendshipBarMinimum > 0) {
+            val barCount = countNonAkikawaEtsukoFriendshipBarsBelowOrange(getWitRelationshipBars())
+            if (barCount >= witTrainingFriendshipBarMinimum) {
+                MessageLog.i(
+                    TAG,
+                    "[TRAINING] Prefer-rest-over-Wit exception: $barCount non-trainer friendship bar(s) below orange on Wit (threshold: $witTrainingFriendshipBarMinimum). Proceeding with Wit.",
+                )
+                return false
+            }
+        }
+
+        if (shouldAllowSummerOneBarWitSelection()) {
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Prefer-rest-over-Wit summer exception: Wit has 1 below-orange bar, no other training has >1 below-orange, and no top-3 rainbow/≥${SUMMER_TOP3_WIT_OVERRIDE_MIN_MAIN_GAIN} main-gain override. Proceeding with Wit.",
+            )
+            return false
+        }
+
+        MessageLog.i(TAG, "[TRAINING] Prefer-rest-over-Wit enabled: skipping Wit for rest/recreation recovery.")
+        return true
+    }
+
+    /** Configured maximum failure chance before risky-training overrides apply. */
+    fun getMaximumFailureChance(): Int = maximumFailureChance
+
+    /** Effective failure ceiling for a training option, including risky-training overrides. */
+    fun effectiveFailureThresholdForMainGain(mainStatGain: Int): Int =
+        Companion.effectiveFailureThresholdForMainGain(
+            mainStatGain,
+            maximumFailureChance,
+            enableRiskyTraining,
+            riskyTrainingMinStatGain,
+            riskyTrainingMaxFailureChance,
+        )
+
+    /** True when [failureChance] exceeds the allowed threshold for [mainStatGain]. */
+    fun exceedsFailureThreshold(failureChance: Int, mainStatGain: Int): Boolean =
+        Companion.exceedsFailureThreshold(
+            failureChance,
+            mainStatGain,
+            maximumFailureChance,
+            enableRiskyTraining,
+            riskyTrainingMinStatGain,
+            riskyTrainingMaxFailureChance,
+        )
+
+    /**
+     * True when [stat] must not execute without Good-Luck Charm applied (or Climax force-charm active).
+     * Used after the training-item pass to catch cases where analysis assumed a charm would fire but it did not.
+     */
+    fun requiresFailureMitigationBeforeExecute(
+        failureChance: Int,
+        mainStatGain: Int,
+        charmUsed: Boolean,
+        climaxForceCharm: Boolean,
+    ): Boolean =
+        Companion.requiresFailureMitigationBeforeExecute(
+            failureChance,
+            mainStatGain,
+            charmUsed,
+            climaxForceCharm,
+            maximumFailureChance,
+            enableRiskyTraining,
+            riskyTrainingMinStatGain,
+            riskyTrainingMaxFailureChance,
+        )
+
+    /** Snapshot of failure chances from the current analysis, used before training-item passes alter the screen. */
+    fun capturePreItemFailureSnapshot(): Map<StatName, Int> =
+        cachedAnalysisResults?.associate { it.name to it.failureChance }
+            ?: trainingMap.mapValues { it.value.failureChance }
+
+    /** Wit option from the latest analysis (trainable or skipped). */
+    private fun witTrainingOption(): TrainingOption? =
+        trainingMap[StatName.WIT] ?: skippedTrainingMap[StatName.WIT]
+
+    /**
+     * All qualifying Uma/Riko/Sirius bars are orange, Wit has no rainbow, and at most one skill hint.
+     * Blocked by [shouldBlockEmptyWitTraining] unless Wit is in top-3 priority or the friendship-bar exception applies.
+     */
+    private fun isAllOrangeNoRainbowLowHintWit(): Boolean {
+        val witBars = getWitRelationshipBars()
+        val stats = qualifyingFriendshipBarStats(witBars)
+        if (stats.belowOrange > 0 || stats.orange == 0) {
+            return false
+        }
+        val witOption = witTrainingOption() ?: return false
+        return witOption.numRainbow == 0 && witOption.numSkillHints <= 1
+    }
+
+    /**
+     * Returns true when Wit training should be blocked because it has no qualifying friendship bars.
+     * Wit in top-3 stat prioritization and the friendship-bar exception bypass this rule.
+     * Also blocks all-orange/no-rainbow Wit unless Wit has more than one skill hint.
+     */
+    fun shouldBlockEmptyWitTraining(): Boolean {
+        if (!enableNeverClickEmptyWitTraining) {
+            return false
+        }
+        if (isWitInTopStatPriorities(statPrioritization)) {
+            return false
+        }
+        val witBarCount = countNonAkikawaEtsukoFriendshipBarsBelowOrange(getWitRelationshipBars())
+        if (enableWitTrainingFriendshipBarException && witBarCount >= witTrainingFriendshipBarMinimum.coerceAtLeast(1)) {
+            return false
+        }
+        if (shouldAllowSummerOneBarWitSelection()) {
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Summer one-bar Wit exception: Wit has 1 below-orange bar, no other training has >1 below-orange, and no top-3 rainbow/≥${SUMMER_TOP3_WIT_OVERRIDE_MIN_MAIN_GAIN} main-gain override.",
+            )
+            return false
+        }
+        if (isAllOrangeNoRainbowLowHintWit()) {
+            val hints = witTrainingOption()?.numSkillHints ?: 0
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Blocking Wit: all qualifying Uma/Riko/Sirius bars are orange, no rainbow, and Wit has $hints skill hint(s) (need >1 to bypass).",
+            )
+            return true
+        }
+        return witBarCount == 0
+    }
+
+    /**
+     * Validates a training pick after Good-Luck Charm and/or energy items were queued on the training screen.
+     * Keeps pre-item Wit failure in mind when charm zeroed on-screen failure for low-priority Wit.
+     */
+    fun isTrainingSelectionAllowedAfterItems(
+        stat: StatName,
+        preItemFailure: Map<StatName, Int>,
+        charmUsed: Boolean,
+    ): Boolean {
+        if (stat == StatName.WIT && shouldBlockEmptyWitTraining()) {
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Post-item recheck blocking Wit: empty/all-orange low-hint Wit (no qualifying below-orange bars, or all orange without rainbow and ≤1 hint; Akikawa/Etsuko excluded).",
+            )
+            return false
+        }
+
+        if (stat == StatName.WIT && charmUsed && !isLuckyCharmAllowedForSelection(StatName.WIT)) {
+            val preFail = preItemFailure[StatName.WIT] ?: return true
+            val threshold =
+                if (enableRiskyTraining) {
+                    riskyTrainingMaxFailureChance
+                } else {
+                    maximumFailureChance
+                }
+            if (preFail > threshold) {
+                if (enableWitTrainingFriendshipBarException) {
+                    val bars = countNonAkikawaEtsukoFriendshipBarsBelowOrange(getWitRelationshipBars())
+                    if (bars >= witTrainingFriendshipBarMinimum.coerceAtLeast(1)) {
+                        return true
+                    }
+                }
+                if (shouldAllowSummerOneBarWitSelection()) {
+                    return true
+                }
+                MessageLog.i(
+                    TAG,
+                    "[TRAINING] Post-item recheck blocking Wit: pre-item failure ($preFail%) exceeds threshold ($threshold%) and Wit is low-priority without friendship-bar exception.",
+                )
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /** Whether Good-Luck Charm may be applied to the given training selection. */
+    fun isLuckyCharmAllowedForSelection(statName: StatName?): Boolean =
+        statName == null ||
+            isLuckyCharmAllowedForStat(
+                statName,
+                enableLuckyCharmWitTraining,
+                isWitInTopStatPriorities(statPrioritization),
+            )
+
+    /**
+     * True when any trainable option shows at least one qualifying Uma/Riko/Sirius orange friendship bar
+     * (Akikawa/Etsuko excluded). Required before rainbow-based whistle priority can fire.
+     */
+    fun hasQualifyingOrangeFriendshipOnScreen(): Boolean =
+        trainingMap.values.any { option ->
+            qualifyingFriendshipBarStats(option.relationshipBars).orange > 0
+        }
+
+    /**
+     * Returns true when a top-3 [priorityList] stat is trainable with at least [minRainbows] rainbow supports,
+     * but only after [hasQualifyingOrangeFriendshipOnScreen] is true.
+     */
+    fun hasTrainableTopPriorityTrainingWithRainbows(priorityList: List<StatName>, minRainbows: Int): Boolean {
+        if (minRainbows <= 0 || !hasQualifyingOrangeFriendshipOnScreen()) {
+            return false
+        }
+        return priorityList.take(3).any { stat ->
+            val option = trainingMap[stat]
+            option != null && option.numRainbow >= minRainbows
+        }
+    }
+
+    /** Highest-priority top-3 stat that is trainable with sufficient rainbows (orange friendship gate applies). */
+    fun selectBestTrainableTopPriorityTrainingWithRainbows(priorityList: List<StatName>, minRainbows: Int): StatName? {
+        if (minRainbows <= 0 || !hasQualifyingOrangeFriendshipOnScreen()) {
+            return null
+        }
+        return priorityList.take(3).firstOrNull { stat ->
+            val option = trainingMap[stat]
+            option != null && option.numRainbow >= minRainbows
+        }
+    }
+
+    /**
+     * During the Climax phase, pick the analyzed stat with the highest current value that is not at cap.
+     * Respects blacklist and maxed-stat settings.
+     */
+    fun selectHighestNonMaxedStatForClimax(): StatName? {
+        val currentStats = campaign.trainee.stats.asMap()
+        val analyzedStats = cachedAnalysisResults?.map { it.name }?.toSet() ?: emptySet()
+
+        fun isTrainable(stat: StatName): Boolean {
+            if (stat in blacklist || stat !in analyzedStats) {
+                return false
+            }
+
+            val currentStat = currentStats[stat] ?: 0
+            val statCap = getCurrentStatCap(stat)
+            if (currentStat >= statCap) {
+                return false
+            }
+
+            if (disableTrainingOnMaxedStat) {
+                val finaleBonus = getFinaleStatBonus(campaign.date.day)
+                val effectiveStatCap = statCap - 100 - finaleBonus
+                if (currentStat >= effectiveStatCap) {
+                    return false
+                }
+            }
+
+            return true
+        }
+
+        val selected = StatName.entries.filter { isTrainable(it) }.maxByOrNull { currentStats[it] ?: 0 }
+        if (selected != null) {
+            lastSelectionSource = SelectionSource.CLIMAX_CHARM
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Climax Good-Luck Charm training: selecting highest non-maxed stat $selected (current value: ${currentStats[selected]}).",
+            )
+        } else {
+            MessageLog.w(TAG, "[WARN] selectHighestNonMaxedStatForClimax:: No non-maxed analyzed stat available for Climax charm training.")
+        }
+        return selected
+    }
+
+    /** Backs out of the Training screen and attempts rest/recreation energy recovery on the Main screen. */
+    private fun backOutOfTrainingForRecovery(reason: String): Boolean {
+        MessageLog.i(TAG, "[TRAINING] $reason")
+        ButtonBack.click(game.imageUtils)
+        game.wait(game.trainingWaitDelay)
+        return if (campaign.checkMainScreen()) {
+            campaign.recoverEnergy()
+            firstTrainingCheck = false
+            true
+        } else {
+            MessageLog.w(TAG, "[WARN] backOutOfTrainingForRecovery:: Could not return to the Main screen.")
+            false
+        }
+    }
+
     /**
      * Handle the training process for the current turn.
      *
@@ -2347,9 +3272,17 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             // Upon going to the training screen, there is a short animation
             // on the training header icon. We need to make sure this is finished
             // before we can properly begin analyzing the screen.
-            game.wait(0.5)
+            game.wait(game.trainingWaitDelay)
             // Acquire the percentages and stat gains for each training.
             analyzeTrainings()
+
+            if (forceStat == StatName.WIT && shouldPreferRestOverWitTraining()) {
+                backOutOfTrainingForRecovery("Forced Wit skipped (prefer rest/recreation over Wit).")
+                MessageLog.v(TAG, "[TRAINING] Training process completed. Total time: ${System.currentTimeMillis() - startTime}ms")
+                MessageLog.v(TAG, "********************")
+                return null
+            }
+
             trainingSelected =
                 if (forceStat != null) {
                     MessageLog.i(TAG, "[TRAINING] forceStat override active — selecting $forceStat without running recommendTraining.")
@@ -2358,34 +3291,62 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     recommendTraining()
                 }
 
+            if (trainingSelected == null && !trainingMap.isEmpty() && shouldSkipLowPriorityWit()) {
+                backOutOfTrainingForRecovery(
+                    "Low-priority Wit skipped (Speed/Stamina/Power/Guts all over failure threshold and Wit not in top-3 stat priority).",
+                )
+                MessageLog.v(TAG, "[TRAINING] Training process completed. Total time: ${System.currentTimeMillis() - startTime}ms")
+                MessageLog.v(TAG, "********************")
+                return null
+            }
+
             if (trainingMap.isEmpty()) {
                 // Check if we should force Wit training during the Finale instead of recovering energy.
                 // Always force Wit on turn 75 since recovering energy on the very last turn is completely useless.
                 if ((trainWitDuringFinale && campaign.date.day > 72) || campaign.date.day == 75) {
-                    if (campaign.date.day == 75) {
+                    if (campaign.date.day != 75 && shouldPreferRestOverWitTraining()) {
+                        backOutOfTrainingForRecovery("Finale Wit skipped (prefer rest/recreation over Wit).")
+                    } else if (campaign.date.day != 75 && shouldSkipLowPriorityWit()) {
+                        backOutOfTrainingForRecovery("Finale Wit skipped (low-priority Wit rule).")
+                    } else if (campaign.date.day == 75) {
                         MessageLog.v(TAG, "[TRAINING] It is the final turn. Forcing Wit training instead of recovering energy since resting provides zero benefit now.")
+                        // Directly attempt to tap Wit training.
+                        if (ButtonTrainingWit.click(game.imageUtils, taps = 3)) {
+                            game.waitForLoading()
+                            MessageLog.v(TAG, "[TRAINING] Successfully forced Wit training during the Finale instead of recovering energy.")
+                            firstTrainingCheck = false
+                        } else {
+                            MessageLog.w(TAG, "[WARN] handleTraining:: Could not find Wit training button. Falling back to recovering energy...")
+                            ButtonBack.click(game.imageUtils)
+                            game.wait(game.trainingWaitDelay, skipWaitingForLoading = true)
+                            if (campaign.checkMainScreen()) {
+                                campaign.recoverEnergy()
+                            } else {
+                                MessageLog.w(TAG, "[WARN] handleTraining:: Could not head back to the Main screen in order to recover energy.")
+                            }
+                        }
                     } else {
                         MessageLog.v(TAG, "[TRAINING] There is not enough energy for training to be done but the setting to train Wit during the Finale is enabled. Forcing Wit training...")
-                    }
-                    // Directly attempt to tap Wit training.
-                    if (ButtonTrainingWit.click(game.imageUtils, taps = 3)) {
-                        game.waitForLoading()
-                        MessageLog.v(TAG, "[TRAINING] Successfully forced Wit training during the Finale instead of recovering energy.")
-                        firstTrainingCheck = false
-                    } else {
-                        MessageLog.w(TAG, "[WARN] handleTraining:: Could not find Wit training button. Falling back to recovering energy...")
-                        ButtonBack.click(game.imageUtils)
-                        game.wait(1.0)
-                        if (campaign.checkMainScreen()) {
-                            campaign.recoverEnergy()
+                        // Directly attempt to tap Wit training.
+                        if (ButtonTrainingWit.click(game.imageUtils, taps = 3)) {
+                            game.waitForLoading()
+                            MessageLog.v(TAG, "[TRAINING] Successfully forced Wit training during the Finale instead of recovering energy.")
+                            firstTrainingCheck = false
                         } else {
-                            MessageLog.w(TAG, "[WARN] handleTraining:: Could not head back to the Main screen in order to recover energy.")
+                            MessageLog.w(TAG, "[WARN] handleTraining:: Could not find Wit training button. Falling back to recovering energy...")
+                            ButtonBack.click(game.imageUtils)
+                            game.wait(game.trainingWaitDelay, skipWaitingForLoading = true)
+                            if (campaign.checkMainScreen()) {
+                                campaign.recoverEnergy()
+                            } else {
+                                MessageLog.w(TAG, "[WARN] handleTraining:: Could not head back to the Main screen in order to recover energy.")
+                            }
                         }
                     }
                 } else {
                     MessageLog.v(TAG, "[TRAINING] Backing out of Training and returning on the Main screen.")
                     ButtonBack.click(game.imageUtils)
-                    game.wait(1.0)
+                    game.wait(game.trainingWaitDelay, skipWaitingForLoading = true)
 
                     if (campaign.checkMainScreen()) {
                         if (restrictedTrainingNames.size == StatName.entries.size || (restrictedTrainingNames.size + blacklist.size) >= StatName.entries.size) {
@@ -2398,6 +3359,14 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                         MessageLog.w(TAG, "[WARN] handleTraining:: Could not head back to the Main screen in order to recover energy.")
                     }
                 }
+            } else if (trainingSelected == StatName.WIT && forceStat == null && shouldSkipLowPriorityWit()) {
+                backOutOfTrainingForRecovery(
+                    "Low-priority Wit skipped (Speed/Stamina/Power/Guts all over failure threshold and Wit not in top-3 stat priority).",
+                )
+            } else if (trainingSelected == StatName.WIT && forceStat == null && shouldBlockEmptyWitTraining()) {
+                backOutOfTrainingForRecovery(
+                    "Empty Wit training skipped (no qualifying Uma/Riko/Sirius bars below orange; Akikawa/Etsuko excluded).",
+                )
             } else {
                 // Now select the training option with the highest weight.
                 executeTraining(trainingSelected)
@@ -2420,8 +3389,35 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     fun executeTraining(trainingSelected: StatName?) {
         MessageLog.v(TAG, "[TRAINING] Now starting process to execute $trainingSelected training...")
 
+        if (trainingSelected == StatName.WIT && shouldBlockEmptyWitTraining()) {
+            MessageLog.w(TAG, "[WARN] executeTraining:: Blocking Wit (empty/all-orange low-hint per never-click-empty-Wit rules).")
+            return
+        }
+
+        if (trainingSelected != null && trainingMap[trainingSelected] == null) {
+            val skipped = skippedTrainingMap[trainingSelected]
+            if (skipped != null) {
+                val mainGain = skipped.statGains[trainingSelected] ?: 0
+                if (exceedsFailureThreshold(skipped.failureChance, mainGain)) {
+                    MessageLog.w(
+                        TAG,
+                        "[WARN] executeTraining:: Refusing rejected $trainingSelected training (${skipped.failureChance}% failure, skip=${skipped.skipReason}).",
+                    )
+                    return
+                }
+            }
+        }
+
         if (trainingSelected != null) {
             MessageLog.v(TAG, "[TRAINING] Executing the $trainingSelected Training.\n")
+            val trainingOption = trainingMap[trainingSelected] ?: skippedTrainingMap[trainingSelected]
+            RunSummaryTracker.recordTrainingExecution(
+                training = trainingSelected,
+                statGains = trainingOption?.statGains ?: emptyMap(),
+            )
+            trainingOption?.relationshipBars?.forEach { bar ->
+                RunSummaryTracker.recordSupportName(bar.trainerName)
+            }
 
             // Check if this training is a rainbow training that exceeds the stat cap buffer.
             val training = trainingMap[trainingSelected]

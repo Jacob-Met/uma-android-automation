@@ -93,6 +93,9 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+/** When true, builds a side-by-side install (com.steve1316.uma_android_automation.dev) so the APK does not replace the release app. */
+def sideBySideInstall = (findProperty('sideBySideInstall') ?: 'false').toBoolean()
+
 android {
     ndkVersion rootProject.ext.ndkVersion
 
@@ -107,6 +110,11 @@ android {
         targetSdkVersion libs.versions.app.targetSdk.get() as Integer
         versionCode libs.versions.app.versionCode.get() as Integer
         versionName libs.versions.app.versionName.get()
+
+        if (sideBySideInstall) {
+            applicationIdSuffix '.dev'
+            versionNameSuffix '-dev'
+        }
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -180,6 +188,11 @@ android {
         // Allow layout XMLs to get a reference to the application's version number.
         variant.resValue("string", "versionName", "v${variant.versionName}")
 
+        if (sideBySideInstall) {
+            variant.resValue("string", "app_name", "ウマ娘 Android Automation (Dev)")
+            variant.resValue("string", "title_activity_main", "ウマ娘 Automation (Dev)")
+        }
+
         // Auto-generate the file name.
         // To access the output file name, the apk variants must be explicitly cast to,
         // as in the previous groovy version (where they were implicitly cast).
@@ -188,6 +201,23 @@ android {
             def versionName = variant.versionName
             def architecture = output.filters.first().identifier
             output.outputFileName = "v${versionName}-UmaAndroidAutomation-${architecture}-${type}.apk"
+        }
+
+        variant.assembleProvider.configure { assembleTask ->
+            assembleTask.doLast {
+                def exportDir = new File(new File(projectRoot).parentFile, "apk")
+                exportDir.mkdirs()
+                variant.outputs.each { output ->
+                    def apkFile = output.outputFile
+                    if (apkFile?.exists()) {
+                        project.copy {
+                            from apkFile
+                            into exportDir
+                        }
+                        logger.lifecycle("Exported APK to ${exportDir}/${apkFile.name}")
+                    }
+                }
+            }
         }
     }
 

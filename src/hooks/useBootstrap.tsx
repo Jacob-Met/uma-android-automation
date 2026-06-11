@@ -29,15 +29,21 @@ export const useBootstrap = () => {
             mlc.addMessageToLog(data.id, data.message)
         })
 
+        const umaPresetSubscription = DeviceEventEmitter.addListener("UmaPresetApplied", async (data: { umaName?: string; presetName?: string }) => {
+            logWithTimestamp(`[Bootstrap] Uma preset applied for ${data?.umaName ?? "unknown"} (${data?.presetName ?? "unknown"}). Reloading settings in UI.`)
+            await loadSettings(true)
+        })
+
         // Start the JS-thread block detector so any sustained > 100 ms blocks surface in logcat
         // as `[BLOCK]` warnings. Cheap when idle; gated by `PerformanceLogger.ENABLED`.
         const stopBlockDetector = startJsThreadBlockDetector(100)
 
         return () => {
             messageLogSubscription.remove()
+            umaPresetSubscription.remove()
             stopBlockDetector()
         }
-    }, [])
+    }, [loadSettings])
 
     // Initialize database and populate data after the first paint so the splash can render.
     useEffect(() => {

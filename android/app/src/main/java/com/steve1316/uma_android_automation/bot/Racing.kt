@@ -18,6 +18,7 @@ import com.steve1316.uma_android_automation.components.ButtonNext
 import com.steve1316.uma_android_automation.components.ButtonNextRaceEnd
 import com.steve1316.uma_android_automation.components.ButtonOk
 import com.steve1316.uma_android_automation.components.ButtonRace
+import com.steve1316.uma_android_automation.components.ButtonRaceAgain
 import com.steve1316.uma_android_automation.components.ButtonRaceAgendaLoadList
 import com.steve1316.uma_android_automation.components.ButtonRaceExclamation
 import com.steve1316.uma_android_automation.components.ButtonRaceListFullStats
@@ -48,6 +49,7 @@ import com.steve1316.uma_android_automation.types.RaceGrade
 import com.steve1316.uma_android_automation.types.RunningStyle
 import com.steve1316.uma_android_automation.types.TrackDistance
 import com.steve1316.uma_android_automation.types.TrackSurface
+import com.steve1316.uma_android_automation.utils.RunSummaryTracker
 import com.steve1316.uma_android_automation.utils.CustomImageUtils.RaceDetails
 import com.steve1316.uma_android_automation.utils.LogStreamServer
 import net.ricecode.similarity.JaroWinklerStrategy
@@ -112,6 +114,18 @@ class Racing(private val game: Game, private val campaign: Campaign) {
     /** Whether to skip Summer training to do races from the in-game agenda. */
     val skipSummerTrainingForAgenda = SettingsHelper.getBooleanSetting("racing", "skipSummerTrainingForAgenda")
 
+    /**
+     * When enabled (default), always skip race simulation via View Results and never tap Race Again.
+     * When disabled, runs the full race simulation via the manual race button on the prep screen.
+     */
+    val enableSkipRaceSimulation: Boolean = SettingsHelper.getBooleanSetting("racing", "enableSkipRaceSimulation", true)
+
+    /** Extra pacing while loading and selecting the in-game race agenda. */
+    private val agendaWaitDelay: Double = SettingsHelper.getDoubleSetting("racing", "agendaWaitDelay", 0.5)
+
+    /** Extra pacing after opening the running-style dialog when per-distance strategy is enabled. */
+    private val raceStrategyWaitDelay: Double = SettingsHelper.getDoubleSetting("racing", "raceStrategyWaitDelay", 0.5)
+
     /** The current number of retries available for the run. */
     internal var raceRetries = campaign.getMaxRaceRetries()
 
@@ -144,6 +158,10 @@ class Racing(private val game: Game, private val campaign: Campaign) {
 
     /** Tracks the grade of the last race that was selected. */
     var lastRaceGrade: RaceGrade? = null
+
+    /** Tracks the name of the last race that was selected (from database match when available). */
+    var lastRaceName: String? = null
+
     var lastRaceFans: Int = 0
 
     /** Tracks the distance of the last race that was selected. */
@@ -170,12 +188,6 @@ class Racing(private val game: Game, private val campaign: Campaign) {
     /** Whether per-distance strategy mode is enabled. */
     private val enablePerDistanceStrategy = SettingsHelper.getBooleanSetting("racing", "enablePerDistanceStrategy")
 
-    /** Per-distance Junior Year strategies, keyed by distance name (Short, Mile, Medium, Long). */
-    private val juniorYearPerDistanceStrategies: Map<String, String> = loadPerDistanceStrategies("juniorYearPerDistanceStrategies")
-
-    /** Per-distance Original strategies, keyed by distance name (Short, Mile, Medium, Long). */
-    private val originalPerDistanceStrategies: Map<String, String> = loadPerDistanceStrategies("originalPerDistanceStrategies")
-
     /** Whether the Junior Year strategy override has been applied. */
     private var bHasSetStrategyJunior: Boolean = false
 
@@ -184,6 +196,19 @@ class Racing(private val game: Game, private val campaign: Campaign) {
 
     /** A control flag used between the dialog handler and [selectRaceStrategy]. Only set when a strategy is selected in the dialog handler and unset at the beginning of [selectRaceStrategy]. */
     var bHasSetTemporaryRunningStyle: Boolean = false
+
+    /**
+     * Remembers the last per-distance strategy context the bot successfully applied so [selectRaceStrategy] can
+     * re-open the running-style dialog when the distance bucket or year map (Junior vs Classic/Senior) changes.
+     */
+    private var lastPerDistanceStrategyContext: PerDistanceStrategyContext? = null
+
+    /** Snapshot of the inputs that drive per-distance running-style selection for a single race. */
+    private data class PerDistanceStrategyContext(
+        val distanceKey: String?,
+        val isJuniorYear: Boolean,
+        val strategy: String,
+    )
 
     /** The maximum number of retries allowed per race, provided by the campaign. */
     private val maxRetriesPerRace: Int = campaign.getMaxRetriesPerRace()
@@ -379,7 +404,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         game.waitForLoading()
 
         // Wait for any dialog (e.g. consecutive race warning) to appear before checking.
-        game.wait(game.dialogWaitDelay)
+        game.wait(agendaWaitDelay)
 
         // We are forced to race, so we need to ignore this warning dialog.
         campaign.handleDialogs(args = mapOf("overrideIgnoreConsecutiveRaceWarning" to true))
@@ -389,7 +414,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         MessageLog.i(TAG, "[RACE] Loading user's in-game race agenda: $effectiveAgendaName")
 
         // It is assumed that the user is already at the screen with the list of selectable races.
-        game.wait(game.dialogWaitDelay)
+        game.wait(agendaWaitDelay)
 
         // Taps on the Agenda button.
         if (!ButtonAgenda.click(game.imageUtils)) {
@@ -398,18 +423,18 @@ class Racing(private val game: Game, private val campaign: Campaign) {
             game.waitForLoading()
             return
         }
-        game.wait(game.dialogWaitDelay)
+        game.wait(agendaWaitDelay)
 
         // Taps on the My Agenda button.
         if (!ButtonMyAgendas.click(game.imageUtils)) {
             MessageLog.w(TAG, "[WARN] loadUserRaceAgenda:: Could not find the My Agenda button. Closing and backing out.")
             ButtonClose.click(game.imageUtils)
-            game.wait(0.5)
+            game.wait(agendaWaitDelay)
             ButtonBack.click(game.imageUtils)
             game.waitForLoading()
             return
         }
-        game.wait(game.dialogWaitDelay)
+        game.wait(agendaWaitDelay)
 
         // Check if an agenda is already loaded.
         // If so, then the user must have loaded this earlier in the career so no need to select it again.
@@ -419,13 +444,13 @@ class Racing(private val game: Game, private val campaign: Campaign) {
             // Mark as loaded so we don't try again this run and close the popup.
             hasLoadedUserRaceAgenda = true
             ButtonClose.click(game.imageUtils)
-            game.wait(0.5)
+            game.wait(agendaWaitDelay)
             ButtonClose.click(game.imageUtils)
-            game.wait(0.5)
+            game.wait(agendaWaitDelay)
 
             // Now back out of the race selection screen.
             ButtonBack.click(game.imageUtils)
-            game.wait(0.5)
+            game.wait(agendaWaitDelay)
             return
         }
 
@@ -540,7 +565,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                     val swipeY = closeButtonLocation.y.toFloat()
                     MessageLog.i(TAG, "[RACE] Swiping up to reveal more agendas (attempt ${swipeCount + 1}/$maxSwipes)...")
                     game.gestureUtils.swipe(swipeX, swipeY - 300f, swipeX, swipeY - 400f)
-                    game.wait(0.5)
+                    game.wait(agendaWaitDelay)
                 } else {
                     // If we can't find the close button for reference, try using the first Load List button.
                     if (loadListButtonLocations.isNotEmpty()) {
@@ -548,7 +573,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                         val swipeY = loadListButtonLocations[0].y.toFloat()
                         MessageLog.i(TAG, "[RACE] Swiping up using Load List button reference (attempt ${swipeCount + 1}/$maxSwipes)...")
                         game.gestureUtils.swipe(swipeX, swipeY - 300f, swipeX, swipeY - 400f)
-                        game.wait(0.5)
+                        game.wait(agendaWaitDelay)
                     }
                 }
                 swipeCount++
@@ -873,8 +898,22 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         val bShouldSetStrategyOriginal = isPastJuniorYear && bHasSetStrategyJunior && !bHasSetStrategyOriginal
 
         when {
-            // Per-distance mode requires setting strategy before every race since different distances may have different strategies.
-            enablePerDistanceStrategy -> MessageLog.i(TAG, "[RACE] Per-distance strategy enabled. Setting strategy for current race.")
+            enablePerDistanceStrategy -> {
+                refreshLastRaceDistanceForPerDistanceStrategy()
+                val resolvedStrategy = resolveStrategyForCurrentRace(isJuniorYear)
+                val currentContext =
+                    PerDistanceStrategyContext(
+                        distanceKey = lastRaceDistance?.toSettingsKey(),
+                        isJuniorYear = isJuniorYear,
+                        strategy = resolvedStrategy,
+                    )
+                if (lastPerDistanceStrategyContext == currentContext && campaign.trainee.bHasSetRunningStyle) {
+                    MessageLog.i(TAG, "[RACE] Per-distance strategy already applied for $currentContext. Skipping.")
+                    return true
+                }
+                MessageLog.i(TAG, "[RACE] Per-distance strategy enabled. Setting strategy for current race (context=$currentContext).")
+            }
+
             bShouldSetStrategyJunior -> MessageLog.i(TAG, "[RACE] Junior Year detected. Applying Junior race strategy override: $juniorYearRaceStrategy")
             bShouldSetStrategyOriginal -> MessageLog.i(TAG, "[RACE] Past Junior Year detected. Reverting to original race strategy: $userSelectedOriginalStrategy")
             !campaign.trainee.bHasSetRunningStyle -> MessageLog.i(TAG, "[RACE] Setting initial race strategy for unknown date.")
@@ -886,7 +925,8 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         while (System.currentTimeMillis() - startTime < timeoutMs) {
             MessageLog.d(TAG, "[DEBUG] selectRaceStrategy:: Changing race strategy. Attempt #${numTries + 1}")
             if (ButtonChangeRunningStyle.click(game.imageUtils)) {
-                game.wait(game.dialogWaitDelay, skipWaitingForLoading = true)
+                val strategyWaitDelay = if (enablePerDistanceStrategy) raceStrategyWaitDelay else game.dialogWaitDelay
+                game.wait(strategyWaitDelay, skipWaitingForLoading = true)
             }
 
             campaign.handleDialogs()
@@ -901,6 +941,17 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         when {
             !bHasSetTemporaryRunningStyle -> {
                 MessageLog.w(TAG, "[WARN] selectRaceStrategy:: Timed out setting the race strategy after $numTries tries.")
+            }
+
+            enablePerDistanceStrategy -> {
+                val resolvedStrategy = resolveStrategyForCurrentRace(isJuniorYear)
+                lastPerDistanceStrategyContext =
+                    PerDistanceStrategyContext(
+                        distanceKey = lastRaceDistance?.toSettingsKey(),
+                        isJuniorYear = isJuniorYear,
+                        strategy = resolvedStrategy,
+                    )
+                MessageLog.i(TAG, "[RACE] Successfully set per-distance race strategy ($lastPerDistanceStrategyContext).")
             }
 
             bShouldSetStrategyJunior -> {
@@ -919,6 +970,40 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         }
 
         return bHasSetTemporaryRunningStyle
+    }
+
+    /**
+     * OCR the current race's distance from the Race Prep screen so per-distance running-style selection can resolve
+     * the correct bucket. Safe to call on every race; overwrites [lastRaceDistance] when a match is found.
+     */
+    private fun refreshLastRaceDistanceForPerDistanceStrategy() {
+        if (!enablePerDistanceStrategy) {
+            return
+        }
+
+        val predictionLocations = IconRaceListPredictionDoubleStar.findAll(game.imageUtils)
+        if (predictionLocations.isEmpty()) {
+            MessageLog.i(TAG, "[RACE] No double-star prediction found on race prep screen. Per-distance strategy may fall back to blanket.")
+            return
+        }
+
+        val raceName = game.imageUtils.extractRaceName(predictionLocations[0])
+        val raceDataList = lookupRaceInDatabase(campaign.date.day, raceName)
+        if (raceDataList.isEmpty()) {
+            MessageLog.w(TAG, "[RACE] Could not match \"$raceName\" in race database for per-distance strategy.")
+            return
+        }
+
+        val raceData = raceDataList[0]
+        lastRaceDistance = raceData.trackDistance
+        if (lastRaceGrade == null) {
+            lastRaceGrade = raceData.grade
+            lastRaceName = raceData.name
+        }
+        if (lastRaceFans == 0) {
+            lastRaceFans = raceData.fans
+        }
+        MessageLog.i(TAG, "[RACE] Detected race \"${raceData.name}\" for per-distance strategy (Grade: ${raceData.grade}, Distance: ${raceData.trackDistance}).")
     }
 
     /**
@@ -963,7 +1048,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         }
 
         val distanceKey = lastRaceDistance?.toSettingsKey()
-        val strategyMap = if (isJuniorYear) juniorYearPerDistanceStrategies else originalPerDistanceStrategies
+        val strategyMap = if (isJuniorYear) loadPerDistanceStrategies("juniorYearPerDistanceStrategies") else loadPerDistanceStrategies("originalPerDistanceStrategies")
 
         return if (distanceKey != null) {
             val strategy = strategyMap[distanceKey] ?: "Default"
@@ -982,7 +1067,16 @@ class Racing(private val game: Game, private val campaign: Campaign) {
      */
     fun runRaceWithRetries(): Boolean {
         MessageLog.i(TAG, "[RACE] Proceeding to handle the race...")
+        RunSummaryTracker.beginRaceAttribution(
+            turn = campaign.date.day,
+            label = lastRaceName ?: "Unknown Race",
+            statsBefore = campaign.trainee.stats.asMap(),
+            grade = lastRaceGrade?.name,
+        )
         game.wait(0.5, skipWaitingForLoading = true)
+
+        // Refresh distance from the prep screen so per-distance strategy can switch when the next race uses a different bucket.
+        refreshLastRaceDistanceForPerDistanceStrategy()
 
         // Flag used to prevent us from attempting to select a running style after we've already successfully selected a running style once.
         var bDidSelectRaceStrategy = false
@@ -1019,30 +1113,42 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                         bDidSelectRaceStrategy = selectRaceStrategy()
                     }
 
-                    when (ButtonViewResults.checkDisabled(game.imageUtils, bitmap)) {
-                        true -> {
-                            if (ButtonRaceManual.click(game.imageUtils, sourceBitmap = bitmap)) {
-                                MessageLog.i(TAG, "[RACE] Skip is locked. Running race manually.")
-                                // Clicking this button triggers connection to server.
-                                game.waitForLoading()
-                            } else {
-                                MessageLog.w(TAG, "[WARN] runRaceWithRetries:: Skip is locked. Failed to click manual race button.")
+                    if (enableSkipRaceSimulation) {
+                        when (ButtonViewResults.checkDisabled(game.imageUtils, bitmap)) {
+                            true -> {
+                                if (ButtonRaceManual.click(game.imageUtils, sourceBitmap = bitmap)) {
+                                    MessageLog.i(TAG, "[RACE] Skip is locked. Running race manually because View Results is unavailable.")
+                                    game.waitForLoading()
+                                } else {
+                                    MessageLog.w(TAG, "[WARN] runRaceWithRetries:: Skip is locked. Failed to click manual race button.")
+                                }
+                            }
+
+                            false -> {
+                                if (ButtonViewResults.click(game.imageUtils, sourceBitmap = bitmap)) {
+                                    MessageLog.i(TAG, "[RACE] Skip Race Simulation enabled. Clicked View Results to skip race.")
+                                    game.waitForLoading()
+                                } else {
+                                    MessageLog.w(TAG, "[WARN] runRaceWithRetries:: Failed to click ViewResults button to skip race.")
+                                }
+                            }
+
+                            null -> {
+                                MessageLog.w(TAG, "[WARN] runRaceWithRetries:: At Race prep screen but failed to detect ViewResults button.")
                             }
                         }
+                    } else if (ButtonRaceManual.click(game.imageUtils, sourceBitmap = bitmap)) {
+                        MessageLog.i(TAG, "[RACE] Skip Race Simulation disabled. Running full race simulation via manual race.")
+                        game.waitForLoading()
+                    } else {
+                        MessageLog.w(TAG, "[WARN] runRaceWithRetries:: Skip Race Simulation disabled but failed to click manual race button.")
+                    }
+                }
 
-                        false -> {
-                            if (ButtonViewResults.click(game.imageUtils, sourceBitmap = bitmap)) {
-                                MessageLog.i(TAG, "[RACE] Clicked ViewResults button to skip race.")
-                                // Clicking this button triggers connection to server.
-                                game.waitForLoading()
-                            } else {
-                                MessageLog.w(TAG, "[WARN] runRaceWithRetries:: Failed to click ViewResults button to skip race.")
-                            }
-                        }
-
-                        null -> {
-                            MessageLog.w(TAG, "[WARN] runRaceWithRetries:: At Race prep screen but failed to detect ViewResults button.")
-                        }
+                enableSkipRaceSimulation && ButtonRaceAgain.check(game.imageUtils, sourceBitmap = bitmap) -> {
+                    MessageLog.i(TAG, "[RACE] Skip Race Simulation enabled. Ignoring Race Again button.")
+                    if (!ButtonNext.click(game.imageUtils, sourceBitmap = bitmap) && !ButtonViewResults.click(game.imageUtils, sourceBitmap = bitmap)) {
+                        game.tap(350.0, 450.0, taps = 1)
                     }
                 }
 
@@ -1175,6 +1281,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         // unchanged history.
         val firstPlace = LabelCongratulations.check(game.imageUtils)
         MessageLog.i(TAG, "[RACE] Race result detected — 1st place: $firstPlace.")
+        RunSummaryTracker.completeRaceAttribution(won = firstPlace)
         SmartRaceSolverIntegration.commitPendingRace(won = firstPlace)
 
         // Max time limit for the while loop to attempt to finalize race results.
@@ -1450,6 +1557,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         // we should not reset the flags as they may have been set somewhere else.
         if (!ButtonRace.check(game.imageUtils)) {
             lastRaceGrade = null
+            lastRaceName = null
             lastRaceFans = 0
             lastRaceDistance = null
             lastRaceIsRival = false
@@ -1586,6 +1694,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         // For Finale races, manually set the grade and fans.
         if (campaign.date.bIsFinaleSeason && (campaign.date.day == 73 || campaign.date.day == 74 || campaign.date.day == 75)) {
             lastRaceGrade = RaceGrade.FINALE
+            lastRaceName = "Finale"
             lastRaceFans = if (campaign.date.day == 75) 30000 else 10000
             // Distance is unknown for Finale races; per-distance strategy will fall back to blanket.
         }
@@ -1947,6 +2056,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                 val raceDataList = lookupRaceInDatabase(campaign.date.day, raceName)
                 if (raceDataList.isNotEmpty()) {
                     lastRaceGrade = raceDataList[0].grade
+                    lastRaceName = raceDataList[0].name
                     lastRaceFans = raceDataList[0].fans
                     lastRaceDistance = raceDataList[0].trackDistance
                     MessageLog.i(TAG, "[RACE] Detected scheduled race grade: $lastRaceGrade.")
@@ -2023,6 +2133,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                     )
                     game.tap(location.x, location.y, IconRaceListPredictionDoubleStar.template.path, ignoreWaiting = true)
                     lastRaceGrade = match.grade
+                    lastRaceName = match.name
                     lastRaceFans = match.fans
                     lastRaceDistance = match.trackDistance
                     lastRaceIsRival = match.isRival
@@ -2080,6 +2191,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         )
         game.tap(pickLocation.x, pickLocation.y, IconRaceListPredictionDoubleStar.template.path, ignoreWaiting = true)
         lastRaceGrade = solverPick.grade
+        lastRaceName = solverPick.name
         lastRaceFans = solverPick.fans
         lastRaceDistance = solverPick.trackDistance
         lastRaceIsRival = solverPick.isRival
@@ -2266,6 +2378,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
             }
         val raceDataList = lookupRaceInDatabase(campaign.date.day, selectedRaceName)
         lastRaceGrade = raceDataList.firstOrNull()?.grade
+        lastRaceName = raceDataList.firstOrNull()?.name ?: selectedRaceName
         lastRaceFans = raceDataList.firstOrNull()?.fans ?: 0
         lastRaceDistance = raceDataList.firstOrNull()?.trackDistance
         lastRaceIsRival = filteredRaces[index].isRival

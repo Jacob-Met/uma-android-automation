@@ -57,6 +57,7 @@ const TrainingEventSettings = () => {
     // Merge current training event settings with defaults to handle missing properties.
     const {
         enablePrioritizeEnergyOptions,
+        avoidSlowMetabolismWithoutCure,
         enableAutomaticOCRRetry,
         ocrConfidence,
         enableHideOCRComparisonResults,
@@ -582,6 +583,17 @@ const TrainingEventSettings = () => {
                                 onCheckedChange={(checked: boolean) => updateTrainingEventSetting("enablePrioritizeEnergyOptions", checked)}
                                 label="Prioritize Energy Options"
                                 description="When enabled, the bot will prioritize training event choices that provide energy recovery or avoid energy consumption, helping to maintain optimal energy levels for training sessions."
+                                className="my-2"
+                            />
+                        </View>
+
+                        <View style={styles.section}>
+                            <CustomCheckbox
+                                searchId="avoid-slow-metabolism-without-cure"
+                                checked={avoidSlowMetabolismWithoutCure}
+                                onCheckedChange={(checked: boolean) => updateTrainingEventSetting("avoidSlowMetabolismWithoutCure", checked)}
+                                label="Avoid Slow Metabolism Without Cure"
+                                description="When enabled, the bot avoids event options that grant Slow Metabolism unless Smart Scale or Miracle Cure is in inventory (Trackblazer). Manual event overrides still apply. If a cure is available and the option is taken, the cure item is used at the start of the next turn."
                                 className="my-2"
                             />
                         </View>

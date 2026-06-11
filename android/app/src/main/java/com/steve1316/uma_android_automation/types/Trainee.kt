@@ -194,6 +194,27 @@ class Trainee {
     /** The remaining duration (in turns) of an active megaphone training item. */
     var megaphoneTurnCounter: Int = 0
 
+    /** The megaphone type currently buffing training gains, or null when none is active. */
+    var activeMegaphoneType: String? = null
+
+    /** Applies the active megaphone training bonus to a base main-stat gain (matches in-game +N% training bonus). */
+    fun mainStatGainWithActiveMegaphoneBonus(baseGain: Int): Int {
+        if (baseGain <= 0 || megaphoneTurnCounter <= 0) {
+            return baseGain
+        }
+        val bonusPercent =
+            when (activeMegaphoneType) {
+                "Empowering Megaphone" -> 60
+                "Motivating Megaphone" -> 40
+                "Coaching Megaphone" -> 20
+                else -> 0
+            }
+        if (bonusPercent <= 0) {
+            return baseGain
+        }
+        return baseGain + (baseGain * bonusPercent) / 100
+    }
+
     /** The trainee's ranking category ([FanCountClass]) based on their current fan total. */
     var fanCountClass: FanCountClass = FanCountClass.DEBUT
 
@@ -971,6 +992,6 @@ class Trainee {
             "\nEnergy: $energy" +
             "\nFans: $fans" +
             "\nFanCountClass: $fanCountClass" +
-            "\nMegaphone turns remaining: $megaphoneTurnCounter"
+            "\nMegaphone turns remaining: $megaphoneTurnCounter (${activeMegaphoneType ?: "none"})"
     }
 }

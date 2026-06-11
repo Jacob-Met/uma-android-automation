@@ -160,6 +160,16 @@ const ProfileCreationModal: React.FC<ProfileCreationModalProps> = ({ visible, on
         settings.push(`Preferred Distance: ${currentTrainingSettings.preferredDistanceOverride}`)
         settings.push(`Must Rest Before Summer: ${currentTrainingSettings.mustRestBeforeSummer ? "Yes" : "No"}`)
         settings.push(`Train Wit During Finale: ${currentTrainingSettings.trainWitDuringFinale ? "Yes" : "No"}`)
+        settings.push(`Charm on Low-Priority Wit: ${currentTrainingSettings.enableLuckyCharmWitTraining ? "Yes" : "No"} (top-3 Wit exempt)`)
+        settings.push(`Never Click Empty Wit: ${currentTrainingSettings.enableNeverClickEmptyWitTraining ? "Yes" : "No"}`)
+        settings.push(`Prefer Rest Over Wit: ${currentTrainingSettings.preferRestOverWitTraining ? "Yes" : "No"}`)
+        settings.push(`Skip Low-Priority Wit: ${currentTrainingSettings.skipLowPriorityWitWhenMainStatsFail ? "Yes" : "No"}`)
+        if (currentTrainingSettings.skipLowPriorityWitWhenMainStatsFail) {
+            settings.push(`  Top-3 friendship bar min (Junior): ≥${currentTrainingSettings.top3FriendshipBarMinimum ?? 1}`)
+        }
+        if (currentTrainingSettings.preferRestOverWitTraining && currentTrainingSettings.enableWitTrainingFriendshipBarException) {
+            settings.push(`  Wit Friendship Bar Exception: ≥${currentTrainingSettings.witTrainingFriendshipBarMinimum}`)
+        }
         settings.push(`Risky Training: ${currentTrainingSettings.enableRiskyTraining ? "Yes" : "No"}`)
         if (currentTrainingSettings.enableRiskyTraining) {
             settings.push(`  Min Stat Gain: ${currentTrainingSettings.riskyTrainingMinStatGain}`)

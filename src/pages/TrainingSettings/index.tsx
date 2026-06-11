@@ -102,12 +102,22 @@ const TrainingSettings = () => {
         maximumFailureChance,
         disableTrainingOnMaxedStat,
         enableRainbowTrainingBonus,
+        trainerFriendshipInfluence,
         preferredDistanceOverride,
         mustRestBeforeSummer,
         enableRiskyTraining,
         riskyTrainingMinStatGain,
         riskyTrainingMaxFailureChance,
         trainWitDuringFinale,
+        enableLuckyCharmWitTraining,
+        preferRestOverWitTraining,
+        skipLowPriorityWitWhenMainStatsFail,
+        enableNeverClickEmptyWitTraining,
+        enableWitTrainingFriendshipBarException,
+        witTrainingFriendshipBarMinimum,
+        top3FriendshipBarMinimum,
+        enableJuniorTop3MainStatGainPriority,
+        juniorTop3MainStatGainMinimum,
         enablePrioritizeSkillHints,
         enableTrainingAnalysisValidation,
         enableYoloStatDetection,
@@ -672,12 +682,158 @@ const TrainingSettings = () => {
 
                                 <View style={styles.section}>
                                     <CustomCheckbox
+                                        checked={enableLuckyCharmWitTraining}
+                                        onCheckedChange={(checked) => updateTrainingSetting("enableLuckyCharmWitTraining", checked)}
+                                        label="Allow Good-Luck Charm on Low-Priority Wit"
+                                        description="When Wit is not in your top-3 stat prioritization: ON lets Good-Luck Charm bypass failure thresholds for Wit like other stats; OFF requires Wit to meet normal failure limits even with a Charm. Wit in top-3 priority is always treated normally (charm can save risky Wit)."
+                                        className="my-2"
+                                        searchId="enable-lucky-charm-wit-training"
+                                    />
+                                </View>
+
+                                <View style={styles.section}>
+                                    <CustomCheckbox
+                                        checked={preferRestOverWitTraining}
+                                        onCheckedChange={(checked) => updateTrainingSetting("preferRestOverWitTraining", checked)}
+                                        label="Prefer Rest Over Wit Training"
+                                        description="When enabled, energy-recovery Wit paths (June Late prep, finale turns 73–74, Trackblazer fallback) rest or use recreation instead of Wit — but only when Wit is not in your top-3 stat prioritization. Turn 75 still forces Wit. Recreation dates (including Riko Kashimoto / Team Sirius when available) are tried before plain Rest."
+                                        className="my-2"
+                                        searchId="prefer-rest-over-wit-training"
+                                    />
+                                </View>
+
+                                <View style={styles.section}>
+                                    <CustomCheckbox
+                                        checked={enableNeverClickEmptyWitTraining}
+                                        onCheckedChange={(checked) => updateTrainingSetting("enableNeverClickEmptyWitTraining", checked)}
+                                        label="Never Click Empty Wit Training"
+                                        description="When enabled, never execute Wit when only Akikawa/Etsuko bars count, when all qualifying Uma/Riko/Sirius bars are orange with no rainbow and ≤1 skill hint, or when no qualifying bars are below orange. Wit in top-3 priority, the friendship-bar exception, rainbow Wit, or >1 Wit hint still allow Wit."
+                                        className="my-2"
+                                        searchId="enable-never-click-empty-wit-training"
+                                    />
+                                </View>
+
+                                <View style={styles.section}>
+                                    <CustomCheckbox
+                                        checked={skipLowPriorityWitWhenMainStatsFail}
+                                        onCheckedChange={(checked) => updateTrainingSetting("skipLowPriorityWitWhenMainStatsFail", checked)}
+                                        label="Skip Low-Priority Wit When Main Stats Fail"
+                                        description="When enabled and Wit is not in top-3 stat prioritization: Classic/Senior skips Wit when Speed/Stamina/Power/Guts all exceed the failure threshold. Junior/pre-debut prefers Wit when it has enough below-orange bars — even if top-3 stats also qualify — so you can keep training next turn instead of resting; otherwise picks a top-3 stat with enough below-orange bars. Akikawa/Etsuko excluded. Never on turn 75."
+                                        className="my-2"
+                                        searchId="skip-low-priority-wit-when-main-stats-fail"
+                                    />
+                                </View>
+
+                                {skipLowPriorityWitWhenMainStatsFail && (
+                                    <>
+                                        <View style={styles.section}>
+                                            <CustomCheckbox
+                                                checked={enableJuniorTop3MainStatGainPriority}
+                                                onCheckedChange={(checked) => updateTrainingSetting("enableJuniorTop3MainStatGainPriority", checked)}
+                                                label="Junior Top-3 Main Stat Gain Priority"
+                                                description="During Junior/pre-debut, pick a top-3 priority training when its main stat gain meets the minimum below — even with zero qualifying friendship bars. Runs after the Wit bar check and before the top-3 friendship bar check."
+                                                className="my-2"
+                                                searchId="enable-junior-top3-main-stat-gain-priority"
+                                            />
+                                        </View>
+
+                                        {enableJuniorTop3MainStatGainPriority && (
+                                            <View style={styles.section}>
+                                                <CustomSlider
+                                                    searchId="junior-top3-main-stat-gain-minimum"
+                                                    value={juniorTop3MainStatGainMinimum}
+                                                    placeholder={defaultSettings.training.juniorTop3MainStatGainMinimum}
+                                                    onValueChange={(value) => updateTrainingSetting("juniorTop3MainStatGainMinimum", value)}
+                                                    onSlidingComplete={(value) => updateTrainingSetting("juniorTop3MainStatGainMinimum", value)}
+                                                    min={1}
+                                                    max={100}
+                                                    step={1}
+                                                    label="Junior Top-3 Minimum Main Stat Gain"
+                                                    showValue={true}
+                                                    showLabels={true}
+                                                    description="Minimum OCR main stat gain on a top-3 priority training to select it over Wit without needing friendship bars."
+                                                />
+                                            </View>
+                                        )}
+
+                                        <View style={styles.section}>
+                                            <CustomSlider
+                                                searchId="top3-friendship-bar-minimum"
+                                                value={top3FriendshipBarMinimum}
+                                                placeholder={defaultSettings.training.top3FriendshipBarMinimum}
+                                                onValueChange={(value) => updateTrainingSetting("top3FriendshipBarMinimum", value)}
+                                                onSlidingComplete={(value) => updateTrainingSetting("top3FriendshipBarMinimum", value)}
+                                                min={1}
+                                                max={5}
+                                                step={1}
+                                                label="Top-3 Friendship Bar Minimum (Junior / Pre-debut)"
+                                                showValue={true}
+                                                showLabels={true}
+                                                description="During Junior/pre-debut, minimum below-orange bars for a top-3 priority training to be considered. Top-3 beats Wit when: (3+ bars with ≥2 below orange vs Wit with 2) or (≥2 below orange vs Wit with 1). Mixed 1-orange/1-below-orange stacks only qualify when Junior Top-3 Main Stat Gain Priority is on and gain meets its minimum — that main-gain bypass can pick them over Wit even when Wit has below-orange bars. Akikawa/Etsuko excluded."
+                                            />
+                                        </View>
+                                    </>
+                                )}
+
+                                {(preferRestOverWitTraining || skipLowPriorityWitWhenMainStatsFail) && (
+                                    <View style={styles.section}>
+                                        <CustomCheckbox
+                                            checked={enableWitTrainingFriendshipBarException}
+                                            onCheckedChange={(checked) => updateTrainingSetting("enableWitTrainingFriendshipBarException", checked)}
+                                            label="Wit Friendship Bar Exception"
+                                            description="When Wit is not in top-3 stat prioritization, still train Wit if enough support friendship bars on Wit are below orange (Uma, Riko Kashimoto, Team Sirius — not Akikawa or Etsuko). Also used as the Wit bar threshold for Junior/pre-debut skip-low-priority-Wit. Turn off to always rest/recreation instead of Wit when Prefer Rest is enabled."
+                                            className="my-2"
+                                            searchId="enable-wit-training-friendship-bar-exception"
+                                        />
+                                    </View>
+                                )}
+
+                                {(preferRestOverWitTraining || skipLowPriorityWitWhenMainStatsFail) &&
+                                    (preferRestOverWitTraining ? enableWitTrainingFriendshipBarException : true) && (
+                                    <View style={styles.section}>
+                                        <CustomSlider
+                                            searchId="wit-training-friendship-bar-minimum"
+                                            value={witTrainingFriendshipBarMinimum}
+                                            placeholder={defaultSettings.training.witTrainingFriendshipBarMinimum}
+                                            onValueChange={(value) => updateTrainingSetting("witTrainingFriendshipBarMinimum", value)}
+                                            onSlidingComplete={(value) => updateTrainingSetting("witTrainingFriendshipBarMinimum", value)}
+                                            min={1}
+                                            max={5}
+                                            step={1}
+                                            label="Wit Friendship Bar Minimum"
+                                            showValue={true}
+                                            showLabels={true}
+                                            description="Minimum below-orange bars on Wit to pick Wit in Junior/pre-debut when a top-3 stat does not win the bar comparison above. Also used for Prefer Rest and Never-Click-Empty-Wit exceptions."
+                                        />
+                                    </View>
+                                )}
+
+                                <View style={styles.section}>
+                                    <CustomCheckbox
                                         checked={enableRainbowTrainingBonus}
                                         onCheckedChange={(checked) => updateTrainingSetting("enableRainbowTrainingBonus", checked)}
                                         label="Enable Rainbow Training Bonus"
                                         description="When enabled (Year 2+), rainbow trainings receive a significant bonus to their score, making them more likely to be selected. This is highly dependent on device configuration and may result in false positives."
                                         className="my-2"
                                         searchId="enable-rainbow-training-bonus"
+                                    />
+                                </View>
+
+                                <View style={styles.section}>
+                                    <CustomSlider
+                                        searchId="trainer-friendship-influence"
+                                        value={trainerFriendshipInfluence}
+                                        placeholder={defaultSettings.training.trainerFriendshipInfluence}
+                                        onValueChange={(value) => updateTrainingSetting("trainerFriendshipInfluence", value)}
+                                        onSlidingComplete={(value) => updateTrainingSetting("trainerFriendshipInfluence", value)}
+                                        min={0}
+                                        max={100}
+                                        step={5}
+                                        label="Akikawa & Etsuko Friendship Influence"
+                                        labelUnit="%"
+                                        showValue={true}
+                                        showLabels={true}
+                                        description="Scales how much Yayoi Akikawa and Etsuko Otonashi friendship bars affect training selection. 100% is current behavior; 0% ignores their bars in friendship scoring."
                                     />
                                 </View>
 

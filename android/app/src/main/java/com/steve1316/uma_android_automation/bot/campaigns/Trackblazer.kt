@@ -167,6 +167,35 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Whether the Good-Luck Charm has been used this turn. */
     private var bUsedCharmToday: Boolean = false
 
+    /** Whether an energy-restoring item was queued during the current training-item pass (reset each [manageInventoryItems] call). */
+    private var bUsedEnergyItemThisPass: Boolean = false
+
+    /** Energy vs Good-Luck Charm choice for failure mitigation on the current training-item pass. */
+    private enum class FailureMitigationChoice {
+        NONE,
+        ENERGY,
+        CHARM,
+    }
+
+    private var failureMitigationChoiceForPass: FailureMitigationChoice = FailureMitigationChoice.NONE
+
+    /** Ordered energy items to queue for high-failure mitigation this pass (may repeat, e.g. 2× Vita 20). */
+    private var failureMitigationEnergyPlanForPass: List<String>? = null
+
+    /** Count of each energy item already queued toward [failureMitigationEnergyPlanForPass] this pass. */
+    private val failureMitigationEnergyQueuedCounts = mutableMapOf<String, Int>()
+
+    /** Target tier for high-failure energy mitigation based on failure/main-gain qualification. */
+    private enum class FailureMitigationEnergyTier {
+        KALE_100,
+        VITA_65,
+        VITA_40,
+        VITA_20,
+    }
+
+    /** Whether Royal Kale Juice was queued during the current inventory management pass. Reset at the start of each pass. Used to fire a cupcake in the same pass to offset the -1 mood penalty. */
+    private var bKaleJuiceQueuedThisPass: Boolean = false
+
     /** Whether a race hammer has been used this turn. */
     private var bUsedHammerToday: Boolean = false
 
@@ -198,20 +227,119 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Threshold for energy level to use energy items. */
     private var energyThresholdToUseEnergyItems: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerEnergyThreshold", 40)
 
+    /**
+     * When enabled, use an energy item on a high-failure training turn when failure exceeds maximum + margin and main gain meets minimum
+     * (similar to Good-Luck Charm), then re-analyze before executing training.
+     */
+    private val enableEnergyItemForHighFailureTraining: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableEnergyItemForHighFailureTraining", true)
+
+    /** Per-item failure margin above [Training.getMaximumFailureChance] for the high-failure energy-item train path. */
+    private val vita20FailureAboveMinimum: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerVita20FailureAboveMinimum", 10)
+
+    private val vita40FailureAboveMinimum: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerVita40FailureAboveMinimum", 20)
+
+    private val vita65FailureAboveMinimum: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerVita65FailureAboveMinimum", 50)
+
+    /** Minimum main stat gain on the selected training before the high-failure energy-item train path may fire. */
+    private val energyItemMinMainStatGain: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerEnergyItemMinMainStatGain", 30)
+
+    /** Number of energy items (lowest-tier first across `energyItemConservationOrder`) held back as the emergency-race-recovery reserve. 0 = no reserve. */
+    private val energyItemReserveCount: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerEnergyItemReserve", 1)
+
+    /** Number of cupcakes (Plain preferred over Berry Sweet) held back so Royal Kale Juice's mood penalty can be offset. 0 = no reserve. */
+    private val cupcakeReserveCount: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerCupcakeReserve", 1)
+
+    /** Number of Master Cleat Hammers held back for the Finale days (73-75). 0 = no reserve, spend freely on G1/G2 races. */
+    private val masterHammerFinaleReserve: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerMasterHammerFinaleReserve", 2)
+
+    /** Minimum Artisan Cleat Hammer stock required before the bot will spend one on a G3 race. 0 = always allowed when stock > 0. */
+    private val artisanMinStockForG3: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerArtisanHammerMinStockForG3", 3)
+
+    /** Minimum Artisan Cleat Hammer stock required before the bot will spend one on a G2 race. 0 = always allowed when stock > 0. G1 is always allowed. */
+    private val artisanMinStockForG2: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerArtisanHammerMinStockForG2", 2)
+
+    /** Number of Glow Sticks held back for Day 75 (the Final). 0 = no reserve. */
+    private val glowStickFinalReserve: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerGlowStickFinalReserve", 1)
+
+    /** Minimum projected fan gain on a race before a Glow Stick is used. 0 = use on any race. */
+    private val glowStickMinFans: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerGlowStickMinFans", 20000)
+
     /** Whether the Reset Whistle forces training. */
-    private val whistleForcesTraining: Boolean = SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerWhistleForcesTraining", true)
+    private val whistleForcesTraining: Boolean = SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerWhistleForcesTraining", false)
+
+    /** When enabled, Reset Whistles are only used during Summer training (not on other senior turns). */
+    private val saveResetWhistlesForSummer: Boolean = SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerSaveResetWhistlesForSummer", true)
+
+    /**
+     * When enabled, Reset Whistles are not used after Senior Summer (turn 65) until the Finale (turns 73–75),
+     * so stock can be spent during Climax training instead of on late Senior turns.
+     */
+    private val saveResetWhistlesForFinale: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerSaveResetWhistlesForFinale", true)
+
+    /**
+     * During Summer and Finale, skip Reset Whistle when a top-3 priority training has at least this many rainbows
+     * (only after qualifying orange friendship bars are on screen). 0 disables. Falls back to legacy main-gain key.
+     */
+    private val whistlePriorityMinRainbow: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerWhistlePriorityMinRainbow", 1)
+
+    /** After a Reset Whistle reshuffle, recover instead of training when failure is at/above this and main gain is below [whistlePostShuffleMinMainGain]. 0 disables. */
+    private val whistlePostShuffleMinFailure: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerWhistlePostShuffleMinFailure", 0)
+
+    /** Paired with [whistlePostShuffleMinFailure] for post-whistle recovery. 0 disables the post-whistle recovery check. */
+    private val whistlePostShuffleMinMainGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerWhistlePostShuffleMinMainGain", 0)
 
     /** Whether to enable Irregular Training in between races during Trackblazer. */
     private val enableIrregularTraining: Boolean = SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableIrregularTraining", false)
 
+    /**
+     * When enabled during Climax (turns 73–75), forces charm-backed training on highest non-maxed stat instead of rest/recovery.
+     * When disabled, Climax uses normal charm rules (min gain floor, failure thresholds, mood conservation).
+     */
+    private val enableClimaxCharmTraining: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableClimaxCharmTraining", true)
+
     /** The minimum stat gain required for using a Good-Luck Charm to bypass failure chance. */
-    private val minCharmGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerMinStatGainForCharm", 30)
+    private val minCharmGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerMinStatGainForCharm", 25)
 
     /** The minimum stat gain threshold for irregular training evaluation. */
     private val minIrregularGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerIrregularTrainingMinStatGain", 30)
 
+    /**
+     * When enabled, conserve a pooled stock of Good-Luck Charm + Vita 65 + Royal Kale Juice during Senior pre-Finale (65–72)
+     * for Finale use (see [failureMitigationPoolReserve]) unless the pool override applies. Summer is excluded — spend freely during Summer.
+     */
+    private val saveGoodLuckCharmForSummer: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerSaveGoodLuckCharmForSummer", true)
+
+    /**
+     * Combined reserve across Good-Luck Charm, Vita 65 (+65), and Royal Kale Juice (+100). Any mix totalling this count is held
+     * during [isFailureMitigationPoolReservationPeriod] unless [isFailureMitigationPoolOverride] applies. 0 disables the pool.
+     */
+    private val failureMitigationPoolReserve: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerFailureMitigationPoolReserve", 4)
+
+    /**
+     * During the pool reservation window, allow spending a reserved item when main gain is at least this on a risky training that
+     * still needs charm or +65/+100 and has no other mitigation path. 0 disables the override.
+     */
+    private val summerCharmOverrideMinStatGain: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerSummerCharmOverrideMinStatGain", 30)
+
     /** Ordered list of energy items from lowest to highest gain, used for conservation priority. */
     private val energyItemConservationOrder = listOf("Energy Drink MAX", "Vita 20", "Vita 40", "Vita 65")
+
+    /** +65 / +100 items that may fire on the high-failure train path without a failure-above-max margin (when no charm is used). */
+    private val highTierFailureMitigationEnergyItems = setOf("Royal Kale Juice", "Vita 65")
+
+    /** Pooled high-tier failure-mitigation items conserved together during Senior pre-Finale (65–72). */
+    private val failureMitigationPoolItems = listOf("Good-Luck Charm", "Vita 65", "Royal Kale Juice")
 
     /** Flag to bypass conservation and force-use the reserved energy item. */
     private var bForceUseReservedItem: Boolean = false
@@ -220,13 +348,868 @@ class Trackblazer(game: Game) : Campaign(game) {
      * When mood is below NORMAL (BAD or AWFUL), training resources (Reset Whistle reshuffle, Good-Luck Charm, and Megaphones) refuse to fire if main-stat gain is below this floor.
      * Prevents wasting items on structurally low-return turns where the mood multiplier caps the gain.
      */
-    private val lowMainStatGainItemFloor: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerLowMainStatGainItemFloor", 20)
+    private val lowMainStatGainItemFloor: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerLowMainStatGainItemFloor", 15)
+
+    /** Minimum main stat gain required before using Coaching Megaphone (0 = disabled). Ignored during summer. */
+    private val coachingMegaphoneMinStatGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerCoachingMegaphoneMinStatGain", 15)
+
+    /** Minimum main stat gain required before using Motivating Megaphone (0 = disabled). Ignored during summer. */
+    private val motivatingMegaphoneMinStatGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerMotivatingMegaphoneMinStatGain", 25)
+
+    /** Minimum main stat gain required before using Empowering Megaphone (0 = disabled). Ignored during summer. */
+    private val empoweringMegaphoneMinStatGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerEmpoweringMegaphoneMinStatGain", 30)
+
+    /** Minimum main stat gain required before using Speed Ankle Weights (0 = disabled). */
+    private val speedAnkleWeightMinStatGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerSpeedAnkleWeightMinStatGain", 25)
+
+    /** Minimum main stat gain required before using Stamina Ankle Weights (0 = disabled). */
+    private val staminaAnkleWeightMinStatGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerStaminaAnkleWeightMinStatGain", 0)
+
+    /** Minimum main stat gain required before using Power Ankle Weights (0 = disabled). */
+    private val powerAnkleWeightMinStatGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerPowerAnkleWeightMinStatGain", 20)
+
+    /** Minimum main stat gain required before using Guts Ankle Weights (0 = disabled). */
+    private val gutsAnkleWeightMinStatGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerGutsAnkleWeightMinStatGain", 0)
+
+    /** Number of each ankle weight type to hold back outside summer training (0 = no reserve). */
+    private val ankleWeightSummerReserve: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerAnkleWeightSummerReserve", 2)
+
+    /** Number of each megaphone type to hold back outside summer training (0 = no reserve). Lower-tier reserves are waived once a higher tier meets this target. */
+    private val megaphoneSummerReserveCount: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerMegaphoneSummerReserve", 2)
+
+    /** Megaphone types ordered best-to-worst for summer reserve allocation (highest tier reserved first). */
+    private val megaphoneSummerReserveOrder = listOf("Empowering Megaphone", "Motivating Megaphone", "Coaching Megaphone")
 
     /** The frequency to check the shop after a race. */
     private val shopCheckFrequency: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerShopCheckFrequency", 3)
 
+    /**
+     * Turn at which Artisan/Glow Stick conservation rules start applying. Before this turn Artisan hammers are used freely on every race they qualify for.
+     * Master Cleat Hammer finale reserve is always honored from turn 13 onward. The Glow Stick min-fans floor still applies pre-conservation.
+     */
+    private val raceItemConservationStartDay: Int = 65
+
     /** Tracks the number of days since the last race for shop check frequency. */
     private var shopCheckCounter: Int = 0
+
+    /** Returns true during Trackblazer Climax (Finale turns 73-75). */
+    private fun isClimaxPhase(): Boolean = date.bIsFinaleSeason && date.day >= 73
+
+    /** Remaining Climax turns including the current turn (73→3, 74→2, 75→1). */
+    private fun remainingClimaxTurns(): Int = if (isClimaxPhase()) (76 - date.day).coerceIn(1, 3) else 0
+
+    /** Returns true when unused Good-Luck Charm inventory can cover every remaining Climax turn. */
+    private fun hasEnoughClimaxCharmsForRemainingTurns(): Boolean =
+        isClimaxPhase() && (currentInventory["Good-Luck Charm"] ?: 0) >= remainingClimaxTurns()
+
+    /** Returns true when a Good-Luck Charm is available in inventory and has not been used today. */
+    private fun hasRemainingGoodLuckCharm(): Boolean = date.day >= 13 && !bUsedCharmToday && (currentInventory["Good-Luck Charm"] ?: 0) > 0
+
+    /** Returns true when full Climax charm training should override rest/recovery paths. */
+    private fun isClimaxCharmTrainingActive(): Boolean =
+        enableClimaxCharmTraining && isClimaxPhase() && hasRemainingGoodLuckCharm() && hasEnoughClimaxCharmsForRemainingTurns()
+
+    /** Returns true when the >= 20% failure floor may be ignored for Good-Luck Charm use during Climax. */
+    private fun canBypassClimaxCharmFailureFloor(): Boolean =
+        enableClimaxCharmTraining && isClimaxPhase() && hasEnoughClimaxCharmsForRemainingTurns()
+
+    /** Energy at or below which the bot backs out for rest/recovery when no viable training remains. */
+    private val restRecoveryEnergyThreshold: Int = 50
+
+    /** Builds training analysis arguments, applying aggressive charm bypass rules during Climax. */
+    private fun buildTrainingAnalysisArgs(): Map<String, Any?> {
+        val hasCharm = hasRemainingGoodLuckCharm()
+        val climaxCharmTraining = isClimaxCharmTrainingActive()
+        return mapOf(
+            "ignoreFailureChance" to hasCharm,
+            "minStatGainForCharm" to if (climaxCharmTraining) 0 else minCharmGain,
+            "climaxForceCharmTraining" to climaxCharmTraining,
+            "allowLowGainCharmAtZeroEnergy" to (hasCharm && trainee.energy <= 0),
+        )
+    }
+
+    /** Whether any non-reserved energy-restoring item is available in [inventory]. */
+    private fun hasUsableEnergyRecoveryItems(inventory: Map<String, Int> = currentInventory): Boolean {
+        val vitaAvailable =
+            shopList.energyItemNames.any { (inventory[it] ?: 0) - reservedEnergyUnitsFor(it, inventory) > 0 }
+        val kaleAvailable = (inventory["Royal Kale Juice"] ?: 0) > 0
+        return vitaAvailable || kaleAvailable
+    }
+
+    /** Whether energy items should be considered before training analysis or on the main screen. */
+    private fun shouldTryEnergyRecoveryItems(energy: Int = trainee.energy): Boolean =
+        energy <= energyThresholdToUseEnergyItems && hasUsableEnergyRecoveryItems()
+
+    /** Scheduled Slow Metabolism cure item to queue (prefers Smart Scale over Miracle Cure). */
+    private fun pendingPostEventCureItemToUse(): String? {
+        val scheduled = pendingPostEventCureItem ?: return null
+        val preferred = getPreferredCureItemForNegativeStatus(NegativeStatus.SLOW_METABOLISM.statusName)
+        if (preferred != null && (currentInventory[preferred] ?: 0) > 0) {
+            return preferred
+        }
+        return scheduled.takeIf { (currentInventory[it] ?: 0) > 0 }
+    }
+
+    private fun isPendingPostEventCureItem(itemName: String): Boolean = pendingPostEventCureItemToUse() == itemName
+
+    /** Non-summer only: more than one Kale Juice in stock (one held back, surplus may cover rest-level energy). */
+    private fun hasSurplusKaleJuiceForRest(inventory: Map<String, Int>): Boolean =
+        !date.isSummer() && (inventory["Royal Kale Juice"] ?: 0) > 1
+
+    /** Energy low enough that the bot would rest/recover instead of training. */
+    private fun energyLowEnoughForRestRecovery(energy: Int): Boolean = energy <= restRecoveryEnergyThreshold
+
+    /** Whether Royal Kale Juice may be used for rest-level energy recovery (non-summer surplus rule). */
+    private fun kaleJuiceRestRecoveryEligible(inventory: Map<String, Int>, energy: Int): Boolean =
+        hasSurplusKaleJuiceForRest(inventory) && energyLowEnoughForRestRecovery(energy)
+
+    /** Failure margin above maximum failure chance required before [itemName] may fire on the high-failure train path (low-tier items only). */
+    private fun energyItemFailureAboveMinimumFor(itemName: String): Int =
+        when (itemName) {
+            "Vita 20" -> vita20FailureAboveMinimum
+            "Vita 40" -> vita40FailureAboveMinimum
+            "Vita 65" -> vita65FailureAboveMinimum
+            else -> 0
+        }
+
+    private fun isHighTierFailureMitigationEnergyItem(itemName: String): Boolean =
+        itemName in highTierFailureMitigationEnergyItems
+
+    private fun isFailureMitigationEnergyItem(itemName: String): Boolean =
+        shopList.energyItemNames.contains(itemName) || isHighTierFailureMitigationEnergyItem(itemName)
+
+    private fun kaleJuiceMoodGateMet(inventory: Map<String, Int>): Boolean {
+        val hasMoodItems = inventory.any { (name, count) -> count > 0 && (name == "Berry Sweet Cupcake" || name == "Plain Cupcake") }
+        return trainee.energy <= 20 || hasMoodItems || trainee.mood == Mood.AWFUL
+    }
+
+    private fun failureMitigationPoolTotal(inventory: Map<String, Int>): Int =
+        failureMitigationPoolItems.sumOf { inventory[it] ?: 0 }
+
+    /** Senior pre-Finale (65–72): hold back [failureMitigationPoolReserve] pooled mitigation items for Finale. Not active during Summer. */
+    private fun isFailureMitigationPoolReservationPeriod(): Boolean {
+        if (!saveGoodLuckCharmForSummer || isClimaxCharmTrainingActive() || failureMitigationPoolReserve <= 0) {
+            return false
+        }
+        return date.day in 65..72
+    }
+
+    /**
+     * High-gain risky training that still needs a pooled mitigation item and has no other mitigation path.
+     * Allows spending from the reserve when the pool is at or below the reserve floor.
+     */
+    private fun isFailureMitigationPoolOverride(
+        trainingSelected: StatName,
+        trainee: Trainee,
+        failureChance: Int,
+        inventory: Map<String, Int> = currentInventory,
+    ): Boolean {
+        if (summerCharmOverrideMinStatGain <= 0) {
+            return false
+        }
+        val mainGain = selectedTrainingMainGain(trainingSelected, trainee)
+        if (mainGain < summerCharmOverrideMinStatGain) {
+            return false
+        }
+        if (hasAlternativeFailureMitigation(trainingSelected, inventory, forPoolOverrideCheck = true)) {
+            return false
+        }
+        if (passesGoodLuckCharmTrainingChecks(trainingSelected, trainee, failureChance)) {
+            return true
+        }
+        return buildFailureMitigationEnergyPlan(trainingSelected, trainee, inventory, failureChance, ignorePoolReserve = true) != null &&
+            failureMitigationEnergyTargetTier(trainingSelected, inventory, failureChance, ignorePoolReserve = true).let {
+                it == FailureMitigationEnergyTier.KALE_100 || it == FailureMitigationEnergyTier.VITA_65
+            }
+    }
+
+    /**
+     * Whether [itemName] may be spent from the pooled mitigation reserve this turn.
+     * Royal Kale Juice at ≤20% energy bypasses the pool (last-resort recovery).
+     */
+    private fun canUseFailureMitigationPoolItem(
+        itemName: String,
+        inventory: Map<String, Int>,
+        trainingSelected: StatName?,
+        trainee: Trainee,
+        failureChance: Int,
+    ): Boolean {
+        if (itemName !in failureMitigationPoolItems) {
+            return true
+        }
+        if (itemName == "Royal Kale Juice" && trainee.energy <= 20) {
+            return true
+        }
+        if (!isFailureMitigationPoolReservationPeriod()) {
+            return true
+        }
+        val poolTotal = failureMitigationPoolTotal(inventory)
+        if (poolTotal > failureMitigationPoolReserve) {
+            return true
+        }
+        return trainingSelected != null &&
+            isFailureMitigationPoolOverride(trainingSelected, trainee, failureChance, inventory) &&
+            poolTotal > 0
+    }
+
+    /** True when [itemName] may be queued for high-failure training on [trainingSelected]. */
+    private fun qualifiesForHighFailureEnergyItem(
+        itemName: String,
+        trainingSelected: StatName,
+        inventory: Map<String, Int> = currentInventory,
+        ignorePoolReserve: Boolean = false,
+    ): Boolean {
+        if (!enableEnergyItemForHighFailureTraining || bUsedCharmToday || !isFailureMitigationEnergyItem(itemName)) {
+            return false
+        }
+        if (itemName == "Royal Kale Juice" && !kaleJuiceMoodGateMet(inventory)) {
+            return false
+        }
+        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        val mainGain = selectedTrainingMainGain(trainingSelected, trainee, includeActiveMegaphoneBonus = true)
+        if (mainGain < energyItemMinMainStatGain) {
+            return false
+        }
+        if (failureChance < 20 && !canBypassClimaxCharmFailureFloor()) {
+            return false
+        }
+        if (!isHighTierFailureMitigationEnergyItem(itemName)) {
+            val margin = energyItemFailureAboveMinimumFor(itemName)
+            if (failureChance <= training.getMaximumFailureChance() + margin) {
+                return false
+            }
+        }
+        if (
+            !ignorePoolReserve &&
+                isHighTierFailureMitigationEnergyItem(itemName) &&
+                !canUseFailureMitigationPoolItem(itemName, inventory, trainingSelected, trainee, failureChance)
+        ) {
+            return false
+        }
+        val available = (inventory[itemName] ?: 0) - reservedEnergyUnitsFor(itemName, inventory)
+        return available > 0
+    }
+
+    /** Usable inventory units for an energy item after emergency reserve and failure-mitigation pool gates. */
+    private fun usableFailureMitigationEnergyUnits(
+        itemName: String,
+        inventory: Map<String, Int>,
+        trainingSelected: StatName,
+        trainee: Trainee,
+        failureChance: Int,
+    ): Int {
+        val available = (inventory[itemName] ?: 0) - reservedEnergyUnitsFor(itemName, inventory)
+        if (available <= 0) return 0
+        if (
+            isHighTierFailureMitigationEnergyItem(itemName) &&
+                !canUseFailureMitigationPoolItem(itemName, inventory, trainingSelected, trainee, failureChance)
+        ) {
+            return 0
+        }
+        return available
+    }
+
+    /**
+     * Highest energy-mitigation tier this training qualifies for (ignores whether that exact item is in stock).
+     * Kale (+100) and Vita 65 share the top tier; Vita 40 and Vita 20 follow.
+     */
+    private fun failureMitigationEnergyTargetTier(
+        trainingSelected: StatName,
+        inventory: Map<String, Int>,
+        failureChance: Int,
+        ignorePoolReserve: Boolean = false,
+    ): FailureMitigationEnergyTier? {
+        if (!enableEnergyItemForHighFailureTraining || bUsedCharmToday) return null
+        if (qualifiesForHighFailureEnergyItem("Royal Kale Juice", trainingSelected, inventory, ignorePoolReserve)) {
+            return FailureMitigationEnergyTier.KALE_100
+        }
+        if (qualifiesForHighFailureEnergyItem("Vita 65", trainingSelected, inventory, ignorePoolReserve)) {
+            return FailureMitigationEnergyTier.VITA_65
+        }
+        if (qualifiesForHighFailureEnergyItem("Vita 40", trainingSelected, inventory, ignorePoolReserve)) {
+            return FailureMitigationEnergyTier.VITA_40
+        }
+        if (qualifiesForHighFailureEnergyItem("Vita 20", trainingSelected, inventory, ignorePoolReserve)) {
+            return FailureMitigationEnergyTier.VITA_20
+        }
+        return null
+    }
+
+    /**
+     * Builds the energy items to queue for high-failure mitigation, substituting lower tiers when higher tiers are unavailable:
+     * - Vita 40 slot → 2× Vita 20
+     * - Vita 65 / +100 slot → Vita 65, else Vita 40 + Vita 20, else 3× Vita 20, else Royal Kale Juice (last resort)
+     */
+    private fun buildFailureMitigationEnergyPlan(
+        trainingSelected: StatName,
+        trainee: Trainee,
+        inventory: Map<String, Int>,
+        failureChance: Int,
+        ignorePoolReserve: Boolean = false,
+    ): List<String>? {
+        val tier =
+            failureMitigationEnergyTargetTier(trainingSelected, inventory, failureChance, ignorePoolReserve)
+                ?: return null
+
+        val stock =
+            mutableMapOf(
+                "Royal Kale Juice" to
+                    usableFailureMitigationEnergyUnits("Royal Kale Juice", inventory, trainingSelected, trainee, failureChance),
+                "Vita 65" to usableFailureMitigationEnergyUnits("Vita 65", inventory, trainingSelected, trainee, failureChance),
+                "Vita 40" to usableFailureMitigationEnergyUnits("Vita 40", inventory, trainingSelected, trainee, failureChance),
+                "Vita 20" to usableFailureMitigationEnergyUnits("Vita 20", inventory, trainingSelected, trainee, failureChance),
+            )
+
+        return when (tier) {
+            FailureMitigationEnergyTier.KALE_100, FailureMitigationEnergyTier.VITA_65 ->
+                buildFailureMitigationEnergyPlanForTopTier(stock)
+            FailureMitigationEnergyTier.VITA_40 -> buildFailureMitigationEnergyPlanForVita40(stock)
+            FailureMitigationEnergyTier.VITA_20 ->
+                if (takeEnergyStock(stock, "Vita 20")) listOf("Vita 20") else null
+        }
+    }
+
+    /** Vita 65 substitutes first; Royal Kale Juice (+100) only when no viable Vita combination remains. */
+    private fun buildFailureMitigationEnergyPlanForTopTier(stock: MutableMap<String, Int>): List<String>? {
+        buildFailureMitigationEnergyPlanForVita65(stock)?.let { return it }
+        return if (takeEnergyStock(stock, "Royal Kale Juice")) listOf("Royal Kale Juice") else null
+    }
+
+    private fun takeEnergyStock(stock: MutableMap<String, Int>, name: String, count: Int = 1): Boolean {
+        if ((stock[name] ?: 0) < count) return false
+        stock[name] = (stock[name] ?: 0) - count
+        return true
+    }
+
+    private fun buildFailureMitigationEnergyPlanForVita65(stock: MutableMap<String, Int>): List<String>? {
+        if (takeEnergyStock(stock, "Vita 65")) return listOf("Vita 65")
+        if ((stock["Vita 40"] ?: 0) >= 1 && (stock["Vita 20"] ?: 0) >= 1) {
+            takeEnergyStock(stock, "Vita 40")
+            takeEnergyStock(stock, "Vita 20")
+            return listOf("Vita 40", "Vita 20")
+        }
+        if ((stock["Vita 65"] ?: 0) == 0 && (stock["Vita 40"] ?: 0) == 0 && (stock["Vita 20"] ?: 0) >= 3) {
+            takeEnergyStock(stock, "Vita 20", 3)
+            return List(3) { "Vita 20" }
+        }
+        return buildFailureMitigationEnergyPlanForVita40(stock)
+    }
+
+    private fun buildFailureMitigationEnergyPlanForVita40(stock: MutableMap<String, Int>): List<String>? {
+        if (takeEnergyStock(stock, "Vita 40")) return listOf("Vita 40")
+        if ((stock["Vita 20"] ?: 0) >= 2) {
+            takeEnergyStock(stock, "Vita 20", 2)
+            return List(2) { "Vita 20" }
+        }
+        return if (takeEnergyStock(stock, "Vita 20")) listOf("Vita 20") else null
+    }
+
+    private fun getFailureMitigationEnergyPlanForPass(
+        trainingSelected: StatName,
+        trainee: Trainee,
+        inventory: Map<String, Int>,
+        failureChance: Int,
+    ): List<String>? {
+        if (failureMitigationEnergyPlanForPass == null) {
+            failureMitigationEnergyPlanForPass =
+                buildFailureMitigationEnergyPlan(trainingSelected, trainee, inventory, failureChance)
+            failureMitigationEnergyPlanForPass?.let { plan ->
+                val label = plan.groupingBy { it }.eachCount().entries.joinToString(", ") { (name, count) -> "${count}× $name" }
+                val tier = failureMitigationEnergyTargetTier(trainingSelected, inventory, failureChance)
+                MessageLog.i(TAG, "[TRACKBLAZER] Failure mitigation energy plan ($tier): $label.")
+            }
+        }
+        return failureMitigationEnergyPlanForPass
+    }
+
+    private fun failureMitigationEnergyPlanReason(
+        plan: List<String>,
+        trainingSelected: StatName,
+        trainee: Trainee,
+        failureChance: Int,
+    ): String {
+        val selectedMainGain = selectedTrainingMainGain(trainingSelected, trainee, includeActiveMegaphoneBonus = true)
+        val tier = failureMitigationEnergyTargetTier(trainingSelected, currentInventory, failureChance)
+        val totalGain = plan.sumOf { energyGains[it] ?: 0 }
+        val substitute =
+            when (tier) {
+                FailureMitigationEnergyTier.VITA_40 ->
+                    if (plan.all { it == "Vita 20" } && plan.size == 2) " (2× Vita 20 as Vita 40 substitute)" else ""
+                FailureMitigationEnergyTier.VITA_65 ->
+                    when {
+                        plan.contains("Vita 65") -> ""
+                        plan.contains("Vita 40") && plan.contains("Vita 20") -> " (Vita 40 + Vita 20 as Vita 65 substitute)"
+                        plan.all { it == "Vita 20" } && plan.size == 3 -> " (3× Vita 20 as Vita 65 substitute)"
+                        plan.contains("Royal Kale Juice") -> " (Royal Kale Juice last resort)"
+                        else -> ""
+                    }
+                FailureMitigationEnergyTier.KALE_100 ->
+                    when {
+                        plan.contains("Royal Kale Juice") -> " (Royal Kale Juice last resort; no Vita combination available)"
+                        plan.contains("Vita 40") && plan.contains("Vita 20") -> " (Vita 40 + Vita 20 preferred over Kale)"
+                        plan.all { it == "Vita 20" } && plan.size == 3 -> " (3× Vita 20 preferred over Kale)"
+                        else -> ""
+                    }
+                else -> ""
+            }
+        return "High-failure train: failure ($failureChance%) with main gain ($selectedMainGain) >= $energyItemMinMainStatGain; plan +$totalGain energy$substitute."
+    }
+
+    private fun highTierFailureMitigationEnergyQualifies(
+        trainingSelected: StatName,
+        inventory: Map<String, Int> = currentInventory,
+    ): Boolean {
+        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        val tier = failureMitigationEnergyTargetTier(trainingSelected, inventory, failureChance) ?: return false
+        if (tier != FailureMitigationEnergyTier.KALE_100 && tier != FailureMitigationEnergyTier.VITA_65) {
+            return false
+        }
+        return buildFailureMitigationEnergyPlan(trainingSelected, trainee, inventory, failureChance) != null
+    }
+
+    private fun lowTierFailureMitigationEnergyQualifies(
+        trainingSelected: StatName,
+        inventory: Map<String, Int> = currentInventory,
+    ): Boolean {
+        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        val tier = failureMitigationEnergyTargetTier(trainingSelected, inventory, failureChance) ?: return false
+        if (tier != FailureMitigationEnergyTier.VITA_40 && tier != FailureMitigationEnergyTier.VITA_20) {
+            return false
+        }
+        return buildFailureMitigationEnergyPlan(trainingSelected, trainee, inventory, failureChance) != null
+    }
+
+    private fun hasAlternativeFailureMitigation(
+        trainingSelected: StatName,
+        inventory: Map<String, Int> = currentInventory,
+        forPoolOverrideCheck: Boolean = false,
+    ): Boolean {
+        if (!enableEnergyItemForHighFailureTraining) {
+            return false
+        }
+        if (lowTierFailureMitigationEnergyQualifies(trainingSelected, inventory)) {
+            return true
+        }
+        if (!forPoolOverrideCheck || !isFailureMitigationPoolReservationPeriod()) {
+            return highTierFailureMitigationEnergyQualifies(trainingSelected, inventory)
+        }
+        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        if (failureMitigationPoolTotal(inventory) > failureMitigationPoolReserve) {
+            return highTierFailureMitigationEnergyQualifies(trainingSelected, inventory)
+        }
+        val tier = failureMitigationEnergyTargetTier(trainingSelected, inventory, failureChance, ignorePoolReserve = true)
+        return (
+            tier == FailureMitigationEnergyTier.KALE_100 || tier == FailureMitigationEnergyTier.VITA_65
+        ) && buildFailureMitigationEnergyPlan(trainingSelected, trainee, inventory, failureChance, ignorePoolReserve = true) != null
+    }
+
+    /** Whether Good-Luck Charm may be used for failure mitigation (respects pooled mitigation reserve). */
+    private fun charmEligibleForFailureMitigation(
+        trainingSelected: StatName,
+        trainee: Trainee,
+        failureChance: Int,
+        inventory: Map<String, Int>,
+    ): Boolean {
+        if ((inventory["Good-Luck Charm"] ?: 0) <= 0) {
+            return false
+        }
+        if (!passesGoodLuckCharmTrainingChecks(trainingSelected, trainee, failureChance)) {
+            return false
+        }
+        return canUseFailureMitigationPoolItem("Good-Luck Charm", inventory, trainingSelected, trainee, failureChance)
+    }
+
+    /** Returns true when any energy item should be considered for high-failure training (charm-like bypass). */
+    private fun shouldConsiderEnergyItemForHighFailureTrain(trainingSelected: StatName?): Boolean {
+        if (trainingSelected == null || failureMitigationChoiceForPass == FailureMitigationChoice.CHARM) {
+            return false
+        }
+        return failureMitigationChoiceForPass == FailureMitigationChoice.ENERGY ||
+            highTierFailureMitigationEnergyQualifies(trainingSelected) ||
+            lowTierFailureMitigationEnergyQualifies(trainingSelected)
+    }
+
+    /** Highest failure margin among available low-tier energy items (excluding reserves). High-tier items ignore margins. */
+    private fun maxAvailableLowTierEnergyFailureMargin(inventory: Map<String, Int>): Int =
+        shopList.energyItemNames
+            .filter { !isHighTierFailureMitigationEnergyItem(it) && ((inventory[it] ?: 0) - reservedEnergyUnitsFor(it, inventory)) > 0 }
+            .maxOfOrNull { energyItemFailureAboveMinimumFor(it) } ?: 0
+
+    /**
+     * Main stat gain for [trainingSelected] from cached analysis (raw OCR by default).
+     * When [includeActiveMegaphoneBonus] is true and a megaphone is active, includes the in-game training bonus
+     * for energy-item failure-mitigation thresholds only — Good-Luck Charm thresholds always use raw gain.
+     */
+    private fun selectedTrainingMainGain(
+        trainingSelected: StatName,
+        trainee: Trainee? = null,
+        includeActiveMegaphoneBonus: Boolean = false,
+    ): Int {
+        val baseGain =
+            training.cachedAnalysisResults?.firstOrNull { it.name == trainingSelected }?.statGains?.get(trainingSelected) ?: 0
+        val traineeSnapshot = trainee ?: this.trainee
+        if (!includeActiveMegaphoneBonus || traineeSnapshot.megaphoneTurnCounter <= 0) {
+            return baseGain
+        }
+        return traineeSnapshot.mainStatGainWithActiveMegaphoneBonus(baseGain)
+    }
+
+    /** Re-resolves charm vs energy failure mitigation after a megaphone activates mid inventory pass. */
+    private fun refreshFailureMitigationChoiceAfterMegaphone(
+        trainingSelected: StatName,
+        trainee: Trainee,
+        inventory: Map<String, Int>,
+    ) {
+        if (!date.isSummer() || trainee.megaphoneTurnCounter <= 0 || !enableEnergyItemForHighFailureTraining) {
+            return
+        }
+        failureMitigationChoiceForPass = resolveFailureMitigationChoice(trainingSelected, trainee, inventory)
+        failureMitigationEnergyPlanForPass = null
+        failureMitigationEnergyQueuedCounts.clear()
+    }
+
+    /** Whether Good-Luck Charm meets gain/mood/wit rules for the selected training (excluding energy-vs-charm priority). */
+    private fun passesGoodLuckCharmTrainingChecks(
+        trainingSelected: StatName,
+        trainee: Trainee,
+        failureChance: Int,
+    ): Boolean {
+        if (!isClimaxCharmTrainingActive() && !training.isLuckyCharmAllowedForSelection(trainingSelected)) {
+            return false
+        }
+        if (failureChance < 20 && !canBypassClimaxCharmFailureFloor()) {
+            return false
+        }
+        if (shouldConserveTrainingEffectItems(trainingSelected, trainee)) {
+            return false
+        }
+        val mainGain = selectedTrainingMainGain(trainingSelected, trainee)
+        val maxFail = training.getMaximumFailureChance()
+        if (!isClimaxCharmTrainingActive() && failureChance > maxFail && mainGain < minCharmGain) {
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Picks at most one failure-mitigation path per training turn when [enableEnergyItemForHighFailureTraining] is on:
+     * Good-Luck Charm over +65/+100 energy when both qualify; otherwise energy (high-tier ignores failure margin) or charm fallback.
+     */
+    private fun resolveFailureMitigationChoice(
+        trainingSelected: StatName,
+        trainee: Trainee,
+        inventory: Map<String, Int>,
+    ): FailureMitigationChoice {
+        if (!enableEnergyItemForHighFailureTraining || date.day < 13 || bUsedCharmToday) {
+            return FailureMitigationChoice.NONE
+        }
+
+        val highTierQualifies = highTierFailureMitigationEnergyQualifies(trainingSelected, inventory)
+        val lowTierQualifies = lowTierFailureMitigationEnergyQualifies(trainingSelected, inventory)
+        val energyQualifies = highTierQualifies || lowTierQualifies
+        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        val charmMitigationQualifies = charmEligibleForFailureMitigation(trainingSelected, trainee, failureChance, inventory)
+
+        if (!energyQualifies && !charmMitigationQualifies) {
+            return FailureMitigationChoice.NONE
+        }
+
+        if (charmMitigationQualifies && highTierQualifies) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Failure mitigation: Good-Luck Charm preferred over +65/+100 energy (failure $failureChance%, both available).",
+            )
+            return FailureMitigationChoice.CHARM
+        }
+
+        if (energyQualifies) {
+            val energyLabel =
+                when {
+                    highTierQualifies && lowTierQualifies -> "high-tier and low-tier energy items"
+                    highTierQualifies -> "+65/+100 energy item"
+                    else -> "energy item"
+                }
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Failure mitigation: $energyLabel over Good-Luck Charm (failure $failureChance%).",
+            )
+            return FailureMitigationChoice.ENERGY
+        }
+
+        val maxMargin = maxAvailableLowTierEnergyFailureMargin(inventory)
+        val maxFail = training.getMaximumFailureChance()
+        val failureTooHighForLowTierEnergy = failureChance > maxFail + maxMargin
+        if (failureTooHighForLowTierEnergy && charmMitigationQualifies) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Failure mitigation: Good-Luck Charm over energy (failure $failureChance% exceeds max+$maxMargin% for available low-tier energy items).",
+            )
+            return FailureMitigationChoice.CHARM
+        }
+
+        return FailureMitigationChoice.NONE
+    }
+
+    /** Whether Good-Luck Charm may be queued on this training-item pass. */
+    private fun shouldQueueGoodLuckCharmForTraining(
+        trainingSelected: StatName,
+        trainee: Trainee,
+        failureChance: Int,
+        skipTrainingEffectItems: Boolean,
+    ): Boolean {
+        if (skipTrainingEffectItems || bUsedCharmToday) {
+            return false
+        }
+        // High-failure energy mitigation wins over charm on the same training turn; low-energy vita does not block charm.
+        if (failureMitigationChoiceForPass == FailureMitigationChoice.ENERGY) {
+            return false
+        }
+        if ((currentInventory["Good-Luck Charm"] ?: 0) <= 0) {
+            return false
+        }
+        if (!canUseFailureMitigationPoolItem("Good-Luck Charm", currentInventory, trainingSelected, trainee, failureChance)) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Conserving Good-Luck Charm: failure-mitigation pool at reserve floor ($failureMitigationPoolReserve total across Charm/Vita 65/Kale; senior pre-Finale 65–72; override needs main gain >= $summerCharmOverrideMinStatGain with no other mitigation).",
+            )
+            return false
+        }
+        if (
+            isFailureMitigationPoolReservationPeriod() &&
+                isFailureMitigationPoolOverride(trainingSelected, trainee, failureChance)
+        ) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Failure-mitigation pool override: using Good-Luck Charm on $trainingSelected (main gain >= $summerCharmOverrideMinStatGain, no other mitigation available).",
+            )
+        }
+        return passesGoodLuckCharmTrainingChecks(trainingSelected, trainee, failureChance)
+    }
+
+    /**
+     * Re-analyzes trainings after Good-Luck Charm and/or energy items were queued, then re-selects training.
+     * Keeps pre-item Wit failure in mind for low-priority Wit when charm zeroed on-screen failure.
+     */
+    private fun recheckTrainingAfterItems(
+        trainingSelected: StatName?,
+        climaxCharmTraining: Boolean,
+        preItemFailure: Map<StatName, Int>,
+    ): StatName? {
+        MessageLog.i(TAG, "[TRACKBLAZER] Re-analyzing trainings after training-item pass (Good-Luck Charm and/or energy item used).")
+        training.clearAnalysisCache()
+        val recheckArgs = buildTrainingAnalysisArgs().toMutableMap()
+        recheckArgs["postTrainingItemsRecheck"] = true
+        recheckArgs["preItemFailureSnapshot"] = preItemFailure
+        recheckArgs["charmUsedThisTurn"] = bUsedCharmToday
+        if (bUsedCharmToday) {
+            recheckArgs["ignoreFailureChance"] = true
+            recheckArgs["allowLowGainCharmAtZeroEnergy"] = true
+        }
+        training.analyzeTrainings(recheckArgs)
+
+        if (
+            bUsedCharmToday &&
+                trainingSelected != null &&
+                training.trainingMap.containsKey(trainingSelected) &&
+                training.isTrainingSelectionAllowedAfterItems(trainingSelected, preItemFailure, charmUsed = true)
+        ) {
+            MessageLog.i(TAG, "[TRACKBLAZER] Post-item recheck keeping charm-backed selection: $trainingSelected.")
+            return trainingSelected
+        }
+
+        var selected =
+            if (climaxCharmTraining) {
+                training.selectHighestNonMaxedStatForClimax()
+            } else {
+                training.recommendTraining()
+            }
+
+        if (selected != null && !training.isTrainingSelectionAllowedAfterItems(selected, preItemFailure, bUsedCharmToday)) {
+            MessageLog.i(TAG, "[TRACKBLAZER] Post-item recheck rejected $selected.")
+            selected = null
+        } else if (selected != null && selected != trainingSelected) {
+            MessageLog.i(TAG, "[TRACKBLAZER] Post-item recheck changed training selection from $trainingSelected to $selected.")
+        } else if (selected != null) {
+            MessageLog.i(TAG, "[TRACKBLAZER] Post-item recheck confirmed training selection: $selected.")
+        }
+
+        return selected
+    }
+
+    /** Returns true when the Reset Whistle may be considered this turn. */
+    private fun isResetWhistleUsageWindow(): Boolean {
+        if (saveResetWhistlesForFinale && date.day in 73..75) {
+            return true
+        }
+        if (saveResetWhistlesForFinale && date.day in 65..72) {
+            return false
+        }
+        return if (saveResetWhistlesForSummer) {
+            date.isSummer()
+        } else {
+            date.day in 37..40 || date.day > 60
+        }
+    }
+
+    /** Summer (37–40, 61–64) and Finale (73–75): whistle priority / post-whistle recovery windows. */
+    private fun isWhistlePriorityWindow(): Boolean = date.isSummer() || isClimaxPhase()
+
+    private fun whistlePriorityStatList(): List<StatName> =
+        if (date.isSummer()) {
+            training.summerTrainingStatPriority
+        } else {
+            training.statPrioritization
+        }
+
+    /** Returns true when a top-3 priority training already has enough rainbows to train without a Reset Whistle. */
+    private fun shouldSkipWhistleForRainbowPriority(): Boolean =
+        isWhistlePriorityWindow() &&
+            whistlePriorityMinRainbow > 0 &&
+            training.hasTrainableTopPriorityTrainingWithRainbows(whistlePriorityStatList(), whistlePriorityMinRainbow)
+
+    /**
+     * Returns true when a post-whistle pick should be abandoned for energy recovery.
+     * Uses pre-charm failure values from cached analysis.
+     */
+    private fun shouldRejectWhistlePostShuffleResult(trainingSelected: StatName?): Boolean {
+        if (
+            trainingSelected == null ||
+                whistlePostShuffleMinFailure <= 0 ||
+                whistlePostShuffleMinMainGain <= 0 ||
+                !isWhistlePriorityWindow()
+        ) {
+            return false
+        }
+        val candidate = training.cachedAnalysisResults?.firstOrNull { it.name == trainingSelected } ?: return false
+        val failure = candidate.failureChance
+        val mainGain = candidate.statGains[trainingSelected] ?: 0
+        if (failure >= whistlePostShuffleMinFailure && mainGain < whistlePostShuffleMinMainGain) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Rejecting post-whistle pick $trainingSelected: failure ($failure%) >= $whistlePostShuffleMinFailure% and main gain ($mainGain) < $whistlePostShuffleMinMainGain. Recovering energy instead (before Good-Luck Charm).",
+            )
+            return true
+        }
+        return false
+    }
+
+    /**
+     * Attempts a Reset Whistle reshuffle when no training is selected. Item usage (including Good-Luck Charm) must run after this.
+     *
+     * @return Updated training selection, or null if still none.
+     */
+    private fun tryApplyResetWhistle(trainingSelected: StatName?, climaxCharmTraining: Boolean): StatName? {
+        var selected = trainingSelected
+
+        if (!isResetWhistleUsageWindow() || bUsedWhistleToday || selected != null || bIsIrregularTraining || training.needsEnergyRecovery) {
+            if (training.needsEnergyRecovery && selected == null) {
+                MessageLog.i(TAG, "[TRACKBLAZER] Skipping Reset Whistle as energy recovery is needed, not a training re-roll.")
+            }
+            return selected
+        }
+
+        if (shouldSkipWhistleForRainbowPriority()) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Skipping Reset Whistle: a top-3 priority training has >= $whistlePriorityMinRainbow rainbow(s) with qualifying orange friendship on screen.",
+            )
+            return selected
+        }
+
+        val hasWhistle = (currentInventory["Reset Whistle"] ?: 0) > 0
+
+        val whistleGateBlocks =
+            if (trainee.mood < Mood.NORMAL) {
+                val blacklistSize = training.blacklist.filterNotNull().size
+                val requiredLowGainCount = (3 - blacklistSize).coerceAtLeast(1)
+                val results = training.cachedAnalysisResults ?: emptyList()
+                val nonBlacklisted = results.filter { it.name !in training.blacklist }
+                val lowGainCount = nonBlacklisted.count { (it.statGains[it.name] ?: 0) < lowMainStatGainItemFloor }
+                val blocks = lowGainCount >= requiredLowGainCount
+                if (blocks) {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Refusing Reset Whistle reshuffle: mood=${trainee.mood}, $lowGainCount of ${nonBlacklisted.size} non-blacklisted trainings have main gain below floor ($lowMainStatGainItemFloor). Reshuffling won't recover from the mood penalty.",
+                    )
+                }
+                blocks
+            } else {
+                false
+            }
+
+        if (whistleGateBlocks) {
+            return selected
+        }
+
+        if (!hasWhistle) {
+            MessageLog.i(TAG, "[TRACKBLAZER] No suitable training found and no Reset Whistles in cached inventory or all are disabled.")
+            return selected
+        }
+
+        MessageLog.i(TAG, "[TRACKBLAZER] No suitable training found. Using Reset Whistle.")
+        if (!shopList.openTrainingItemsDialog()) {
+            return selected
+        }
+
+        if (shopList.useSpecificItems(listOf("Reset Whistle"), reason = "No suitable training found.").isEmpty()) {
+            MessageLog.i(TAG, "[TRACKBLAZER] No Reset Whistles found in inventory.")
+            ButtonClose.click(game.imageUtils)
+            game.wait(game.dialogWaitDelay, skipWaitingForLoading = true)
+            return selected
+        }
+
+        confirmAndCloseItemDialog(1)
+        useInventoryItem("Reset Whistle")
+        bUsedWhistleToday = true
+
+        MessageLog.i(TAG, "[TRACKBLAZER] Re-analyzing trainings after Reset Whistle (before Good-Luck Charm).")
+        training.analyzeTrainings(buildTrainingAnalysisArgs())
+        selected =
+            if (climaxCharmTraining) {
+                training.selectHighestNonMaxedStatForClimax()
+            } else {
+                training.recommendTraining(forceSelection = whistleForcesTraining)
+            }
+
+        if (shouldRejectWhistlePostShuffleResult(selected)) {
+            return null
+        }
+
+        when {
+            selected == null ->
+                MessageLog.i(TAG, "[TRACKBLAZER] Reset Whistle re-analysis returned no training; nothing to execute.")
+            training.lastSelectionSource == SelectionSource.FORCED_FROM_SKIPPED -> {
+                val forcedCandidate = training.cachedAnalysisResults?.firstOrNull { it.name == selected }
+                val forcedFail = forcedCandidate?.failureChance ?: 0
+                val forcedBaseGain = forcedCandidate?.statGains?.get(selected) ?: 0
+                val charmAvailable = (currentInventory["Good-Luck Charm"] ?: 0) > 0
+                val charmWouldFire =
+                    isClimaxCharmTrainingActive() ||
+                        (
+                            charmAvailable && !bUsedCharmToday && forcedFail >= 20 && !shouldConserveTrainingEffectItems(selected, trainee) && forcedBaseGain >= minCharmGain && training.isLuckyCharmAllowedForSelection(selected)
+                        )
+                if (!charmWouldFire && forcedFail >= 50) {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Skipping Whistle force-pick: $selected at $forcedFail% fail with no Good-Luck Charm. Falling back to recovery.",
+                    )
+                    selected = null
+                } else {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Reset Whistle re-analysis still rejected all trainings; Whistle Forces Training is enabled, " +
+                            "so executing forced pick: $selected. Megaphone (if available) will be applied after Good-Luck Charm evaluation.",
+                    )
+                }
+            }
+            training.lastSelectionSource != SelectionSource.ANALYSIS ->
+                MessageLog.i(TAG, "[TRACKBLAZER] Reset Whistle re-analysis used fallback (${training.lastSelectionSource}): $selected.")
+            else ->
+                MessageLog.i(TAG, "[TRACKBLAZER] Reset Whistle re-analysis selected: $selected.")
+        }
+
+        return selected
+    }
 
     // //////////////////////////////////////////////////////////////////////////////////////////////////
     // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -886,9 +1869,8 @@ class Trackblazer(game: Game) : Campaign(game) {
                 MessageLog.i(TAG, "[TRACKBLAZER] Mandatory race ribbon detected. Processing as mandatory race.")
                 val result = super.handleRaceEvents(true)
                 // Mandatory races bypass executeAction(), so decrement the megaphone counter here to match the per-turn decrement applied to other actions.
-                if (result && trainee.megaphoneTurnCounter > 0) {
-                    trainee.megaphoneTurnCounter--
-                    MessageLog.i(TAG, "[TRACKBLAZER] Megaphone duration reduced. Turns remaining: ${trainee.megaphoneTurnCounter}.")
+                if (result) {
+                    decrementMegaphoneTurnCounter(trainee)
                 }
                 return result
             }
@@ -964,6 +1946,15 @@ class Trackblazer(game: Game) : Campaign(game) {
         return result
     }
 
+    /**
+     * Uses a cure item scheduled at the end of the prior turn after accepting a Slow Metabolism event option.
+     * Handled inside [useItems] / [manageInventoryItems] via [pendingPostEventCureItemToUse].
+     */
+    private fun usePendingPostEventSlowMetabolismCure() {
+        val itemName = pendingPostEventCureItemToUse() ?: return
+        MessageLog.i(TAG, "[TRACKBLAZER] Scheduled post-event cure pending: $itemName (will queue during item pass).")
+    }
+
     override fun resetDailyFlags() {
         bUsedWhistleToday = false
         bUsedCharmToday = false
@@ -986,6 +1977,20 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
         }
     }
+
+    override fun hasCureForNegativeStatus(statusName: String): Boolean {
+        if (statusName == NegativeStatus.SLOW_METABOLISM.statusName) {
+            return (currentInventory["Smart Scale"] ?: 0) > 0 || (currentInventory["Miracle Cure"] ?: 0) > 0
+        }
+        return (currentInventory["Miracle Cure"] ?: 0) > 0
+    }
+
+    override fun getPreferredCureItemForNegativeStatus(statusName: String): String? =
+        when {
+            statusName == NegativeStatus.SLOW_METABOLISM.statusName && (currentInventory["Smart Scale"] ?: 0) > 0 -> "Smart Scale"
+            (currentInventory["Miracle Cure"] ?: 0) > 0 -> "Miracle Cure"
+            else -> null
+        }
 
     override fun onMainScreenEntry() {
         // Before taking any action, check for items to use.
@@ -1023,7 +2028,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         }
 
         // Avoid racing and training analysis at low energy with 3+ consecutive races to prevent
-        // -30 stat penalty. Energy items were already attempted in onMainScreenEntry().
+        // -30 stat penalty. Energy items may also be used from the main screen when energy is very low.
         // However, if a Good-Luck Charm is available, allow training analysis since the charm
         // can bypass high failure chances that come with low energy.
         val hasCharmAvailable = !bUsedCharmToday && (currentInventory["Good-Luck Charm"] ?: 0) > 0
@@ -1152,10 +2157,7 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         if (result && action != MainScreenAction.NONE) {
             // Turn is over, decrement megaphone counter.
-            if (trainee.megaphoneTurnCounter > 0) {
-                trainee.megaphoneTurnCounter--
-                MessageLog.i(TAG, "[TRACKBLAZER] Megaphone duration reduced. Turns remaining: ${trainee.megaphoneTurnCounter}.")
-            }
+            decrementMegaphoneTurnCounter(trainee)
 
             // Increment the shop check counter if it is active.
             if (shopCheckCounter > 0) {
@@ -1479,10 +2481,25 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         // Finalize by closing the dialog.
         MessageLog.i(TAG, "[TRACKBLAZER] Closing training items dialog.")
-        if (ButtonClose.check(game.imageUtils, tries = 50)) {
-            game.wait(1.0)
-            ButtonClose.click(game.imageUtils)
-            game.wait(1.0)
+        val maxCloseAttempts = 3
+        var closeAttempt = 0
+        while (closeAttempt < maxCloseAttempts) {
+            if (ButtonClose.check(game.imageUtils, tries = 50)) {
+                game.wait(1.0)
+                ButtonClose.click(game.imageUtils)
+                game.wait(1.0)
+            }
+            if (!ButtonConfirmUse.check(game.imageUtils, tries = 5)) {
+                break
+            }
+            closeAttempt++
+            if (closeAttempt < maxCloseAttempts) {
+                MessageLog.w(TAG, "[WARN] confirmAndCloseItemDialog:: Training Items dialog still visible after close attempt $closeAttempt/$maxCloseAttempts. Retrying.")
+                game.wait(1.0)
+            }
+        }
+        if (closeAttempt >= maxCloseAttempts) {
+            MessageLog.e(TAG, "[ERROR] confirmAndCloseItemDialog:: Training Items dialog did not close after $maxCloseAttempts attempts. The next training click may misfire.")
         }
 
         // Clear the training analysis cache so that the bot re-evaluates the training options if it re-enters the training screen.
@@ -1529,6 +2546,90 @@ class Trackblazer(game: Game) : Campaign(game) {
     }
 
     /**
+     * Queues training items (ankle weights, megaphones, charms, energy, etc.) for [trainingSelected], re-checks when
+     * charm/energy was used or when a risky pick still lacks mitigation, then executes training when the pick is still valid.
+     */
+    private fun executeTrainingWithItems(
+        trainingSelected: StatName,
+        climaxCharmTraining: Boolean,
+    ): StatName? {
+        var selected: StatName? = trainingSelected
+        if (date.day >= 13) {
+            val preItemFailure = training.capturePreItemFailureSnapshot()
+            val preItemMainGain = preItemMainGainFor(selected)
+            useItems(trainee, selected)
+            val needsRecheckAfterItems =
+                bUsedCharmToday ||
+                    bUsedEnergyItemThisPass ||
+                    (
+                        selected != null &&
+                            training.requiresFailureMitigationBeforeExecute(
+                                failureChance = preItemFailure[selected] ?: 0,
+                                mainStatGain = preItemMainGain,
+                                charmUsed = false,
+                                climaxForceCharm = false,
+                            )
+                    )
+            if (needsRecheckAfterItems) {
+                selected = recheckTrainingAfterItems(selected, climaxCharmTraining, preItemFailure)
+            }
+        }
+        if (selected != null && shouldBlockUnmitigatedHighFailureExecute(selected, climaxCharmTraining)) {
+            return null
+        }
+        if (selected == null) {
+            return null
+        }
+        training.executeTraining(selected)
+        training.firstTrainingCheck = false
+        return selected
+    }
+
+    /** Main stat gain for [stat] from the latest analysis snapshot. */
+    private fun preItemMainGainFor(stat: StatName?): Int {
+        if (stat == null) return 0
+        return training.trainingMap[stat]?.statGains?.get(stat)
+            ?: training.cachedAnalysisResults?.firstOrNull { it.name == stat }?.statGains?.get(stat)
+            ?: 0
+    }
+
+    /**
+     * Blocks executing a training whose failure chance still exceeds the configured threshold when Good-Luck Charm
+     * was not applied. Catches analysis that assumed a charm would fire (charm in inventory) but item pass skipped it.
+     */
+    private fun shouldBlockUnmitigatedHighFailureExecute(selected: StatName, climaxCharmTraining: Boolean): Boolean {
+        if (bUsedCharmToday) {
+            return false
+        }
+        if (climaxCharmTraining && isClimaxCharmTrainingActive()) {
+            val option = training.trainingMap[selected] ?: training.skippedTrainingMap[selected]
+            if (option != null) {
+                val mainGain = option.statGains[selected] ?: 0
+                if (training.exceedsFailureThreshold(option.failureChance, mainGain)) {
+                    MessageLog.w(
+                        TAG,
+                        "[TRACKBLAZER] Refusing Climax training on $selected (${option.failureChance}% failure): Good-Luck Charm was not applied this turn.",
+                    )
+                    return true
+                }
+            }
+            return false
+        }
+
+        val option = training.trainingMap[selected] ?: training.skippedTrainingMap[selected] ?: return false
+        val mainGain = option.statGains[selected] ?: 0
+        if (!training.exceedsFailureThreshold(option.failureChance, mainGain)) {
+            return false
+        }
+
+        MessageLog.w(
+            TAG,
+            "[TRACKBLAZER] Refusing to execute $selected (${option.failureChance}% failure, main gain $mainGain): exceeds threshold without Good-Luck Charm or acceptable mitigation.",
+        )
+        return true
+    }
+
+    /**
      * Handles the specialized training process for Trackblazer, including item usage.
      */
     private fun handleTrackblazerTraining() {
@@ -1542,13 +2643,8 @@ class Trackblazer(game: Game) : Campaign(game) {
                 MessageLog.i(TAG, "[TRACKBLAZER] On-screen evaluation used fallback (${training.lastSelectionSource}): $trainingSelected.")
             }
 
-            // Still use training items (megaphones, ankle weights, charms, energy, stat items, etc.)
-            if (date.day >= 13) {
-                useItems(trainee, trainingSelected)
-            }
-
             if (trainingSelected != null) {
-                training.executeTraining(trainingSelected)
+                executeTrainingWithItems(trainingSelected, climaxCharmTraining = false)
             } else {
                 MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Irregular training unexpectedly became null. Backing out.")
                 ButtonBack.click(game.imageUtils)
@@ -1567,119 +2663,69 @@ class Trackblazer(game: Game) : Campaign(game) {
         }
         game.wait(0.5)
 
+        if (shouldTryEnergyRecoveryItems()) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Low energy (${trainee.energy}%) before training analysis. Attempting energy-item recovery on Training screen.",
+            )
+            useItems(trainee, trainingSelected = null)
+            training.clearAnalysisCache()
+        }
+
         // Initial Training Analysis.
-        val hasCharm = date.day >= 13 && !bUsedCharmToday && (currentInventory["Good-Luck Charm"] ?: 0) > 0
-        training.analyzeTrainings(mapOf("ignoreFailureChance" to hasCharm, "minStatGainForCharm" to minCharmGain))
-        var trainingSelected: StatName? = training.recommendTraining()
+        val analysisArgs = buildTrainingAnalysisArgs()
+        val climaxCharmTraining = analysisArgs["climaxForceCharmTraining"] as Boolean
+        training.analyzeTrainings(analysisArgs)
+        var trainingSelected: StatName? =
+            if (climaxCharmTraining) {
+                training.selectHighestNonMaxedStatForClimax()
+            } else {
+                training.recommendTraining()
+            }
         if (trainingSelected != null && training.lastSelectionSource != SelectionSource.ANALYSIS) {
             MessageLog.i(TAG, "[TRACKBLAZER] Initial training selection used fallback (${training.lastSelectionSource}): $trainingSelected.")
         }
 
-        // Finally, perform a consolidated item usage pass after the training is finalized.
-        if (date.day >= 13) {
-            useItems(trainee, trainingSelected)
-        }
-
-        // Reset Whistle Check: Use if recommendations are poor.
-        // We define "poor" as no training being selected or certain other conditions.
-        // Block whistling during irregular training evaluations.
-
-        // Limit automated whistle usage to during summer or near end of senior (Turns 37-40, >60)
-        if ((date.day in 37..40 || date.day > 60) && !bUsedWhistleToday && trainingSelected == null && !bIsIrregularTraining && !training.needsEnergyRecovery) {
-            val hasWhistle = (currentInventory["Reset Whistle"] ?: 0) > 0
-
-            // Whistle viability gate: when mood is below NORMAL, the mood multiplier structurally caps gains.
-            // Reshuffling trainings won't recover from that — so refuse to consume the Whistle if enough
-            // non-blacklisted trainings already show low main-stat gain. The required count scales with the
-            // blacklist size: 0 blacklisted -> 3-of-5, 1 blacklisted -> 2-of-4, 2+ blacklisted -> 1 (clamped).
-            val whistleGateBlocks =
-                if (trainee.mood < Mood.NORMAL) {
-                    val blacklistSize = training.blacklist.filterNotNull().size
-                    val requiredLowGainCount = (3 - blacklistSize).coerceAtLeast(1)
-                    val results = training.cachedAnalysisResults ?: emptyList()
-                    val nonBlacklisted = results.filter { it.name !in training.blacklist }
-                    val lowGainCount = nonBlacklisted.count { (it.statGains[it.name] ?: 0) < lowMainStatGainItemFloor }
-                    val blocks = lowGainCount >= requiredLowGainCount
-                    if (blocks) {
-                        MessageLog.i(
-                            TAG,
-                            "[TRACKBLAZER] Refusing Reset Whistle reshuffle: mood=${trainee.mood}, $lowGainCount of ${nonBlacklisted.size} non-blacklisted trainings have main gain below floor ($lowMainStatGainItemFloor). Reshuffling won't recover from the mood penalty.",
-                        )
-                    }
-                    blocks
-                } else {
-                    false
-                }
-
-            if (whistleGateBlocks) {
-                // Whistle usage was skipped such that trainingSelected stays null and the existing recovery branch below fires.
-            } else if (hasWhistle) {
-                MessageLog.i(TAG, "[TRACKBLAZER] No suitable training found. Using Reset Whistle.")
-                if (shopList.openTrainingItemsDialog()) {
-                    if (shopList.useSpecificItems(listOf("Reset Whistle"), reason = "No suitable training found.").isNotEmpty()) {
-                        confirmAndCloseItemDialog(1)
-
-                        useInventoryItem("Reset Whistle")
-                        bUsedWhistleToday = true
-
-                        // Re-analyze after shuffle.
-                        MessageLog.i(TAG, "[TRACKBLAZER] Re-analyzing trainings after Reset Whistle.")
-                        training.analyzeTrainings(mapOf("ignoreFailureChance" to hasCharm, "minStatGainForCharm" to minCharmGain))
-                        trainingSelected = training.recommendTraining(forceSelection = whistleForcesTraining)
-
-                        when {
-                            trainingSelected == null ->
-                                MessageLog.i(TAG, "[TRACKBLAZER] Reset Whistle re-analysis returned no training; nothing to execute.")
-                            training.lastSelectionSource == SelectionSource.FORCED_FROM_SKIPPED -> {
-                                // The forced pick comes from the rejected pool, so by definition either its main gain is below minCharmGain or its failure is too high to clear without a charm.
-                                // If the analyzer's charm gates would suppress the charm anyway, executing this pick is a near-certain failure with no defensive item.
-                                // Abandon this and let the recovery branch below take Rest/Recreation.
-                                val forcedCandidate = training.cachedAnalysisResults?.firstOrNull { it.name == trainingSelected }
-                                val forcedFail = forcedCandidate?.failureChance ?: 0
-                                val forcedMainGain = forcedCandidate?.statGains?.get(trainingSelected) ?: 0
-                                val charmAvailable = (currentInventory["Good-Luck Charm"] ?: 0) > 0
-                                val charmWouldFire =
-                                    charmAvailable && !bUsedCharmToday && forcedFail >= 20 && !shouldConserveTrainingEffectItems(trainingSelected, trainee) && forcedMainGain >= minCharmGain
-                                if (!charmWouldFire && forcedFail >= 50) {
-                                    MessageLog.i(
-                                        TAG,
-                                        "[TRACKBLAZER] Skipping Whistle force-pick: $trainingSelected at $forcedFail% fail with no Good-Luck Charm. Falling back to recovery.",
-                                    )
-                                    trainingSelected = null
-                                } else {
-                                    MessageLog.i(
-                                        TAG,
-                                        "[TRACKBLAZER] Reset Whistle re-analysis still rejected all trainings; Whistle Forces Training is enabled, " +
-                                            "so executing forced pick: $trainingSelected. Megaphone (if available) will be applied to this forced selection.",
-                                    )
-                                }
-                            }
-                            training.lastSelectionSource != SelectionSource.ANALYSIS ->
-                                MessageLog.i(TAG, "[TRACKBLAZER] Reset Whistle re-analysis used fallback (${training.lastSelectionSource}): $trainingSelected.")
-                            else ->
-                                MessageLog.i(TAG, "[TRACKBLAZER] Reset Whistle re-analysis selected: $trainingSelected.")
-                        }
-
-                        // Perform another consolidated item usage pass if needed after shuffle.
-                        useItems(trainee, trainingSelected)
-                    } else {
-                        MessageLog.i(TAG, "[TRACKBLAZER] No Reset Whistles found in inventory.")
-                        ButtonClose.click(game.imageUtils)
-                        game.wait(game.dialogWaitDelay, skipWaitingForLoading = true)
-                    }
-                }
-            } else {
-                MessageLog.i(TAG, "[TRACKBLAZER] No suitable training found and no Reset Whistles in cached inventory or all are disabled.")
+        // Prefer a top-3 priority rainbow training before Reset Whistle (Summer + Finale; still before Good-Luck Charm).
+        if (trainingSelected == null && isWhistlePriorityWindow() && whistlePriorityMinRainbow > 0) {
+            val rainbowPick =
+                training.selectBestTrainableTopPriorityTrainingWithRainbows(
+                    whistlePriorityStatList(),
+                    whistlePriorityMinRainbow,
+                )
+            if (rainbowPick != null) {
+                val rainbows = training.trainingMap[rainbowPick]?.numRainbow ?: 0
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Selected top-priority $rainbowPick ($rainbows rainbow(s) >= $whistlePriorityMinRainbow) before Reset Whistle / Good-Luck Charm.",
+                )
+                trainingSelected = rainbowPick
             }
-        } else if (training.needsEnergyRecovery && trainingSelected == null) {
-            MessageLog.i(TAG, "[TRACKBLAZER] Skipping Reset Whistle as energy recovery is needed, not a training re-roll.")
         }
 
-        // Final Training Execution.
+        // Reset Whistle must be evaluated before Good-Luck Charm (charm sets failure to 0%).
+        trainingSelected = tryApplyResetWhistle(trainingSelected, climaxCharmTraining)
+
+        // Final Training Execution (items — ankle weights, megaphones, charms, etc. — run after selection is final).
         if (trainingSelected != null) {
-            training.executeTraining(trainingSelected)
-            training.firstTrainingCheck = false
-        } else {
+            trainingSelected = executeTrainingWithItems(trainingSelected, climaxCharmTraining)
+        }
+
+        if (trainingSelected == null && isClimaxCharmTrainingActive()) {
+            val climaxSelected = training.selectHighestNonMaxedStatForClimax()
+            if (climaxSelected != null) {
+                MessageLog.i(TAG, "[TRACKBLAZER] Climax phase with remaining Good-Luck Charm(s). Training $climaxSelected instead of resting.")
+                executeTrainingWithItems(climaxSelected, climaxCharmTraining = true)
+            } else {
+                MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Climax charm training requested but no non-maxed stat is available. Backing out for recovery.")
+                training.firstTrainingCheck = false
+                ButtonBack.click(game.imageUtils)
+                game.wait(1.0)
+                if (checkMainScreen()) {
+                    recoverEnergy()
+                }
+            }
+        } else if (trainingSelected == null) {
             // Most optimal action must be taken if no suitable training is found to avoid a dead/wasted turn.
             // Resting has 62.5% chance of being +50 energy, Shrine (remove status conditions) has 30% chance in recreation.
             if (trainee.mood <= Mood.NORMAL || trainee.energy <= 50) {
@@ -1704,6 +2750,58 @@ class Trackblazer(game: Game) : Campaign(game) {
                 // 80 Energy is optimal for Wit, as there may be post events that provide additional energy.
                 val forcedStat = if (trainee.energy >= 80 && trainee.currentNegativeStatuses.isEmpty()) StatName.SPEED else StatName.WIT
 
+                if (forcedStat == StatName.WIT && training.shouldPreferRestOverWitTraining()) {
+                    MessageLog.i(TAG, "[TRACKBLAZER] Forced Wit skipped (prefer rest/recreation over Wit). Backing out for recovery.")
+                    training.firstTrainingCheck = false
+                    ButtonBack.click(game.imageUtils)
+                    game.wait(1.0)
+
+                    if (checkMainScreen()) {
+                        if (trainee.mood == Mood.AWFUL || (trainee.mood <= Mood.NORMAL && trainee.energy >= 20)) {
+                            MessageLog.i(TAG, "[TRACKBLAZER] Mood is ${trainee.mood}. Attempting to recover mood.")
+                            recoverMood()
+                        } else {
+                            MessageLog.i(TAG, "[TRACKBLAZER] Energy is ${trainee.energy}%. Attempting to recover energy.")
+                            recoverEnergy()
+                        }
+                    }
+                } else if (forcedStat == StatName.WIT && training.shouldBlockEmptyWitTraining()) {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Forced Wit skipped (empty/all-orange low-hint Wit: no below-orange bars, or all orange without rainbow and ≤1 hint; Akikawa/Etsuko excluded). Backing out for recovery.",
+                    )
+                    training.firstTrainingCheck = false
+                    ButtonBack.click(game.imageUtils)
+                    game.wait(1.0)
+
+                    if (checkMainScreen()) {
+                        if (trainee.mood == Mood.AWFUL || (trainee.mood <= Mood.NORMAL && trainee.energy >= 20)) {
+                            MessageLog.i(TAG, "[TRACKBLAZER] Mood is ${trainee.mood}. Attempting to recover mood.")
+                            recoverMood()
+                        } else {
+                            MessageLog.i(TAG, "[TRACKBLAZER] Energy is ${trainee.energy}%. Attempting to recover energy.")
+                            recoverEnergy()
+                        }
+                    }
+                } else if (forcedStat == StatName.WIT && training.shouldSkipLowPriorityWit()) {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Forced Wit skipped (low-priority Wit rule: main stats over failure threshold and Wit not in top-3 stat priority). Backing out for recovery.",
+                    )
+                    training.firstTrainingCheck = false
+                    ButtonBack.click(game.imageUtils)
+                    game.wait(1.0)
+
+                    if (checkMainScreen()) {
+                        if (trainee.mood == Mood.AWFUL || (trainee.mood <= Mood.NORMAL && trainee.energy >= 20)) {
+                            MessageLog.i(TAG, "[TRACKBLAZER] Mood is ${trainee.mood}. Attempting to recover mood.")
+                            recoverMood()
+                        } else {
+                            MessageLog.i(TAG, "[TRACKBLAZER] Energy is ${trainee.energy}%. Attempting to recover energy.")
+                            recoverEnergy()
+                        }
+                    }
+                } else {
                 // Refuse to force-train if the forced stat was already rejected by analysis (high failure chance, low gain with charm, etc.) or is blacklisted. Recover instead.
                 val skippedForced = training.skippedTrainingMap[forcedStat]
                 val forcedIsBlacklisted = forcedStat in training.blacklist
@@ -1726,8 +2824,8 @@ class Trackblazer(game: Game) : Campaign(game) {
                     }
                 } else {
                     MessageLog.i(TAG, "[TRACKBLAZER] Still no suitable training found. Energy (${trainee.energy}%) and Mood (${trainee.mood}) are sufficient. Forcing $forcedStat training.")
-                    training.executeTraining(forcedStat)
-                    training.firstTrainingCheck = false
+                    executeTrainingWithItems(forcedStat, climaxCharmTraining = false)
+                }
                 }
             }
         }
@@ -1775,33 +2873,27 @@ class Trackblazer(game: Game) : Campaign(game) {
         val artisanHammerCount = currentInventory["Artisan Cleat Hammer"] ?: 0
         val glowSticksCount = currentInventory["Glow Sticks"] ?: 0
 
-        // Always reserve 2 master hammers for the finale (days 73-75)
-        val spareMasterHammers = (masterHammerCount - 2).coerceAtLeast(0)
+        // Conservation thresholds activate at `raceItemConservationStartDay` (Turn 65). Before that, the bot uses race items freely.
+        val conservationActive = date.day >= raceItemConservationStartDay
 
-        // Master Hammer Logic
+        // Master Hammer Logic — finale reserve is always honored before day 73; days 73-74 require 2+ copies so one remains for the Final.
         val canUseMasterHammer =
-            if (date.day < 73) {
-                // Only use spare masters beyond the 2 reserved for the finale
-                spareMasterHammers > 0 && (grade == RaceGrade.G1 || grade == RaceGrade.G2)
-            } else {
-                // Ensure we still have enough for remaining finale days.
-                val remainingFinaleDays = listOf(73, 74, 75).count { it >= date.day }
-                val hasEnough = masterHammerCount > remainingFinaleDays.coerceAtMost(masterHammerCount - 1).coerceAtLeast(0)
-                hasEnough && grade == RaceGrade.G1
-            }
+            Companion.canUseMasterCleatHammer(
+                day = date.day,
+                masterHammerCount = masterHammerCount,
+                grade = grade,
+                finaleReserve = masterHammerFinaleReserve,
+            )
 
-        // Artisan Hammer Logic
-        // Grade priority: G1 > G2 > G3, with G3 only allowed if 3+ artisan hammers.
+        // Artisan Hammer Logic. Per-grade stock floors apply only from Turn `raceItemConservationStartDay` onward.
         val canUseArtisanHammer =
-            if (artisanHammerCount >= 3) {
-                true
-            } else if (artisanHammerCount >= 2) {
-                grade == RaceGrade.G1 || grade == RaceGrade.G2
-            } else if (artisanHammerCount == 1) {
-                grade == RaceGrade.G1
-            } else {
-                false
-            }
+            artisanHammerCount > 0 &&
+                when (grade) {
+                    RaceGrade.G1 -> true
+                    RaceGrade.G2 -> !conservationActive || artisanHammerCount >= maxOf(1, artisanMinStockForG2)
+                    RaceGrade.G3 -> !conservationActive || artisanHammerCount >= maxOf(1, artisanMinStockForG3)
+                    else -> false
+                }
 
         // Master takes priority at the finale since it provides a higher bonus (35% vs 20%).
         val hammerToUse =
@@ -1819,18 +2911,9 @@ class Trackblazer(game: Game) : Campaign(game) {
                 }
             }
 
-        // Glow Sticks Logic
-        val useGlowSticks =
-            if (date.day >= 73) {
-                // Reserve 1 stick for Day 75 (the Final).
-                val reserveForFinals = if (date.day < 75) 1 else 0
-                fans >= 20000 && glowSticksCount > reserveForFinals
-            } else if (fans >= 30000) {
-                // Use the last stick. Shops refresh when the Finales start so there is a chance for another Glow Stick to buy.
-                glowSticksCount > 0
-            } else {
-                fans >= 20000 && glowSticksCount > 1
-            }
+        // Glow Sticks Logic. `glowStickMinFans` is the per-race fan floor at all times. `glowStickFinalReserve` is honored from conservation start onward.
+        val effectiveReserve = if (conservationActive && date.day < 75) glowStickFinalReserve else 0
+        val useGlowSticks = fans >= glowStickMinFans && glowSticksCount > effectiveReserve
 
         if (hammerToUse != null || useGlowSticks) {
             MessageLog.i(TAG, "[TRACKBLAZER] Suitable race items found in inventory (Hammer: $hammerToUse, Glow Sticks: $useGlowSticks). Opening Training Items dialog.")
@@ -1881,6 +2964,14 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (date.day < 13 && !bDryRun) return
 
         MessageLog.i(TAG, "[TRACKBLAZER] Starting inventory management pass.")
+        bKaleJuiceQueuedThisPass = false
+        bUsedEnergyItemThisPass = false
+        failureMitigationChoiceForPass = FailureMitigationChoice.NONE
+        failureMitigationEnergyPlanForPass = null
+        failureMitigationEnergyQueuedCounts.clear()
+        if (trainee != null && trainingSelected != null && !bDryRun) {
+            failureMitigationChoiceForPass = resolveFailureMitigationChoice(trainingSelected, trainee, currentInventory)
+        }
         val initialEnergy = trainee?.energy ?: 0
         val initialMood = trainee?.mood ?: Mood.NORMAL
         val initialMegaphoneTurnCounter = trainee?.megaphoneTurnCounter ?: 0
@@ -1893,7 +2984,11 @@ class Trackblazer(game: Game) : Campaign(game) {
         // If we have a cached inventory and have seen all items of interest, we can exit the scroll loop early.
         val remainingItemsOfInterest =
             if (currentInventory.isNotEmpty()) {
-                val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+                val failureChance = if (trainingSelected != null) training.trainingMap[trainingSelected]?.failureChance ?: 0 else 0
+                val skipCharmForConservation =
+                    trainingSelected != null &&
+                        trainee != null &&
+                        shouldConserveTrainingEffectItems(trainingSelected, trainee)
                 val neededWeight =
                     when (trainingSelected) {
                         StatName.SPEED -> "Speed Ankle Weights"
@@ -1915,20 +3010,45 @@ class Trackblazer(game: Game) : Campaign(game) {
                         val isMood = name == "Berry Sweet Cupcake" || name == "Plain Cupcake"
                         val isMegaphone = name == "Empowering Megaphone" || name == "Motivating Megaphone" || name == "Coaching Megaphone"
                         val isAnkleWeight = name == neededWeight
-                        val isCharm = name == "Good-Luck Charm" && failureChance >= 20
+                        val isCharm =
+                            name == "Good-Luck Charm" &&
+                                trainee != null &&
+                                trainingSelected != null &&
+                                !skipCharmForConservation &&
+                                shouldQueueGoodLuckCharmForTraining(trainingSelected, trainee, failureChance, skipCharmForConservation)
 
                         // Determine if this item is actually useful right now.
                         // isBad items are also isQuick, but they must clear the condition-match gate; let the isBad clause own them.
                         val isUseful =
                             isStat ||
-                                (isBad && trainee != null && canHealActiveNegativeStatus(name, trainee)) ||
+                                (isBad && trainee != null && (canHealActiveNegativeStatus(name, trainee) || isPendingPostEventCureItem(name))) ||
                                 (isQuick && !isBad) ||
-                                (isEnergy && trainee != null && trainee.energy <= 100) ||
+                                (
+                                    isEnergy &&
+                                        trainee != null &&
+                                        (
+                                            (
+                                                trainingSelected != null &&
+                                                    (
+                                                        trainee.energy <= energyThresholdToUseEnergyItems ||
+                                                            shouldConsiderEnergyItemForHighFailureTrain(trainingSelected) ||
+                                                            (name == "Royal Kale Juice" && kaleJuiceRestRecoveryEligible(currentInventory, trainee.energy))
+                                                    )
+                                            ) ||
+                                                (
+                                                    trainingSelected == null &&
+                                                        (
+                                                            trainee.energy <= energyThresholdToUseEnergyItems ||
+                                                                (name == "Royal Kale Juice" && kaleJuiceRestRecoveryEligible(currentInventory, trainee.energy))
+                                                        )
+                                                )
+                                        )
+                                ) ||
                                 // We might want any energy item if not full.
                                 (isMood && trainee != null && trainee.mood < Mood.GREAT) ||
-                                (isMegaphone && trainee != null && trainingSelected != null && trainee.megaphoneTurnCounter == 0 && !shouldConserveTrainingEffectItems(trainingSelected, trainee)) ||
-                                (isAnkleWeight && trainee != null && trainingSelected != null) ||
-                                (isCharm && trainee != null && trainingSelected != null && !shouldConserveTrainingEffectItems(trainingSelected, trainee))
+                                (isMegaphone && trainee != null && trainingSelected != null && hasMegaphoneAvailableForTraining(trainingSelected, trainee, currentInventory)) ||
+                                (isAnkleWeight && trainee != null && trainingSelected != null && isAnkleWeightEligibleForUse(name, trainingSelected, currentInventory)) ||
+                                isCharm
 
                         isUseful
                     }.keys
@@ -2003,11 +3123,26 @@ class Trackblazer(game: Game) : Campaign(game) {
                                     break
                                 }
                             }
-                        } else if (isBad && !isDisabled && trainee?.currentNegativeStatuses?.isNotEmpty() == true) {
-                            val reason = "Healed status effect: ${trainee.currentNegativeStatuses.joinToString(", ")}."
+                        } else if (
+                            isBad &&
+                                trainee != null &&
+                                (
+                                    isPendingPostEventCureItem(itemName) ||
+                                        (!isDisabled && trainee.currentNegativeStatuses.isNotEmpty())
+                                )
+                        ) {
+                            val reason =
+                                if (isPendingPostEventCureItem(itemName)) {
+                                    "Post-event Slow Metabolism cure scheduled from prior turn."
+                                } else {
+                                    "Healed status effect: ${trainee.currentNegativeStatuses.joinToString(", ")}."
+                                }
                             if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing bad condition item: \"$itemName\".", nextInventory, reason = reason)) {
                                 itemsUsedCount++
                                 itemsUsedWithReasons.add(itemName to reason)
+                                if (isPendingPostEventCureItem(itemName)) {
+                                    pendingPostEventCureItem = null
+                                }
                             }
                         } else if (isQuick && !isDisabled) {
                             val reason =
@@ -2090,6 +3225,13 @@ class Trackblazer(game: Game) : Campaign(game) {
                 game.wait(game.dialogWaitDelay)
             }
         }
+
+        if (!bDryRun && pendingPostEventCureItem != null && pendingPostEventCureItemToUse() != null) {
+            MessageLog.w(
+                TAG,
+                "[WARN] manageInventoryItems:: Scheduled post-event cure (${pendingPostEventCureItem}) was not queued this pass.",
+            )
+        }
     }
 
     /**
@@ -2132,7 +3274,10 @@ class Trackblazer(game: Game) : Campaign(game) {
         remainingItemsOfInterest: Set<String>,
         passStartEnergy: Int,
     ): String? {
-        if (isDisabled) {
+        // Cupcakes captured before Royal Kale Juice was queued will read as disabled (mood was still GREAT at scan time). Bypass the
+        // early-return when the flag is set so the recheck=true bitmap can decide; the game's dialog enables them once Juice is queued.
+        val isCupcake = itemName == "Berry Sweet Cupcake" || itemName == "Plain Cupcake"
+        if (isDisabled && !(isCupcake && bKaleJuiceQueuedThisPass)) {
             MessageLog.v(TAG, "[TRACKBLAZER] Item \"$itemName\" read as disabled in dialog, so skipping its usage.")
             return null
         }
@@ -2148,6 +3293,22 @@ class Trackblazer(game: Game) : Campaign(game) {
                     else -> ""
                 }
             if (itemName == neededWeight) {
+                if (shouldSkipAnkleWeightForSummerReserve(itemName, nextInventory)) {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Skipping $itemName: conserving for summer training (reserve floor: $ankleWeightSummerReserve per type).",
+                    )
+                    return null
+                }
+                if (shouldSkipAnkleWeightForLowGain(itemName, trainingSelected)) {
+                    val selectedMainGain = selectedTrainingMainGain(trainingSelected, trainee)
+                    val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Skipping $itemName: selected $trainingSelected main gain ($selectedMainGain) below Charm floor ($minCharmGain) with failure ($failureChance%) above max.",
+                    )
+                    return null
+                }
                 val reason = "Boosting $trainingSelected training gains."
                 if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing $itemName via inline pass.", nextInventory, reason = reason)) {
                     return reason
@@ -2155,42 +3316,130 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
         }
 
-        // Good-Luck Charm Check.
-        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
-        if (date.day >= 13 && !bUsedCharmToday && failureChance >= 20 && itemName == "Good-Luck Charm") {
-            // When mood is below NORMAL, the mood multiplier structurally caps stat gain. Burning Charm on a
-            // low-gain training squanders its 0%-failure benefit — conserve for a higher-gain turn instead.
-            if (shouldConserveTrainingEffectItems(trainingSelected, trainee)) {
-                val selectedMainGain = training.cachedAnalysisResults?.firstOrNull { it.name == trainingSelected }?.statGains?.get(trainingSelected) ?: 0
-                MessageLog.i(
-                    TAG,
-                    "[TRACKBLAZER] Skipping Good-Luck Charm: mood=${trainee.mood}, selected $trainingSelected main gain ($selectedMainGain) below floor ($lowMainStatGainItemFloor). Conserving Charm for a higher-gain turn.",
-                )
-                return null
-            }
-            val reason = "Setting training failure chance to 0%."
-            if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing Good-Luck Charm via inline pass.", nextInventory, reason = reason)) {
-                bUsedCharmToday = true
-                return reason
+        val failureChance = if (trainingSelected != null) training.trainingMap[trainingSelected]?.failureChance ?: 0 else 0
+        val skipTrainingEffectItems = trainingSelected != null && shouldConserveTrainingEffectItems(trainingSelected, trainee)
+
+        // Good-Luck Charm Check (mutually exclusive with high-failure energy mitigation on the same training turn).
+        if (itemName == "Good-Luck Charm") {
+            when {
+                date.day < 13 -> return null
+                trainingSelected == null -> return null
+                failureMitigationChoiceForPass == FailureMitigationChoice.ENERGY -> {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Skipping Good-Luck Charm: high-failure energy item preferred over charm this turn.",
+                    )
+                    return null
+                }
+                !shouldQueueGoodLuckCharmForTraining(trainingSelected, trainee, failureChance, skipTrainingEffectItems) -> {
+                    if (!isClimaxCharmTrainingActive() && !training.isLuckyCharmAllowedForSelection(trainingSelected)) {
+                        MessageLog.i(TAG, "[TRACKBLAZER] Skipping Good-Luck Charm: low-priority Wit charm bypass is disabled and $trainingSelected is selected.")
+                    } else if (shouldConserveTrainingEffectItems(trainingSelected, trainee)) {
+                        val selectedMainGain = selectedTrainingMainGain(trainingSelected, trainee)
+                        MessageLog.i(
+                            TAG,
+                            "[TRACKBLAZER] Skipping Good-Luck Charm: mood=${trainee.mood}, selected $trainingSelected main gain ($selectedMainGain) below floor ($lowMainStatGainItemFloor). Conserving Charm for a higher-gain turn.",
+                        )
+                    }
+                    return null
+                }
+                else -> {
+                    val reason = "Setting training failure chance to 0%."
+                    if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing Good-Luck Charm via inline pass.", nextInventory, reason = reason)) {
+                        bUsedCharmToday = true
+                        return reason
+                    }
+                }
             }
         }
 
-        // Determine if a Good-Luck Charm is being used this turn (either already queued or will be queued).
-        // If so, skip energy items because the Charm sets failure to 0% regardless of energy, and the energy cost
-        // is subtracted after training — so using energy items would waste them.
+        // Charm queued or planned this pass blocks extra energy items (charm zeros failure; energy is applied after training).
         val charmBeingUsedThisTurn =
             bUsedCharmToday ||
-                (date.day >= 13 && failureChance >= 20 && (nextInventory["Good-Luck Charm"] ?: 0) > 0)
+                failureMitigationChoiceForPass == FailureMitigationChoice.CHARM ||
+                (
+                    failureMitigationChoiceForPass == FailureMitigationChoice.NONE &&
+                        trainingSelected != null &&
+                        shouldQueueGoodLuckCharmForTraining(trainingSelected, trainee, failureChance, skipTrainingEffectItems)
+                )
 
-        // Energy Items Check.
-        if (!charmBeingUsedThisTurn && passStartEnergy <= energyThresholdToUseEnergyItems && shopList.energyItemNames.contains(itemName)) {
-            // Conservation: always keep the last unit of the lowest-level energy item for emergency race recovery.
-            if (!bForceUseReservedItem) {
-                val conserveItem = energyItemConservationOrder.firstOrNull { (nextInventory[it] ?: 0) > 0 }
-                if (conserveItem == itemName && (nextInventory[itemName] ?: 0) <= 1) {
-                    MessageLog.i(TAG, "[TRACKBLAZER] Conserving last $itemName for emergency race recovery.")
-                    return null
+        // High-failure energy train (mutually exclusive with Good-Luck Charm on the same training turn).
+        if (
+            enableEnergyItemForHighFailureTraining &&
+                failureMitigationChoiceForPass != FailureMitigationChoice.CHARM &&
+                !charmBeingUsedThisTurn &&
+                isFailureMitigationEnergyItem(itemName) &&
+                trainingSelected != null &&
+                date.day >= 13
+        ) {
+            val plan = getFailureMitigationEnergyPlanForPass(trainingSelected, trainee, nextInventory, failureChance)
+            if (plan != null && itemName in plan) {
+                val neededInPlan = plan.count { it == itemName }
+                val queuedInPlan = failureMitigationEnergyQueuedCounts[itemName] ?: 0
+                if (queuedInPlan < neededInPlan) {
+                    val reservedHere = reservedEnergyUnitsFor(itemName, nextInventory)
+                    if (reservedHere > 0 && (nextInventory[itemName] ?: 0) <= reservedHere) {
+                        MessageLog.i(TAG, "[TRACKBLAZER] Conserving $itemName for emergency race recovery (reserve floor: $energyItemReserveCount).")
+                    } else {
+                        val reason = failureMitigationEnergyPlanReason(plan, trainingSelected, trainee, failureChance)
+                        var clicks = 0
+                        while ((failureMitigationEnergyQueuedCounts[itemName] ?: 0) < neededInPlan) {
+                            val gain = energyGains[itemName] ?: 0
+                            if (
+                                clickItemPlusButton(
+                                    itemName,
+                                    entry,
+                                    "[TRACKBLAZER] Queuing $itemName for high-failure training (Energy: ${trainee.energy}%, Gain: +$gain).",
+                                    nextInventory,
+                                    recheck = clicks > 0,
+                                    reason = reason,
+                                )
+                            ) {
+                                val oldEnergy = trainee.energy
+                                trainee.energy = (trainee.energy + gain).coerceAtMost(100)
+                                if (itemName == "Royal Kale Juice") {
+                                    trainee.mood = trainee.mood.decrement()
+                                    bKaleJuiceQueuedThisPass = true
+                                }
+                                bUsedEnergyItemThisPass = true
+                                failureMitigationEnergyQueuedCounts[itemName] = (failureMitigationEnergyQueuedCounts[itemName] ?: 0) + 1
+                                clicks++
+                                MessageLog.i(TAG, "[TRACKBLAZER] Trainee energy updated: $oldEnergy% -> ${trainee.energy}%.")
+                                game.wait(0.2)
+                            } else {
+                                break
+                            }
+                        }
+                        if (clicks > 0) {
+                            return reason
+                        }
+                    }
                 }
+            }
+        }
+
+        // Energy Items Check (low-energy threshold — with or without a training pick).
+        if (
+            !charmBeingUsedThisTurn &&
+                passStartEnergy <= energyThresholdToUseEnergyItems &&
+                shopList.energyItemNames.contains(itemName)
+        ) {
+            if (
+                trainingSelected != null &&
+                    itemName == "Vita 65" &&
+                    !canUseFailureMitigationPoolItem(itemName, nextInventory, trainingSelected, trainee, failureChance)
+            ) {
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Conserving $itemName: failure-mitigation pool reserve ($failureMitigationPoolReserve across Charm/Vita 65/Kale).",
+                )
+                return null
+            }
+            // Conservation: hold back up to `energyItemReserveCount` units across the conservation order (lowest-tier first) for emergency race recovery.
+            val reservedHere = reservedEnergyUnitsFor(itemName, nextInventory)
+            if (reservedHere > 0 && (nextInventory[itemName] ?: 0) <= reservedHere) {
+                MessageLog.i(TAG, "[TRACKBLAZER] Conserving $itemName for emergency race recovery (reserve floor: $energyItemReserveCount).")
+                return null
             }
 
             if (isBestEnergyItemToUse(trainee, itemName, nextInventory, remainingItemsOfInterest)) {
@@ -2199,30 +3448,46 @@ class Trackblazer(game: Game) : Campaign(game) {
                 if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing $itemName for use (Energy: ${trainee.energy}%, Gain: +$gain).", nextInventory, reason = reason)) {
                     val oldEnergy = trainee.energy
                     trainee.energy = (trainee.energy + gain).coerceAtMost(100)
+                    bUsedEnergyItemThisPass = true
                     MessageLog.i(TAG, "[TRACKBLAZER] Trainee energy updated: $oldEnergy% -> ${trainee.energy}%.")
                     return reason
                 }
             }
         }
 
-        // Royal Kale Juice Check (also skipped when Charm is being used).
-        if (!charmBeingUsedThisTurn && itemName == "Royal Kale Juice") {
+        // Royal Kale Juice Check (also skipped when Charm is being used or already queued for high-failure train).
+        if (!charmBeingUsedThisTurn && !bUsedEnergyItemThisPass && itemName == "Royal Kale Juice") {
             val hasMoodItems = nextInventory.any { (name, count) -> count > 0 && (name == "Berry Sweet Cupcake" || name == "Plain Cupcake") }
-            val moodConditionMet = trainee.energy <= 20 || hasMoodItems || trainee.mood == Mood.AWFUL
+            val surplusKaleRest = kaleJuiceRestRecoveryEligible(nextInventory, passStartEnergy)
+            val moodConditionMet = trainee.energy <= 20 || hasMoodItems || trainee.mood == Mood.AWFUL || surplusKaleRest
+            if (
+                trainingSelected != null &&
+                    !canUseFailureMitigationPoolItem(itemName, nextInventory, trainingSelected, trainee, failureChance)
+            ) {
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Conserving Royal Kale Juice: failure-mitigation pool reserve ($failureMitigationPoolReserve across Charm/Vita 65/Kale).",
+                )
+                return null
+            }
             val shouldUse = isBestEnergyItemToUse(trainee, itemName, nextInventory, remainingItemsOfInterest) && moodConditionMet
 
             if (shouldUse) {
                 val oldEnergy = trainee.energy
                 val reason =
-                    if (oldEnergy <= 20) {
-                        "Restored energy (current: $oldEnergy%) as a last resort (below 20%)."
-                    } else {
-                        "Restored energy (current: $oldEnergy%) while having mood recovery items available to offset the Mood decrease."
+                    when {
+                        surplusKaleRest ->
+                            "Restored energy (current: $oldEnergy%, pass start: $passStartEnergy%) using surplus Royal Kale Juice (>1 in stock) to avoid rest/recovery."
+                        oldEnergy <= 20 ->
+                            "Restored energy (current: $oldEnergy%) as a last resort (below 20%)."
+                        else ->
+                            "Restored energy (current: $oldEnergy%) while having mood recovery items available to offset the Mood decrease."
                     }
                 if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing $itemName for use (Energy: ${trainee.energy}%, Mood: ${trainee.mood}).", nextInventory, reason = reason)) {
                     val oldMood = trainee.mood
                     trainee.energy = (trainee.energy + 100).coerceAtMost(100)
                     trainee.mood = trainee.mood.decrement()
+                    bKaleJuiceQueuedThisPass = true
                     MessageLog.i(TAG, "[TRACKBLAZER] Trainee energy and mood updated: $oldEnergy% -> ${trainee.energy}%, $oldMood -> ${trainee.mood}.")
                     return reason
                 }
@@ -2230,25 +3495,36 @@ class Trackblazer(game: Game) : Campaign(game) {
         }
 
         // Mood Items Check.
-        val shouldUseMoodItem = trainee.mood <= Mood.NORMAL && trainee.energy < 70
-        if (shouldUseMoodItem && (itemName == "Berry Sweet Cupcake" || itemName == "Plain Cupcake")) {
-            // Conservation: always keep at least 1 cupcake in case Royal Kale Juice is purchased later.
-            // Prefer conserving Plain Cupcake (+1 mood) since Kale Juice is -1 mood and we can avoid waste from Berry Sweet (+2).
-            val plainCount = nextInventory["Plain Cupcake"] ?: 0
-            val berryCount = nextInventory["Berry Sweet Cupcake"] ?: 0
-            val shouldConserve =
-                (itemName == "Plain Cupcake" && plainCount <= 1) ||
-                    (itemName == "Berry Sweet Cupcake" && berryCount <= 1 && plainCount == 0)
-            if (shouldConserve) {
-                MessageLog.i(TAG, "[TRACKBLAZER] Conserving last $itemName for potential Royal Kale Juice usage.")
-                return null
+        // The Kale-Juice-queued clause fires a cupcake in the same pass to offset the -1 mood penalty. Without it the existing
+        // `mood <= NORMAL && energy < 70` gate stays shut after Kale Juice (mood drops to GOOD, energy jumps to 100), wasting the reserve.
+        val moodDroppedByKaleJuice = isCupcake && bKaleJuiceQueuedThisPass
+        val shouldUseMoodItem = (trainee.mood <= Mood.NORMAL && trainee.energy < 70) || moodDroppedByKaleJuice
+        if (shouldUseMoodItem && isCupcake) {
+            // Conservation: hold back `cupcakeReserveCount` cupcakes (Plain preferred) so Royal Kale Juice's -1 mood penalty can be offset.
+            // Bypass the reserve when Kale Juice was queued in this pass: the reserved-for event is happening right now, so spend it.
+            if (cupcakeReserveCount > 0 && !bKaleJuiceQueuedThisPass) {
+                val plainCount = nextInventory["Plain Cupcake"] ?: 0
+                val berryCount = nextInventory["Berry Sweet Cupcake"] ?: 0
+                val totalCupcakes = plainCount + berryCount
+                val shouldConserve =
+                    (itemName == "Plain Cupcake" && plainCount <= cupcakeReserveCount) ||
+                        (itemName == "Berry Sweet Cupcake" && totalCupcakes <= cupcakeReserveCount && plainCount == 0)
+                if (shouldConserve) {
+                    MessageLog.i(TAG, "[TRACKBLAZER] Conserving $itemName for potential Royal Kale Juice usage (reserve floor: $cupcakeReserveCount).")
+                    return null
+                }
             }
 
-            // Very simple inline mood: use the first one seen if energy is low.
-            val reason = "Recovering mood (current: ${trainee.mood}, energy: ${trainee.energy}% < 70%)."
-            if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing $itemName for mood recovery.", nextInventory, reason = reason)) {
+            val reason =
+                if (moodDroppedByKaleJuice) {
+                    "Offsetting Royal Kale Juice's -1 mood penalty (mood: ${trainee.mood} post-Juice)."
+                } else {
+                    "Recovering mood (current: ${trainee.mood}, energy: ${trainee.energy}% < 70%)."
+                }
+            if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing $itemName for mood recovery.", nextInventory, recheck = moodDroppedByKaleJuice, reason = reason)) {
                 val oldMood = trainee.mood
-                trainee.mood = if (itemName == "Berry Sweet Cupcake") Mood.GOOD else Mood.NORMAL
+                trainee.mood = if (itemName == "Berry Sweet Cupcake") trainee.mood.increment().increment() else trainee.mood.increment()
+                if (moodDroppedByKaleJuice) bKaleJuiceQueuedThisPass = false
                 MessageLog.i(TAG, "[TRACKBLAZER] Trainee mood updated: $oldMood -> ${trainee.mood}.")
                 return reason
             }
@@ -2256,7 +3532,35 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         // Megaphone Check.
         val megaphoneNames = listOf("Empowering Megaphone", "Motivating Megaphone", "Coaching Megaphone")
-        if (trainee.megaphoneTurnCounter == 0 && trainingSelected != null && megaphoneNames.contains(itemName)) {
+        if (trainingSelected != null && megaphoneNames.contains(itemName)) {
+            val surplusBurn = isMegaphoneSurplusBurnMode(nextInventory)
+            val preferredSurplusMegaphone =
+                if (surplusBurn) preferredSurplusBurnMegaphone(nextInventory, trainingSelected, trainee) else null
+
+            if (!canQueueMegaphone(itemName, trainee, trainingSelected, nextInventory)) {
+                if (itemName == "Empowering Megaphone" &&
+                    trainee.activeMegaphoneType == "Motivating Megaphone" &&
+                    trainee.megaphoneTurnCounter > 0 &&
+                    !date.isSummer()
+                ) {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Skipping Empowering Megaphone: Motivating Megaphone still active (${trainee.megaphoneTurnCounter} turns). Use 60% during summer or after 40% expires.",
+                    )
+                } else if (
+                    surplusBurn &&
+                        itemName == "Motivating Megaphone" &&
+                        trainee.activeMegaphoneType == "Coaching Megaphone" &&
+                        trainee.megaphoneTurnCounter > 0
+                ) {
+                    val selectedMainGain = selectedTrainingMainGain(trainingSelected)
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Skipping Motivating Megaphone: Coaching Megaphone still active and main gain ($selectedMainGain) below Motivating floor ($motivatingMegaphoneMinStatGain).",
+                    )
+                }
+                return null
+            }
             // When mood is below NORMAL, the mood multiplier caps gain. Megaphones multiply gain across multiple
             // turns, so squandering one on a low-gain selected training is worse than conserving for a better turn.
             if (shouldConserveTrainingEffectItems(trainingSelected, trainee)) {
@@ -2268,35 +3572,109 @@ class Trackblazer(game: Game) : Campaign(game) {
                 return null
             }
 
-            // Check if there is a better megaphone in inventory that we haven't seen yet OR that we know is disabled.
-            val betterMegaphones =
-                when (itemName) {
-                    "Motivating Megaphone" -> listOf("Empowering Megaphone")
-                    "Coaching Megaphone" -> listOf("Empowering Megaphone", "Motivating Megaphone")
-                    else -> emptyList()
+            if (surplusBurn) {
+                if (itemName == "Empowering Megaphone") {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Skipping Empowering Megaphone: summer reserve quota met ($megaphoneSummerReserveCount total); surplus burn uses Coaching/Motivating only.",
+                    )
+                    return null
                 }
+                if (preferredSurplusMegaphone == null || itemName != preferredSurplusMegaphone) {
+                    return null
+                }
+            } else {
+                // Check if there is a better megaphone in inventory that we haven't seen yet OR that we know is disabled.
+                val betterMegaphones =
+                    when (itemName) {
+                        "Motivating Megaphone" -> listOf("Empowering Megaphone")
+                        "Coaching Megaphone" -> listOf("Empowering Megaphone", "Motivating Megaphone")
+                        else -> emptyList()
+                    }
 
-            val hasBetterAvailable =
-                betterMegaphones.any { better ->
-                    (nextInventory[better] ?: 0) > 0
-                }
+                val hasBetterAvailable =
+                    betterMegaphones.any { better ->
+                        (nextInventory[better] ?: 0) > 0 &&
+                            isMegaphoneEligibleForUse(better, trainingSelected, nextInventory, trainee)
+                    }
 
-            if (!hasBetterAvailable) {
-                val reason = "Increasing training gains for the next few turns."
-                if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing best available megaphone: \"$itemName\".", nextInventory, reason = reason)) {
-                    trainee.megaphoneTurnCounter =
-                        when (itemName) {
-                            "Empowering Megaphone" -> 2
-                            "Motivating Megaphone" -> 3
-                            "Coaching Megaphone" -> 4
-                            else -> 0
-                        }
-                    return reason
+                if (hasBetterAvailable) {
+                    return null
                 }
+            }
+
+            if (shouldSkipMegaphoneForSummerReserve(itemName, nextInventory)) {
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Skipping $itemName: conserving for summer training (reserve floor: $megaphoneSummerReserveCount total).",
+                )
+                return null
+            }
+            if (shouldSkipMegaphoneForLowGain(itemName, trainingSelected, nextInventory, trainee)) {
+                val selectedMainGain = training.cachedAnalysisResults?.firstOrNull { it.name == trainingSelected }?.statGains?.get(trainingSelected) ?: 0
+                val threshold =
+                    when (itemName) {
+                        "Coaching Megaphone" -> coachingMegaphoneMinStatGain
+                        "Motivating Megaphone" -> motivatingMegaphoneMinStatGain
+                        "Empowering Megaphone" -> empoweringMegaphoneMinStatGain
+                        else -> 0
+                    }
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Skipping $itemName: selected $trainingSelected main gain ($selectedMainGain) below minimum ($threshold). Conserving Megaphone for a higher-gain turn.",
+                )
+                return null
+            }
+
+            val reason =
+                if (surplusBurn) {
+                    when (itemName) {
+                        "Coaching Megaphone" -> "Summer reserve quota met: using surplus Coaching Megaphone (min gain ignored)."
+                        "Motivating Megaphone" ->
+                            if (trainee.activeMegaphoneType == "Coaching Megaphone" && trainee.megaphoneTurnCounter > 0) {
+                                "Summer reserve quota met: upgrading Coaching → Motivating (main gain meets Motivating floor)."
+                            } else {
+                                "Summer reserve quota met: using surplus Motivating Megaphone (no Coaching available)."
+                            }
+                        else -> "Increasing training gains for the next few turns."
+                    }
+                } else {
+                    "Increasing training gains for the next few turns."
+                }
+            if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing best available megaphone: \"$itemName\".", nextInventory, reason = reason)) {
+                trainee.activeMegaphoneType = itemName
+                trainee.megaphoneTurnCounter =
+                    when (itemName) {
+                        "Empowering Megaphone" -> 2
+                        "Motivating Megaphone" -> 3
+                        "Coaching Megaphone" -> 4
+                        else -> 0
+                    }
+                if (trainingSelected != null) {
+                    refreshFailureMitigationChoiceAfterMegaphone(trainingSelected, trainee, nextInventory)
+                }
+                return reason
             }
         }
 
         return null
+    }
+
+    /**
+     * Returns how many units of `itemName` are currently being held back as part of the energy reserve floor.
+     * Reserves are allocated across `energyItemConservationOrder` lowest-tier-first up to `energyItemReserveCount` total units.
+     */
+    private fun reservedEnergyUnitsFor(itemName: String, inventory: Map<String, Int>): Int {
+        if (bForceUseReservedItem || energyItemReserveCount <= 0) return 0
+        var remaining = energyItemReserveCount
+        for (name in energyItemConservationOrder) {
+            if (remaining <= 0) break
+            val count = inventory[name] ?: 0
+            val reservedHere = minOf(count, remaining)
+            if (name == itemName) return reservedHere
+            remaining -= reservedHere
+        }
+        return 0
     }
 
     /**
@@ -2308,7 +3686,7 @@ class Trackblazer(game: Game) : Campaign(game) {
      * @return The conserved item name, or `null` if conservation is bypassed or no conservable item is in inventory.
      */
     private fun getConservedEnergyItem(inventory: Map<String, Int>): String? {
-        if (bForceUseReservedItem) return null
+        if (bForceUseReservedItem || energyItemReserveCount <= 0) return null
         return energyItemConservationOrder.firstOrNull { (inventory[it] ?: 0) > 0 }
     }
 
@@ -2323,10 +3701,241 @@ class Trackblazer(game: Game) : Campaign(game) {
      * @return True if Megaphone/Charm should be skipped this turn.
      */
     private fun shouldConserveTrainingEffectItems(trainingSelected: StatName?, trainee: Trainee?): Boolean {
+        if (isClimaxCharmTrainingActive()) return false
         if (trainingSelected == null || trainee == null) return false
         if (trainee.mood >= Mood.NORMAL) return false
-        val selectedMainGain = training.cachedAnalysisResults?.firstOrNull { it.name == trainingSelected }?.statGains?.get(trainingSelected) ?: 0
+        val selectedMainGain = selectedTrainingMainGain(trainingSelected, trainee)
         return selectedMainGain < lowMainStatGainItemFloor
+    }
+
+    /** Returns the user-configured minimum main stat gain threshold for the given ankle weight item. */
+    private fun ankleWeightMinStatGainThreshold(itemName: String): Int =
+        when (itemName) {
+            "Speed Ankle Weights" -> speedAnkleWeightMinStatGain
+            "Stamina Ankle Weights" -> staminaAnkleWeightMinStatGain
+            "Power Ankle Weights" -> powerAnkleWeightMinStatGain
+            "Guts Ankle Weights" -> gutsAnkleWeightMinStatGain
+            else -> 0
+        }
+
+    /**
+     * Returns true when an ankle weight should be skipped because inventory is at or below the summer reserve floor.
+     * Ignored during summer training.
+     */
+    private fun shouldSkipAnkleWeightForSummerReserve(itemName: String, inventory: Map<String, Int>): Boolean {
+        if (date.isSummer() || ankleWeightSummerReserve <= 0) return false
+        return (inventory[itemName] ?: 0) <= ankleWeightSummerReserve
+    }
+
+    /**
+     * Returns true when an ankle weight should be skipped because main stat gain is below the Charm floor on a risky training.
+     * Mirrors Good-Luck Charm min-gain rules outside summer (failure above max → need minCharmGain). Ignored during summer.
+     * Uses raw OCR gain only — active megaphone bonus is not included.
+     */
+    private fun shouldSkipAnkleWeightForLowGain(itemName: String, trainingSelected: StatName?): Boolean {
+        if (trainingSelected == null) return true
+        if (date.isSummer()) return false
+        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        if (failureChance <= training.getMaximumFailureChance()) return false
+        if (minCharmGain <= 0) return false
+        val mainGain = selectedTrainingMainGain(trainingSelected)
+        return mainGain < minCharmGain
+    }
+
+    /** Returns true when an ankle weight may be used this turn (passes summer reserve and min-gain gates). */
+    private fun isAnkleWeightEligibleForUse(itemName: String, trainingSelected: StatName?, inventory: Map<String, Int>): Boolean =
+        !shouldSkipAnkleWeightForSummerReserve(itemName, inventory) && !shouldSkipAnkleWeightForLowGain(itemName, trainingSelected)
+
+    /**
+     * Returns how many units of `itemName` are held back as part of the megaphone summer reserve.
+     * Reserves are allocated across `megaphoneSummerReserveOrder` best-tier-first up to `megaphoneSummerReserveCount` total units.
+     */
+    private fun reservedMegaphoneUnitsFor(itemName: String, inventory: Map<String, Int>): Int =
+        reservedMegaphoneBreakdown(inventory)[itemName] ?: 0
+
+    private fun reservedMegaphoneBreakdown(inventory: Map<String, Int>): Map<String, Int> =
+        Companion.reservedMegaphoneBreakdown(inventory, megaphoneSummerReserveCount, megaphoneSummerReserveOrder)
+
+    /**
+     * Returns true when a megaphone should be skipped because all non-reserved stock is held for summer training.
+     * Ignored during summer training.
+     */
+    private fun shouldSkipMegaphoneForSummerReserve(itemName: String, inventory: Map<String, Int>): Boolean {
+        if (date.isSummer() || megaphoneSummerReserveCount <= 0) return false
+        val reservedHere = reservedMegaphoneUnitsFor(itemName, inventory)
+        return reservedHere > 0 && (inventory[itemName] ?: 0) <= reservedHere
+    }
+
+    /** Returns true when a megaphone may be used this turn (passes summer reserve and min-gain gates). */
+    private fun isMegaphoneEligibleForUse(
+        itemName: String,
+        trainingSelected: StatName?,
+        inventory: Map<String, Int>,
+        trainee: Trainee? = null,
+    ): Boolean =
+        canQueueMegaphone(itemName, trainee ?: this.trainee, trainingSelected, inventory) &&
+            !shouldSkipMegaphoneForSummerReserve(itemName, inventory) &&
+            !shouldSkipMegaphoneForLowGain(itemName, trainingSelected, inventory, trainee)
+
+    private fun totalMegaphoneStock(inventory: Map<String, Int>): Int =
+        megaphoneSummerReserveOrder.sumOf { inventory[it] ?: 0 }
+
+    /** True when total megaphone stock meets the summer reserve target (reserve quota satisfied). */
+    private fun hasMegaphoneSummerReserveQuotaMet(inventory: Map<String, Int>): Boolean {
+        if (date.isSummer() || megaphoneSummerReserveCount <= 0) return false
+        return totalMegaphoneStock(inventory) >= megaphoneSummerReserveCount
+    }
+
+    private fun availableMegaphoneUnits(itemName: String, inventory: Map<String, Int>): Int {
+        val count = inventory[itemName] ?: 0
+        return (count - reservedMegaphoneUnitsFor(itemName, inventory)).coerceAtLeast(0)
+    }
+
+    /** Outside summer, after the reserve quota is met, spend surplus on Coaching first (then Motivating; never Empowering). */
+    private fun isMegaphoneSurplusBurnMode(inventory: Map<String, Int>): Boolean =
+        hasMegaphoneSummerReserveQuotaMet(inventory) && !date.isSummer()
+
+    /**
+     * Megaphone to queue in surplus-burn mode, or null when none should fire.
+     * Reserve composition drives tier choice:
+     * - 1×60% + 1×40% held for summer → spend surplus 40% before 20%.
+     * - 2×60% held for summer → spend 40% only when 2+ surplus 40% exist; otherwise 20%.
+     * Coaching ignores min gain; Motivating upgrade from active Coaching still requires the Motivating floor.
+     */
+    private fun preferredSurplusBurnMegaphone(
+        inventory: Map<String, Int>,
+        trainingSelected: StatName,
+        trainee: Trainee,
+    ): String? {
+        if (!isMegaphoneSurplusBurnMode(inventory)) return null
+
+        val coachingActive =
+            trainee.megaphoneTurnCounter > 0 && trainee.activeMegaphoneType == "Coaching Megaphone"
+        val mainGain = if (coachingActive) selectedTrainingMainGain(trainingSelected) else 0
+        val motivatingUpgradeAllowed =
+            motivatingMegaphoneMinStatGain <= 0 || mainGain >= motivatingMegaphoneMinStatGain
+
+        return Companion.pickSurplusBurnMegaphone(
+            inventory = inventory,
+            reserveCount = megaphoneSummerReserveCount,
+            reserveOrder = megaphoneSummerReserveOrder,
+            activeMegaphoneType = trainee.activeMegaphoneType,
+            megaphoneTurnCounter = trainee.megaphoneTurnCounter,
+            motivatingUpgradeAllowed = motivatingUpgradeAllowed,
+        )
+    }
+
+    private fun hasMegaphoneAvailableForTraining(
+        trainingSelected: StatName,
+        trainee: Trainee,
+        inventory: Map<String, Int>,
+    ): Boolean {
+        if (shouldConserveTrainingEffectItems(trainingSelected, trainee)) return false
+        if (isMegaphoneSurplusBurnMode(inventory)) {
+            return preferredSurplusBurnMegaphone(inventory, trainingSelected, trainee) != null
+        }
+        return megaphoneSummerReserveOrder.any { name ->
+            (inventory[name] ?: 0) > 0 &&
+                canQueueMegaphone(name, trainee, trainingSelected, inventory) &&
+                isMegaphoneEligibleForUse(name, trainingSelected, inventory, trainee)
+        }
+    }
+
+    /**
+     * Returns true when a megaphone may be queued this turn.
+     * Empowering (60%) is blocked while Motivating (40%) is still active outside summer; summer always allows 60% upgrades.
+     * Surplus-burn mode blocks Empowering entirely and may upgrade Coaching → Motivating when gain qualifies.
+     */
+    private fun canQueueMegaphone(
+        itemName: String,
+        trainee: Trainee,
+        trainingSelected: StatName? = null,
+        inventory: Map<String, Int> = currentInventory,
+    ): Boolean {
+        if (isMegaphoneSurplusBurnMode(inventory) && itemName == "Empowering Megaphone") {
+            return false
+        }
+        return when (itemName) {
+            "Empowering Megaphone" ->
+                when {
+                    trainee.megaphoneTurnCounter == 0 -> true
+                    trainee.activeMegaphoneType == "Empowering Megaphone" -> false
+                    date.isSummer() -> true
+                    else -> trainee.activeMegaphoneType != "Motivating Megaphone"
+                }
+            "Motivating Megaphone" ->
+                when {
+                    trainee.megaphoneTurnCounter == 0 -> true
+                    isMegaphoneSurplusBurnMode(inventory) &&
+                        trainee.activeMegaphoneType == "Coaching Megaphone" &&
+                        trainingSelected != null -> {
+                        val mainGain = selectedTrainingMainGain(trainingSelected)
+                        motivatingMegaphoneMinStatGain <= 0 || mainGain >= motivatingMegaphoneMinStatGain
+                    }
+                    else -> false
+                }
+            else -> trainee.megaphoneTurnCounter == 0
+        }
+    }
+
+    /** Decrements the active megaphone duration at end of turn; clears type when expired. */
+    private fun decrementMegaphoneTurnCounter(trainee: Trainee) {
+        if (trainee.megaphoneTurnCounter <= 0) return
+        trainee.megaphoneTurnCounter--
+        if (trainee.megaphoneTurnCounter == 0) {
+            trainee.activeMegaphoneType = null
+        }
+        MessageLog.i(
+            TAG,
+            "[TRACKBLAZER] Megaphone duration reduced. Active: ${trainee.activeMegaphoneType ?: "none"}. Turns remaining: ${trainee.megaphoneTurnCounter}.",
+        )
+    }
+
+    /**
+     * Returns true when a megaphone should be skipped because the selected training's main stat gain is below the
+     * user-configured threshold for that megaphone type. Disabled when the threshold is 0 or during summer training.
+     *
+     * @param itemName The megaphone item name being evaluated.
+     * @param trainingSelected The training the bot is about to execute (null = no selection).
+     * @return True if the megaphone should be conserved this turn.
+     */
+    private fun shouldSkipMegaphoneForLowGain(
+        itemName: String,
+        trainingSelected: StatName?,
+        inventory: Map<String, Int> = currentInventory,
+        trainee: Trainee? = null,
+    ): Boolean {
+        if (trainingSelected == null) return true
+        if (date.isSummer()) return false
+
+        if (isMegaphoneSurplusBurnMode(inventory)) {
+            when (itemName) {
+                "Coaching Megaphone" -> return false
+                "Empowering Megaphone" -> return true
+                "Motivating Megaphone" -> {
+                    val coachingActive =
+                        trainee != null &&
+                            trainee.megaphoneTurnCounter > 0 &&
+                            trainee.activeMegaphoneType == "Coaching Megaphone"
+                    if (!coachingActive) return false
+                    if (motivatingMegaphoneMinStatGain <= 0) return false
+                    val selectedMainGain = selectedTrainingMainGain(trainingSelected)
+                    return selectedMainGain < motivatingMegaphoneMinStatGain
+                }
+            }
+        }
+
+        val threshold =
+            when (itemName) {
+                "Coaching Megaphone" -> coachingMegaphoneMinStatGain
+                "Motivating Megaphone" -> motivatingMegaphoneMinStatGain
+                "Empowering Megaphone" -> empoweringMegaphoneMinStatGain
+                else -> 0
+            }
+        if (threshold <= 0) return false
+
+        val selectedMainGain = training.cachedAnalysisResults?.firstOrNull { it.name == trainingSelected }?.statGains?.get(trainingSelected) ?: 0
+        return selectedMainGain < threshold
     }
 
     /**
@@ -2354,43 +3963,61 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (date.day < 13) return
 
         val needSync = !bInventorySynced
-        val conservedEnergyItem = getConservedEnergyItem(currentInventory)
         val hasEnergyItems =
             currentInventory.any { (name, count) ->
-                val effectiveCount = if (name == conservedEnergyItem) count - 1 else count
-                effectiveCount > 0 && shopList.energyItemNames.contains(name)
+                val available = (count - reservedEnergyUnitsFor(name, currentInventory)).coerceAtLeast(0)
+                available > 0 && shopList.energyItemNames.contains(name)
             } ||
                 ((currentInventory["Royal Kale Juice"] ?: 0) > 0)
         val hasMoodItems = currentInventory.any { (name, count) -> count > 0 && (name == "Berry Sweet Cupcake" || name == "Plain Cupcake") }
-        val hasBadConditionItems = currentInventory.any { (name, count) -> count > 0 && shopList.badConditionHealItemNames.contains(name) && canHealActiveNegativeStatus(name, trainee) }
+        val hasBadConditionItems =
+            currentInventory.any { (name, count) ->
+                count > 0 && shopList.badConditionHealItemNames.contains(name) &&
+                    (canHealActiveNegativeStatus(name, trainee) || isPendingPostEventCureItem(name))
+            }
+        val hasPendingPostEventCure = pendingPostEventCureItemToUse() != null
         val hasStatItems = currentInventory.any { (name, count) -> count > 0 && shopList.statItemNames.contains(name) }
 
         val skipTrainingEffectItems = shouldConserveTrainingEffectItems(trainingSelected, trainee)
         val hasMegaphones =
             !skipTrainingEffectItems &&
                 trainingSelected != null &&
-                trainee.megaphoneTurnCounter == 0 &&
-                currentInventory.any { (name, count) ->
-                    count > 0 && (name == "Empowering Megaphone" || name == "Motivating Megaphone" || name == "Coaching Megaphone")
+                hasMegaphoneAvailableForTraining(trainingSelected, trainee, currentInventory)
+        val neededAnkleWeight =
+            if (trainingSelected != null) {
+                when (trainingSelected) {
+                    StatName.SPEED -> "Speed Ankle Weights"
+                    StatName.STAMINA -> "Stamina Ankle Weights"
+                    StatName.POWER -> "Power Ankle Weights"
+                    StatName.GUTS -> "Guts Ankle Weights"
+                    else -> ""
                 }
+            } else {
+                ""
+            }
         val hasAnkleWeights =
             trainingSelected != null &&
-                currentInventory.any { (name, count) ->
-                    count > 0 &&
-                        name ==
-                        when (trainingSelected) {
-                            StatName.SPEED -> "Speed Ankle Weights"
-                            StatName.STAMINA -> "Stamina Ankle Weights"
-                            StatName.POWER -> "Power Ankle Weights"
-                            StatName.GUTS -> "Guts Ankle Weights"
-                            else -> ""
-                        }
-                }
+                neededAnkleWeight.isNotEmpty() &&
+                (currentInventory[neededAnkleWeight] ?: 0) > 0 &&
+                isAnkleWeightEligibleForUse(neededAnkleWeight, trainingSelected, currentInventory)
+        failureMitigationChoiceForPass = FailureMitigationChoice.NONE
+        if (trainingSelected != null) {
+            failureMitigationChoiceForPass = resolveFailureMitigationChoice(trainingSelected, trainee, currentInventory)
+        }
+
         val failureChance = if (trainingSelected != null) training.trainingMap[trainingSelected]?.failureChance ?: 0 else 0
-        val hasCharm = !skipTrainingEffectItems && trainingSelected != null && !bUsedCharmToday && failureChance >= 20 && (currentInventory["Good-Luck Charm"] ?: 0) > 0
+        val hasCharm =
+            trainingSelected != null &&
+                shouldQueueGoodLuckCharmForTraining(trainingSelected, trainee, failureChance, skipTrainingEffectItems)
+        val highFailureEnergyTrain =
+            failureMitigationChoiceForPass == FailureMitigationChoice.ENERGY ||
+                (shouldConsiderEnergyItemForHighFailureTrain(trainingSelected) && hasEnergyItems)
 
         val potentialUse =
-            (trainee.energy <= energyThresholdToUseEnergyItems && hasEnergyItems) ||
+            shouldTryEnergyRecoveryItems(trainee.energy) ||
+                (trainingSelected != null && kaleJuiceRestRecoveryEligible(currentInventory, trainee.energy)) ||
+                highFailureEnergyTrain ||
+                hasPendingPostEventCure ||
                 (trainee.mood <= Mood.NORMAL && trainee.energy < 70 && hasMoodItems) ||
                 (trainee.currentNegativeStatuses.isNotEmpty() && hasBadConditionItems) ||
                 hasStatItems ||
@@ -2401,7 +4028,10 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (needSync || potentialUse) {
             val reasons = mutableListOf<String>()
             if (needSync) reasons.add("Sync needed")
-            if (trainee.energy <= energyThresholdToUseEnergyItems && hasEnergyItems) reasons.add("Low energy")
+            if (shouldTryEnergyRecoveryItems(trainee.energy)) reasons.add("Low energy")
+            if (trainingSelected != null && kaleJuiceRestRecoveryEligible(currentInventory, trainee.energy)) reasons.add("Surplus Kale recovery")
+            if (hasPendingPostEventCure) reasons.add("Scheduled post-event cure")
+            if (highFailureEnergyTrain) reasons.add("High-failure energy train")
             if (trainee.mood <= Mood.NORMAL && trainee.energy < 70 && hasMoodItems) reasons.add("Low mood")
             if (trainee.currentNegativeStatuses.isNotEmpty() && hasBadConditionItems) reasons.add("Bad conditions")
             if (hasStatItems) reasons.add("Stat items available")
@@ -2492,7 +4122,8 @@ class Trackblazer(game: Game) : Campaign(game) {
         val currentEnergy = trainee.energy
 
         val hasMoodItems = nextInventory.any { (name, count) -> count > 0 && (name == "Berry Sweet Cupcake" || name == "Plain Cupcake") }
-        val isKaleJuiceUsable = currentEnergy <= 20 || hasMoodItems || trainee.mood == Mood.AWFUL
+        val isKaleJuiceUsable =
+            currentEnergy <= 20 || hasMoodItems || trainee.mood == Mood.AWFUL || kaleJuiceRestRecoveryEligible(nextInventory, currentEnergy)
 
         // Royal Kale Juice "Last Resort" logic: If energy is very low, we prioritize Kale Juice over everything.
         // It gives 100, so any other energy item used first would be wasted.
@@ -2507,23 +4138,17 @@ class Trackblazer(game: Game) : Campaign(game) {
         }
 
         // Collect all available energy items from this scan pass.
-        // Always reserve one unit of the lowest-tier item for emergency race recovery, unless force-override is active.
+        // Subtract any units that fall inside the user-configured emergency reserve (lowest-tier first across `energyItemConservationOrder`).
         val availableEnergyItems = mutableListOf<Int>()
-        val conserveItem = if (!bForceUseReservedItem) energyItemConservationOrder.firstOrNull { (nextInventory[it] ?: 0) > 0 } else null
         remainingItemsOfInterest.forEach { name ->
             val gain = energyGains[name]
             if (gain != null) {
                 // If this is Kale Juice, only include it if it's usable.
                 if (name == "Royal Kale Juice" && !isKaleJuiceUsable) return@forEach
 
-                var count = (nextInventory[name] ?: 0)
-
-                // Exclude one unit of the conserved item from the greedy pool.
-                if (name == conserveItem && count > 0) {
-                    count--
-                }
-
-                repeat(count) { availableEnergyItems.add(gain) }
+                val rawCount = nextInventory[name] ?: 0
+                val available = (rawCount - reservedEnergyUnitsFor(name, nextInventory)).coerceAtLeast(0)
+                repeat(available) { availableEnergyItems.add(gain) }
             }
         }
 
@@ -2550,5 +4175,159 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         // If currentGain was one of the picked items, use it.
         return pickedEnergyItems.contains(currentGain)
+    }
+
+    companion object {
+        /** Master Cleat Hammers that may be spent before the Finale; the rest are held for days 73-75. */
+        fun spareMasterCleatHammers(masterHammerCount: Int, finaleReserve: Int): Int =
+            (masterHammerCount - finaleReserve).coerceAtLeast(0)
+
+        /**
+         * Whether a Master Cleat Hammer may be used on this race.
+         * Pre-finale: only surplus above [finaleReserve] on G1/G2.
+         * Days 73-74: only when at least 2 copies remain (spend one, keep one for Day 75).
+         * Day 75: any remaining copy on G1.
+         */
+        fun canUseMasterCleatHammer(
+            day: Int,
+            masterHammerCount: Int,
+            grade: RaceGrade,
+            finaleReserve: Int,
+        ): Boolean {
+            if (masterHammerCount <= 0) {
+                return false
+            }
+            val eligibleGrade =
+                if (day >= 73) {
+                    grade == RaceGrade.G1
+                } else {
+                    grade == RaceGrade.G1 || grade == RaceGrade.G2
+                }
+            if (!eligibleGrade) {
+                return false
+            }
+            return when {
+                day < 73 -> spareMasterCleatHammers(masterHammerCount, finaleReserve) > 0
+                day == 75 -> true
+                else -> masterHammerCount >= 2
+            }
+        }
+
+        /** Summer megaphone reserve allocation (best tier first). */
+        fun reservedMegaphoneBreakdown(
+            inventory: Map<String, Int>,
+            reserveCount: Int,
+            reserveOrder: List<String>,
+        ): Map<String, Int> {
+            if (reserveCount <= 0) return emptyMap()
+            val breakdown = mutableMapOf<String, Int>()
+            var remaining = reserveCount
+            for (name in reserveOrder) {
+                if (remaining <= 0) break
+                val count = inventory[name] ?: 0
+                val reservedHere = minOf(count, remaining)
+                if (reservedHere > 0) {
+                    breakdown[name] = reservedHere
+                }
+                remaining -= reservedHere
+            }
+            return breakdown
+        }
+
+        fun availableMegaphoneUnits(
+            itemName: String,
+            inventory: Map<String, Int>,
+            reserveCount: Int,
+            reserveOrder: List<String>,
+        ): Int {
+            val reserved = reservedMegaphoneBreakdown(inventory, reserveCount, reserveOrder)[itemName] ?: 0
+            return ((inventory[itemName] ?: 0) - reserved).coerceAtLeast(0)
+        }
+
+        /**
+         * Surplus-burn megaphone tier after the summer reserve quota is met (outside summer).
+         * Never returns Empowering Megaphone.
+         */
+        fun pickSurplusBurnMegaphone(
+            inventory: Map<String, Int>,
+            reserveCount: Int,
+            reserveOrder: List<String>,
+            activeMegaphoneType: String?,
+            megaphoneTurnCounter: Int,
+            motivatingUpgradeAllowed: Boolean,
+        ): String? {
+            if (reserveCount <= 0) return null
+
+            fun available(name: String): Int = availableMegaphoneUnits(name, inventory, reserveCount, reserveOrder)
+
+            if (megaphoneTurnCounter > 0 && activeMegaphoneType == "Coaching Megaphone") {
+                return if (motivatingUpgradeAllowed && available("Motivating Megaphone") > 0) {
+                    "Motivating Megaphone"
+                } else {
+                    null
+                }
+            }
+            if (megaphoneTurnCounter > 0) return null
+
+            val reserve = reservedMegaphoneBreakdown(inventory, reserveCount, reserveOrder)
+            val reserveIsOneEmpoweringOneMotivating =
+                reserve["Empowering Megaphone"] == 1 && reserve["Motivating Megaphone"] == 1
+            val reserveIsTwoEmpowering = reserve["Empowering Megaphone"] == 2
+
+            return when {
+                reserveIsOneEmpoweringOneMotivating -> {
+                    when {
+                        available("Motivating Megaphone") > 0 -> "Motivating Megaphone"
+                        available("Coaching Megaphone") > 0 -> "Coaching Megaphone"
+                        else -> null
+                    }
+                }
+                reserveIsTwoEmpowering -> {
+                    when {
+                        available("Motivating Megaphone") >= 2 -> "Motivating Megaphone"
+                        available("Coaching Megaphone") > 0 -> "Coaching Megaphone"
+                        else -> null
+                    }
+                }
+                else -> {
+                    when {
+                        available("Coaching Megaphone") > 0 -> "Coaching Megaphone"
+                        available("Motivating Megaphone") > 0 -> "Motivating Megaphone"
+                        else -> null
+                    }
+                }
+            }
+        }
+
+        /** Non-summer: more than one Kale Juice in stock. */
+        fun hasSurplusKaleJuiceForRest(isSummer: Boolean, kaleJuiceCount: Int): Boolean =
+            !isSummer && kaleJuiceCount > 1
+
+        /** Energy low enough that the bot would rest/recover instead of training. */
+        fun energyLowEnoughForRestRecovery(energy: Int, restRecoveryEnergyThreshold: Int = 50): Boolean =
+            energy <= restRecoveryEnergyThreshold
+
+        /** Whether surplus Kale Juice may cover rest-level energy recovery outside summer. */
+        fun kaleJuiceRestRecoveryEligible(
+            isSummer: Boolean,
+            kaleJuiceCount: Int,
+            energy: Int,
+            restRecoveryEnergyThreshold: Int = 50,
+        ): Boolean =
+            hasSurplusKaleJuiceForRest(isSummer, kaleJuiceCount) &&
+                energyLowEnoughForRestRecovery(energy, restRecoveryEnergyThreshold)
+
+        /** Whether energy-restoring items should be considered before training analysis. */
+        fun shouldTryEnergyRecoveryItems(
+            energy: Int,
+            energyThreshold: Int,
+            inventory: Map<String, Int>,
+            energyItemNames: Collection<String> = listOf("Vita 20", "Vita 40", "Vita 65"),
+        ): Boolean {
+            if (energy > energyThreshold) return false
+            val vitaAvailable = energyItemNames.any { (inventory[it] ?: 0) > 0 }
+            val kaleAvailable = (inventory["Royal Kale Juice"] ?: 0) > 0
+            return vitaAvailable || kaleAvailable
+        }
     }
 }

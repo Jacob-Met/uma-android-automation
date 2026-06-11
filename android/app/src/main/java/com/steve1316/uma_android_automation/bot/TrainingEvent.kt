@@ -28,6 +28,14 @@ class TrainingEvent(private val game: Game, private val campaign: Campaign) {
     /** Whether to prioritize options that provide energy gains. */
     private val enablePrioritizeEnergyOptions: Boolean = SettingsHelper.getBooleanSetting("trainingEvent", "enablePrioritizeEnergyOptions")
 
+    /**
+     * When enabled, event scoring hard-avoids options that grant Slow Metabolism unless Smart Scale or Miracle Cure
+     * is in inventory (Trackblazer). Manual event overrides still apply. If a cure is available and the option is taken,
+     * the cure item is scheduled for use at the start of the next turn.
+     */
+    private val avoidSlowMetabolismWithoutCure: Boolean =
+        SettingsHelper.getBooleanSetting("trainingEvent", "avoidSlowMetabolismWithoutCure", true)
+
     /** Special event overrides loaded from SQLite settings. */
     private val specialEventOverrides: Map<String, EventOverride> =
         try {
@@ -602,6 +610,15 @@ class TrainingEvent(private val game: Game, private val campaign: Campaign) {
                                 selectionWeight[rewardIndex] += 25
                             } else if (PositiveStatus.names.any { status -> line.contains(status) }) {
                                 selectionWeight[rewardIndex] += 25
+                            } else if (line.contains(NegativeStatus.SLOW_METABOLISM.statusName, ignoreCase = true)) {
+                                if (
+                                    avoidSlowMetabolismWithoutCure &&
+                                        !campaign.hasCureForNegativeStatus(NegativeStatus.SLOW_METABOLISM.statusName)
+                                ) {
+                                    selectionWeight[rewardIndex] -= 10_000
+                                } else {
+                                    selectionWeight[rewardIndex] += -25
+                                }
                             } else if (NegativeStatus.names.any { status -> line.contains(status) }) {
                                 selectionWeight[rewardIndex] += -25
                             } else if (line.lowercase().contains("skill")) {
@@ -691,13 +708,7 @@ class TrainingEvent(private val game: Game, private val campaign: Campaign) {
                     }
 
                     // Select the best option that aligns with the stat prioritization made in the Training options.
-                    val max: Int? = selectionWeight.maxOrNull()
-                    optionSelected =
-                        if (max == null) {
-                            0
-                        } else {
-                            selectionWeight.indexOf(max)
-                        }
+                    optionSelected = selectBestScoredEventOption(selectionWeight, eventRewards)
 
                     // Print the selection weights.
                     printEventSummary(eventTitle, characterOrSupportName, eventRewards, selectionWeight, optionSelected, confidence)
@@ -717,6 +728,8 @@ class TrainingEvent(private val game: Game, private val campaign: Campaign) {
 
         // Wait briefly for the UI to fully render all option buttons.
         game.wait(0.1)
+
+        maybeScheduleSlowMetabolismCure(optionSelected, eventRewards)
 
         val trainingOptionLocations: ArrayList<Point> = IconTrainingEventHorseshoe.findAll(game.imageUtils)
 
@@ -838,5 +851,40 @@ class TrainingEvent(private val game: Game, private val campaign: Campaign) {
 
         MessageLog.v(TAG, "[TRAINING_EVENT] Process to handle detected Training Event completed.")
         MessageLog.v(TAG, "********************")
+    }
+
+    private fun rewardGrantsSlowMetabolism(reward: String): Boolean =
+        reward.contains(NegativeStatus.SLOW_METABOLISM.statusName, ignoreCase = true)
+
+    private fun selectBestScoredEventOption(selectionWeight: List<Int>, eventRewards: List<String>): Int {
+        val rankedIndices = selectionWeight.indices.sortedByDescending { selectionWeight[it] }
+        for (index in rankedIndices) {
+            if (
+                avoidSlowMetabolismWithoutCure &&
+                    eventRewards.getOrNull(index)?.let { rewardGrantsSlowMetabolism(it) } == true &&
+                    !campaign.hasCureForNegativeStatus(NegativeStatus.SLOW_METABOLISM.statusName)
+            ) {
+                continue
+            }
+            return index
+        }
+        return 0
+    }
+
+    private fun maybeScheduleSlowMetabolismCure(optionSelected: Int, eventRewards: List<String>) {
+        if (!avoidSlowMetabolismWithoutCure) {
+            return
+        }
+        val reward = eventRewards.getOrNull(optionSelected) ?: return
+        if (!rewardGrantsSlowMetabolism(reward)) {
+            return
+        }
+        val cureItem =
+            campaign.getPreferredCureItemForNegativeStatus(NegativeStatus.SLOW_METABOLISM.statusName) ?: return
+        campaign.schedulePostEventCureUse(cureItem)
+        MessageLog.i(
+            TAG,
+            "[TRAINING_EVENT] Slow Metabolism option selected with $cureItem available. Scheduled cure for start of next turn.",
+        )
     }
 }

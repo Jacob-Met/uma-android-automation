@@ -99,6 +99,15 @@ export interface DatabaseProfile {
     updated_at: string
 }
 
+export interface DatabaseUmaPreset {
+    id: number
+    uma_name: string
+    normalized_name: string
+    settings: string
+    created_at: string
+    updated_at: string
+}
+
 /**
  * Database utility class for managing settings persistence with `SQLite`.
  * Stores settings as key-value pairs organized by category for efficient querying.
@@ -118,6 +127,7 @@ export class DatabaseManager {
     private TABLE_RACES = "races"
     private TABLE_SKILLS = "skills"
     private TABLE_PROFILES = "profiles"
+    private TABLE_UMA_PRESETS = "uma_presets"
 
     private db: SQLite.SQLiteDatabase | null = null
     private isInitializing = false
@@ -290,6 +300,19 @@ export class DatabaseManager {
             `)
             logWithTimestamp("Profiles table created successfully.")
 
+            logWithTimestamp("Creating uma_presets table...")
+            await this.db.execAsync(`
+                CREATE TABLE IF NOT EXISTS ${this.TABLE_UMA_PRESETS} (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uma_name TEXT NOT NULL,
+                    normalized_name TEXT UNIQUE NOT NULL,
+                    settings TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `)
+            logWithTimestamp("Uma presets table created successfully.")
+
             // Migrate existing profiles from old to new schema.
             await this.migrateProfilesSchema()
 
@@ -314,6 +337,10 @@ export class DatabaseManager {
             await this.db.execAsync(`
                 CREATE INDEX IF NOT EXISTS idx_profiles_name 
                 ON ${this.TABLE_PROFILES}(name)
+            `)
+            await this.db.execAsync(`
+                CREATE INDEX IF NOT EXISTS idx_uma_presets_normalized_name 
+                ON ${this.TABLE_UMA_PRESETS}(normalized_name)
             `)
             logWithTimestamp("Indexes created successfully.")
 
@@ -1035,6 +1062,52 @@ export class DatabaseManager {
             endTiming({ status: "error", error: error instanceof Error ? error.message : String(error) })
             throw error
         }
+    }
+
+    /**
+     * Get all Uma Musume presets.
+     */
+    async getAllUmaPresets(): Promise<DatabaseUmaPreset[]> {
+        this.ensureInitialized()
+        const rows = await this.db!.getAllAsync<DatabaseUmaPreset>(
+            `SELECT id, uma_name, normalized_name, settings, created_at, updated_at FROM ${this.TABLE_UMA_PRESETS} ORDER BY uma_name COLLATE NOCASE ASC`
+        )
+        return rows
+    }
+
+    /**
+     * Save (create or replace) an Uma preset keyed by normalized OCR name.
+     */
+    async saveUmaPreset(umaName: string, normalizedName: string, settings: Partial<Record<string, unknown>>): Promise<number> {
+        this.ensureInitialized()
+        const settingsJson = JSON.stringify(settings)
+        const existing = await this.db!.getFirstAsync<{ id: number }>(
+            `SELECT id FROM ${this.TABLE_UMA_PRESETS} WHERE normalized_name = ?`,
+            [normalizedName]
+        )
+
+        if (existing?.id) {
+            await this.db!.runAsync(
+                `UPDATE ${this.TABLE_UMA_PRESETS} SET uma_name = ?, settings = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                [umaName, settingsJson, existing.id]
+            )
+            return existing.id
+        }
+
+        const result = await this.db!.runAsync(
+            `INSERT INTO ${this.TABLE_UMA_PRESETS} (uma_name, normalized_name, settings, created_at, updated_at)
+             VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [umaName, normalizedName, settingsJson]
+        )
+        return result.lastInsertRowId
+    }
+
+    /**
+     * Delete an Uma preset by id.
+     */
+    async deleteUmaPreset(id: number): Promise<void> {
+        this.ensureInitialized()
+        await this.db!.runAsync(`DELETE FROM ${this.TABLE_UMA_PRESETS} WHERE id = ?`, [id])
     }
 }
 
