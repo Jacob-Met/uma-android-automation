@@ -176,5 +176,93 @@ export const applyMigrations = (settings: any, rawSettings?: any): { settings: a
         logWithTimestamp("[SettingsManager] Dropped removed setting enablePopupCheck.")
     }
 
+    // Migration: Drop upstream-only general settings not supported by the custom fork.
+    if (general?.enableSwipeBasedScrolling !== undefined) {
+        delete general.enableSwipeBasedScrolling
+        anyMigrated = true
+        logWithTimestamp("[SettingsManager] Dropped upstream-only setting enableSwipeBasedScrolling.")
+    }
+
+    // Migration: Move enableMessageIdDisplay and overlayButtonSizeDP from debug (upstream 5.7+) to misc (custom fork).
+    const misc = (migratedSettings as any).misc
+    const rawMisc = rawSettings?.misc as any
+    if (debug?.enableMessageIdDisplay !== undefined && rawMisc?.enableMessageIdDisplay === undefined) {
+        misc.enableMessageIdDisplay = debug.enableMessageIdDisplay
+        delete debug.enableMessageIdDisplay
+        anyMigrated = true
+        logWithTimestamp("[SettingsManager] Migrated enableMessageIdDisplay from debug to misc.")
+    }
+    if (debug?.overlayButtonSizeDP !== undefined && rawMisc?.overlayButtonSizeDP === undefined) {
+        misc.overlayButtonSizeDP = debug.overlayButtonSizeDP
+        delete debug.overlayButtonSizeDP
+        anyMigrated = true
+        logWithTimestamp("[SettingsManager] Migrated overlayButtonSizeDP from debug to misc.")
+    }
+
+    // Migration: Drop removed pause/resume setting from older custom exports.
+    if (debug?.enablePauseResume !== undefined) {
+        delete debug.enablePauseResume
+        anyMigrated = true
+        logWithTimestamp("[SettingsManager] Dropped removed setting enablePauseResume.")
+    }
+
+    // Migration: Upstream master 5.7 Trackblazer key renames → custom fork keys.
+    const scenarioOverrides = migratedSettings.scenarioOverrides as any
+    const rawScenarioOverrides = rawSettings?.scenarioOverrides as any
+    if (scenarioOverrides && rawScenarioOverrides) {
+        if (rawScenarioOverrides.trackblazerSkipRiskyCharmTrainingBelowGain !== undefined) {
+            if (rawScenarioOverrides.trackblazerMinStatGainForCharm === undefined) {
+                scenarioOverrides.trackblazerMinStatGainForCharm = rawScenarioOverrides.trackblazerSkipRiskyCharmTrainingBelowGain
+            }
+            delete scenarioOverrides.trackblazerSkipRiskyCharmTrainingBelowGain
+            anyMigrated = true
+            logWithTimestamp("[SettingsManager] Migrated trackblazerSkipRiskyCharmTrainingBelowGain to trackblazerMinStatGainForCharm.")
+        }
+        if (rawScenarioOverrides.trackblazerSkipBadMoodItemsBelowGain !== undefined) {
+            if (rawScenarioOverrides.trackblazerLowMainStatGainItemFloor === undefined) {
+                scenarioOverrides.trackblazerLowMainStatGainItemFloor = rawScenarioOverrides.trackblazerSkipBadMoodItemsBelowGain
+            }
+            delete scenarioOverrides.trackblazerSkipBadMoodItemsBelowGain
+            anyMigrated = true
+            logWithTimestamp("[SettingsManager] Migrated trackblazerSkipBadMoodItemsBelowGain to trackblazerLowMainStatGainItemFloor.")
+        }
+        if (rawScenarioOverrides.trackblazerForceTrainEnergyFloor !== undefined) {
+            delete scenarioOverrides.trackblazerForceTrainEnergyFloor
+            anyMigrated = true
+            logWithTimestamp("[SettingsManager] Dropped removed setting trackblazerForceTrainEnergyFloor.")
+        }
+    }
+
+    // Migration: Upstream training settings removed or replaced in the custom fork.
+    if (training && rawTraining) {
+        if (rawTraining.enablePrioritizeNearMaxFriendship !== undefined && rawTraining.trainerFriendshipInfluence === undefined) {
+            training.trainerFriendshipInfluence = rawTraining.enablePrioritizeNearMaxFriendship ? 100 : 0
+            delete training.enablePrioritizeNearMaxFriendship
+            anyMigrated = true
+            logWithTimestamp("[SettingsManager] Migrated enablePrioritizeNearMaxFriendship to trainerFriendshipInfluence.")
+        }
+        if (rawTraining.enableTrainingLevelWeighting !== undefined) {
+            delete training.enableTrainingLevelWeighting
+            anyMigrated = true
+            logWithTimestamp("[SettingsManager] Dropped removed setting enableTrainingLevelWeighting.")
+        }
+        if (rawTraining.disableStatTargets !== undefined) {
+            delete training.disableStatTargets
+            anyMigrated = true
+            logWithTimestamp("[SettingsManager] Dropped removed setting disableStatTargets.")
+        }
+    }
+
     return { settings: migratedSettings, anyMigrated }
+}
+
+/**
+ * Merges an imported settings object with defaults and applies all import/upgrade migrations.
+ * @param decoded - Parsed settings from an import file (partial is OK).
+ * @param defaults - Canonical default settings for the app build.
+ */
+export const normalizeImportedSettings = <T extends Record<string, any>>(decoded: Partial<T>, defaults: T): T => {
+    const merged = deepMerge(defaults, decoded)
+    const { settings } = applyMigrations(merged, decoded)
+    return settings as T
 }

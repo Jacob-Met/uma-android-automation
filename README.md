@@ -111,6 +111,17 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 3. Grant Overlay, Accessibility, and MediaProjection when prompted.
 4. Place the overlay button away from HUD edges; start from the Uma main training screen.
 
+### Import settings from upstream 5.7.x
+
+You can import a settings JSON exported from **official upstream v5.7.x** (Settings → Export). The custom app remaps fork-specific keys automatically:
+
+- `trackblazerSkipRiskyCharmTrainingBelowGain` → `trackblazerMinStatGainForCharm`
+- `trackblazerSkipBadMoodItemsBelowGain` → `trackblazerLowMainStatGainItemFloor`
+- `enablePrioritizeNearMaxFriendship` → `trainerFriendshipInfluence` (on → 100, off → 0)
+- `debug.enableMessageIdDisplay` / `overlayButtonSizeDP` → `misc.*`
+
+Unsupported upstream-only options (swipe scrolling, training level weighting, stat-target disable, pause/resume, force-train energy floor) are dropped on import. Your Discord token is **not** overwritten when re-importing an export that omits it.
+
 Requirements match upstream: **1080×1920 @ 240 DPI**, in-game graphics **Standard**, Android 7.0+.
 
 > **Resolution / ADB / Logcat setup:** see the [upstream README instructions](https://github.com/steve1316/uma-android-automation/blob/master/README.md#instructions).

@@ -28,6 +28,11 @@ Fixes
 - Fix training stat tab re-clicks: full OCR scan only after Reset Whistle; post-item recheck uses cached board data.
 - Side-by-side package id: com.steve1316.uma_android_automation.custom
 
+Import / updates
+---
+- Import upstream master 5.7.x settings JSON with automatic key remapping for Trackblazer and training options.
+- Update checker reads this fork's release feed (no false prompt for upstream 5.7.x on launch).
+
     </releaseNotes>
   </update>
 </AppUpdater>

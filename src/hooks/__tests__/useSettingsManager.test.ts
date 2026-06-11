@@ -1,4 +1,17 @@
-import { deepMerge, convertSettingsToBatch, applyMigrations } from "../../lib/settingsUtils"
+import { deepMerge, convertSettingsToBatch, applyMigrations, normalizeImportedSettings } from "../../lib/settingsUtils"
+
+/** Minimal defaults for migration tests (avoids importing BotStateContext.tsx in Jest). */
+const testDefaults = {
+    general: { stopAtDates: [] as string[] },
+    training: { trainerFriendshipInfluence: 50, statPrioritization: [] as string[] },
+    misc: {},
+    debug: {},
+    trainingEvent: {},
+    scenarioOverrides: {
+        trackblazerMinStatGainForCharm: 25,
+        trackblazerLowMainStatGainItemFloor: 15,
+    },
+} as any
 
 // ===========================================================================
 // deepMerge
@@ -205,5 +218,120 @@ describe("applyMigrations", () => {
         const { settings: second, anyMigrated } = applyMigrations(first)
         expect(anyMigrated).toBe(false)
         expect(second).toEqual(first)
+    })
+
+    it("migrates upstream 5.7 Trackblazer charm threshold key rename", () => {
+        const raw = {
+            scenarioOverrides: { trackblazerSkipRiskyCharmTrainingBelowGain: 30 },
+        } as any
+        const settings = deepMerge(testDefaults, raw)
+
+        const { settings: migrated, anyMigrated } = applyMigrations(settings, raw)
+        expect(anyMigrated).toBe(true)
+        expect(migrated.scenarioOverrides.trackblazerMinStatGainForCharm).toBe(30)
+        expect(migrated.scenarioOverrides.trackblazerSkipRiskyCharmTrainingBelowGain).toBeUndefined()
+    })
+
+    it("migrates upstream 5.7 Trackblazer bad-mood item floor key rename", () => {
+        const raw = {
+            scenarioOverrides: { trackblazerSkipBadMoodItemsBelowGain: 20 },
+        } as any
+        const settings = deepMerge(testDefaults, raw)
+
+        const { settings: migrated, anyMigrated } = applyMigrations(settings, raw)
+        expect(anyMigrated).toBe(true)
+        expect(migrated.scenarioOverrides.trackblazerLowMainStatGainItemFloor).toBe(20)
+        expect(migrated.scenarioOverrides.trackblazerSkipBadMoodItemsBelowGain).toBeUndefined()
+    })
+
+    it("drops upstream-only trackblazerForceTrainEnergyFloor", () => {
+        const raw = {
+            scenarioOverrides: { trackblazerForceTrainEnergyFloor: 50 },
+        } as any
+        const settings = deepMerge(testDefaults, raw)
+
+        const { settings: migrated, anyMigrated } = applyMigrations(settings, raw)
+        expect(anyMigrated).toBe(true)
+        expect(migrated.scenarioOverrides.trackblazerForceTrainEnergyFloor).toBeUndefined()
+    })
+
+    it("migrates enablePrioritizeNearMaxFriendship to trainerFriendshipInfluence", () => {
+        const rawTrue = { training: { enablePrioritizeNearMaxFriendship: true } } as any
+        const settingsTrue = deepMerge(testDefaults, rawTrue)
+        const { settings: migratedTrue } = applyMigrations(settingsTrue, rawTrue)
+        expect(migratedTrue.training.trainerFriendshipInfluence).toBe(100)
+        expect(migratedTrue.training.enablePrioritizeNearMaxFriendship).toBeUndefined()
+
+        const rawFalse = { training: { enablePrioritizeNearMaxFriendship: false } } as any
+        const settingsFalse = deepMerge(testDefaults, rawFalse)
+        const { settings: migratedFalse } = applyMigrations(settingsFalse, rawFalse)
+        expect(migratedFalse.training.trainerFriendshipInfluence).toBe(0)
+    })
+
+    it("drops upstream-only training keys not supported by the custom fork", () => {
+        const raw = {
+            training: { enableTrainingLevelWeighting: true, disableStatTargets: true },
+        } as any
+        const settings = deepMerge(testDefaults, raw)
+
+        const { settings: migrated, anyMigrated } = applyMigrations(settings, raw)
+        expect(anyMigrated).toBe(true)
+        expect(migrated.training.enableTrainingLevelWeighting).toBeUndefined()
+        expect(migrated.training.disableStatTargets).toBeUndefined()
+    })
+
+    it("migrates debug overlay settings to misc (upstream 5.7+)", () => {
+        const raw = {
+            debug: { enableMessageIdDisplay: true, overlayButtonSizeDP: 48 },
+        } as any
+        const settings = deepMerge(testDefaults, raw)
+
+        const { settings: migrated, anyMigrated } = applyMigrations(settings, raw)
+        expect(anyMigrated).toBe(true)
+        expect(migrated.misc.enableMessageIdDisplay).toBe(true)
+        expect(migrated.misc.overlayButtonSizeDP).toBe(48)
+        expect(migrated.debug.enableMessageIdDisplay).toBeUndefined()
+        expect(migrated.debug.overlayButtonSizeDP).toBeUndefined()
+    })
+
+    it("drops removed enableSwipeBasedScrolling and enablePauseResume", () => {
+        const raw = {
+            general: { enableSwipeBasedScrolling: true },
+            debug: { enablePauseResume: true },
+        } as any
+        const settings = deepMerge(testDefaults, raw)
+
+        const { settings: migrated, anyMigrated } = applyMigrations(settings, raw)
+        expect(anyMigrated).toBe(true)
+        expect(migrated.general.enableSwipeBasedScrolling).toBeUndefined()
+        expect(migrated.debug.enablePauseResume).toBeUndefined()
+    })
+})
+
+// ===========================================================================
+// normalizeImportedSettings
+// ===========================================================================
+
+describe("normalizeImportedSettings", () => {
+    it("merges partial upstream 5.7 export with defaults and applies migrations", () => {
+        const upstreamExport = {
+            general: { scenario: "Trackblazer" },
+            training: { enablePrioritizeNearMaxFriendship: true, maximumFailureChance: 35 },
+            scenarioOverrides: {
+                trackblazerSkipRiskyCharmTrainingBelowGain: 28,
+                trackblazerSkipBadMoodItemsBelowGain: 18,
+                trackblazerForceTrainEnergyFloor: 40,
+            },
+            debug: { enableMessageIdDisplay: false },
+        } as any
+
+        const normalized = normalizeImportedSettings(upstreamExport, testDefaults)
+        expect(normalized.general.scenario).toBe("Trackblazer")
+        expect(normalized.training.maximumFailureChance).toBe(35)
+        expect(normalized.training.trainerFriendshipInfluence).toBe(100)
+        expect(normalized.scenarioOverrides.trackblazerMinStatGainForCharm).toBe(28)
+        expect(normalized.scenarioOverrides.trackblazerLowMainStatGainItemFloor).toBe(18)
+        expect(normalized.scenarioOverrides.trackblazerForceTrainEnergyFloor).toBeUndefined()
+        expect(normalized.misc.enableMessageIdDisplay).toBe(false)
     })
 })

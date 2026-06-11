@@ -6,7 +6,7 @@ import { useNavigation } from "@react-navigation/native"
 import { useSettings } from "../context/SettingsContext"
 import { Settings, defaultSettings, getLatestSettingsSnapshot } from "../context/BotStateContext"
 import { logErrorWithTimestamp } from "../lib/logger"
-import { deepMerge } from "../lib/settingsUtils"
+import { normalizeImportedSettings } from "../lib/settingsUtils"
 
 /**
  * Format a value for display in the preview dialog.
@@ -98,8 +98,7 @@ const loadFromJSONFile = async (fileUri: string): Promise<Settings> => {
     try {
         const data = await FileSystem.readAsStringAsync(fileUri)
         const parsed = JSON.parse(data) as Settings
-        // Merge the parsed settings with the default settings.
-        return deepMerge(defaultSettings, parsed as Partial<Settings>)
+        return normalizeImportedSettings(parsed, defaultSettings)
     } catch (error) {
         logErrorWithTimestamp(`Error reading settings from JSON file: ${error}`)
         throw error

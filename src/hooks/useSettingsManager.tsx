@@ -7,9 +7,9 @@ import { defaultSettings, Settings, BotMetaContext, useSettingsSnapshot } from "
 import { databaseManager } from "../lib/database"
 import { startTiming } from "../lib/performanceLogger"
 import { logWithTimestamp, logErrorWithTimestamp } from "../lib/logger"
-import { deepMerge, convertSettingsToBatch, applyMigrations, stripDbOwnedKeys } from "../lib/settingsUtils"
+import { deepMerge, convertSettingsToBatch, applyMigrations, stripDbOwnedKeys, normalizeImportedSettings } from "../lib/settingsUtils"
 
-export { deepMerge, convertSettingsToBatch, applyMigrations }
+export { deepMerge, convertSettingsToBatch, applyMigrations, normalizeImportedSettings }
 
 /**
  * Manages settings persistence using `SQLite` database.
@@ -255,12 +255,7 @@ export const useSettingsManager = () => {
      * @param decoded - The `Settings` object to fix.
      * @returns A `Settings` object with all required fields populated.
      */
-    const fixSettings = (decoded: Settings): Settings => {
-        const merged = deepMerge(defaultSettings, decoded as Partial<Settings>)
-        // Apply all migrations to the settings.
-        const { settings } = applyMigrations(merged, decoded)
-        return settings
-    }
+    const fixSettings = (decoded: Settings): Settings => normalizeImportedSettings(decoded, defaultSettings)
 
     /**
      * Import settings from a JSON file and save to `SQLite`.
@@ -292,6 +287,11 @@ export const useSettingsManager = () => {
                 // Load settings and profiles from JSON file.
                 const { settings: importedSettings, profiles } = await loadFromJSONFile(fileUri)
 
+                // Preserve the current Discord token. Export strips it for privacy; re-import should not wipe it.
+                if (importedSettings.discord) {
+                    importedSettings.discord.discordToken = settingsRef.current.discord?.discordToken ?? ""
+                }
+
                 // Save settings to SQLite database.
                 await databaseManager.saveSettingsBatch(convertSettingsToBatch(importedSettings))
                 lastSavedSettingsRef.current = importedSettings
@@ -311,7 +311,7 @@ export const useSettingsManager = () => {
                         for (const profile of profiles) {
                             await databaseManager.saveProfile({
                                 name: profile.name,
-                                settings: profile.settings,
+                                settings: normalizeImportedSettings(profile.settings ?? {}, defaultSettings),
                             })
                         }
                         logWithTimestamp(`[SettingsManager] Imported ${profiles.length} profiles.`)
