@@ -93,8 +93,11 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
-/** When true, builds a side-by-side install (com.steve1316.uma_android_automation.dev) so the APK does not replace the release app. */
+/** When true, builds a side-by-side dev install (.custom.dev) alongside the custom release package. */
 def sideBySideInstall = (findProperty('sideBySideInstall') ?: 'false').toBoolean()
+
+/** Custom fork package id — distinct from upstream master so installs do not replace each other. */
+def customApplicationId = 'com.steve1316.uma_android_automation.custom'
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -104,7 +107,7 @@ android {
 
     namespace 'com.steve1316.uma_android_automation'
     defaultConfig {
-        applicationId 'com.steve1316.uma_android_automation'
+        applicationId sideBySideInstall ? "${customApplicationId}.dev" : customApplicationId
         minSdkVersion libs.versions.app.minSdk.get() as Integer
         //noinspection ExpiredTargetSdkVersion
         targetSdkVersion libs.versions.app.targetSdk.get() as Integer
@@ -112,7 +115,6 @@ android {
         versionName libs.versions.app.versionName.get()
 
         if (sideBySideInstall) {
-            applicationIdSuffix '.dev'
             versionNameSuffix '-dev'
         }
 
@@ -189,8 +191,11 @@ android {
         variant.resValue("string", "versionName", "v${variant.versionName}")
 
         if (sideBySideInstall) {
-            variant.resValue("string", "app_name", "ウマ娘 Android Automation (Dev)")
-            variant.resValue("string", "title_activity_main", "ウマ娘 Automation (Dev)")
+            variant.resValue("string", "app_name", "ウマ娘 Android Automation (Custom Dev)")
+            variant.resValue("string", "title_activity_main", "ウマ娘 Automation (Custom Dev)")
+        } else {
+            variant.resValue("string", "app_name", "ウマ娘 Android Automation (Custom)")
+            variant.resValue("string", "title_activity_main", "ウマ娘 Automation (Custom)")
         }
 
         // Auto-generate the file name.
@@ -200,7 +205,8 @@ android {
             def type = releaseType
             def versionName = variant.versionName
             def architecture = output.filters.first().identifier
-            output.outputFileName = "v${versionName}-UmaAndroidAutomation-${architecture}-${type}.apk"
+            def buildLabel = sideBySideInstall ? "Custom-Dev" : "Custom"
+            output.outputFileName = "v${versionName}-UmaAndroidAutomation-${buildLabel}-${architecture}-${type}.apk"
         }
 
         variant.assembleProvider.configure { assembleTask ->

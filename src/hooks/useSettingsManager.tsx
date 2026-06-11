@@ -1,3 +1,4 @@
+import * as Application from "expo-application"
 import { useState, useEffect, useContext, useMemo, useRef, useCallback } from "react"
 import * as FileSystem from "expo-file-system"
 import * as Sharing from "expo-sharing"
@@ -413,8 +414,10 @@ export const useSettingsManager = () => {
      */
     const openDataDirectory = useCallback(async () => {
         const endTiming = startTiming("settings_manager_open_data_dir", "settings")
-        // Get the app's package name from the document directory path.
-        const packageName = "com.steve1316.uma_android_automation"
+        const packageName = Application.applicationId
+        if (!packageName) {
+            throw new Error("Could not resolve Android application id")
+        }
 
         try {
             // Try Storage Access Framework first (recommended for Android 11+).

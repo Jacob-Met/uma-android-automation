@@ -1285,11 +1285,13 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
      *             - "isIrregularEvaluation" (Boolean): Whether this analysis is for an irregular training evaluation.
      *             - "minStatGainForCharm" (Int): Minimum stat gain to allow training with Good-Luck Charm (default 30).
      *             - "irregularTrainingMinStatGain" (Int): Minimum stat gain for irregular training evaluation (default 30).
+     *             - "forceFullStatNavigation" (Boolean): When true, click through all stat tabs even if cached results exist (e.g. after Reset Whistle).
      */
     fun analyzeTrainings(args: Map<String, Any?> = emptyMap()) {
         needsEnergyRecovery = false
         val test = args["test"] as? Boolean ?: false
         val singleTraining = args["singleTraining"] as? Boolean ?: false
+        val forceFullStatNavigation = args["forceFullStatNavigation"] as? Boolean ?: false
         val ignoreFailureChance = args["ignoreFailureChance"] as? Boolean ?: false
 
         // Skip training analysis entirely when energy is depleted and no charm is available to offset the failure chance.
@@ -1305,8 +1307,13 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             MessageLog.v(TAG, "\n[TRAINING] Now starting process to analyze all 5 Trainings for Testing.")
         } else if (singleTraining) {
             MessageLog.v(TAG, "\n[TRAINING] Now starting process to analyze the training on screen.")
-        } else if (cachedAnalysisResults != null) {
-            MessageLog.i(TAG, "[TRAINING] Using cached training analysis results for this turn.")
+        } else if (!forceFullStatNavigation && cachedAnalysisResults != null) {
+            val postTrainingItemsRecheck = args["postTrainingItemsRecheck"] as? Boolean ?: false
+            if (postTrainingItemsRecheck) {
+                MessageLog.i(TAG, "[TRAINING] Re-processing cached training analysis after item pass (no stat tab navigation).")
+            } else {
+                MessageLog.i(TAG, "[TRAINING] Using cached training analysis results for this turn.")
+            }
             processAnalysisResults(cachedAnalysisResults!!, ignoreFailureChance, test, args)
             return
         } else {

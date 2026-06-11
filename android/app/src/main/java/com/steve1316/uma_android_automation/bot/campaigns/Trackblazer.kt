@@ -1160,8 +1160,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         climaxCharmTraining: Boolean,
         preItemFailure: Map<StatName, Int>,
     ): StatName? {
-        MessageLog.i(TAG, "[TRACKBLAZER] Re-analyzing trainings after training-item pass (Good-Luck Charm and/or energy item used).")
-        training.clearAnalysisCache()
+        MessageLog.i(TAG, "[TRACKBLAZER] Re-evaluating training selection after item pass (reusing cached board analysis; no stat tab navigation).")
         val recheckArgs = buildTrainingAnalysisArgs().toMutableMap()
         recheckArgs["postTrainingItemsRecheck"] = true
         recheckArgs["preItemFailureSnapshot"] = preItemFailure
@@ -1401,7 +1400,10 @@ class Trackblazer(game: Game) : Campaign(game) {
         bUsedWhistleToday = true
 
         MessageLog.i(TAG, "[TRACKBLAZER] Re-analyzing trainings after Reset Whistle (before Good-Luck Charm).")
-        training.analyzeTrainings(buildTrainingAnalysisArgs())
+        training.clearAnalysisCache()
+        val postWhistleArgs = buildTrainingAnalysisArgs().toMutableMap()
+        postWhistleArgs["forceFullStatNavigation"] = true
+        training.analyzeTrainings(postWhistleArgs)
         selected =
             if (climaxCharmTraining) {
                 training.selectHighestNonMaxedStatForClimax()
@@ -2732,9 +2734,6 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (closeAttempt >= maxCloseAttempts) {
             MessageLog.e(TAG, "[ERROR] confirmAndCloseItemDialog:: Training Items dialog did not close after $maxCloseAttempts attempts. The next training click may misfire.")
         }
-
-        // Clear the training analysis cache so that the bot re-evaluates the training options if it re-enters the training screen.
-        training.clearAnalysisCache()
     }
 
     /**
@@ -4215,9 +4214,6 @@ class Trackblazer(game: Game) : Campaign(game) {
 
             MessageLog.i(TAG, "[TRACKBLAZER] Opening Training Items dialog (${reasons.joinToString(", ")})...")
             if (shopList.openTrainingItemsDialog()) {
-                if (hasCharm || highFailureEnergyTrain) {
-                    training.clearAnalysisCache()
-                }
                 manageInventoryItems(trainee, trainingSelected)
             }
         } else {

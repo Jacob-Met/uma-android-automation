@@ -19,8 +19,8 @@
 import { execSync } from "child_process"
 
 const DEVICE = process.env.ANDROID_DEVICE ?? "192.168.0.102:5555"
-const PACKAGE = "com.steve1316.uma_android_automation"
-const ACTIVITY = "com.steve1316.uma_android_automation/.MainActivity"
+const PACKAGE = "com.steve1316.uma_android_automation.custom"
+const ACTIVITY = "com.steve1316.uma_android_automation.custom/com.steve1316.uma_android_automation.MainActivity"
 
 // Tap coordinates for drawer-row labels. Calibrated via `adb shell uiautomator dump` on the
 // user's emulator (1080x1920 portrait, drawer width 280dp). Each (tapX, tapY) is the *centre of

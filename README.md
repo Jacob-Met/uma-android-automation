@@ -93,7 +93,7 @@ This project is purely for educational purposes to learn about Android automatio
 > You may need to type `adb disconnect` to disconnect all ADB connections beforehand for a fresh slate.
 
 3. In Android Studio's Logcat console at the bottom of the window, select your connected device from the device dropdown menu.
-4. Filter the logs by typing `package:com.steve1316.uma_android_automation [UAA]` or just `[UAA]` in the search box to see only the logs from this app.
+4. Filter the logs by typing `package:com.steve1316.uma_android_automation.custom [UAA]` or just `[UAA]` in the search box to see only the logs from this app.
 5. Run the app - you'll now see all of its logs appear in real-time as it runs.
 
 ## To set the phone's resolution to 1080p (faster and more accurate)
