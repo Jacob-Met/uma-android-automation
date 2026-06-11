@@ -23,7 +23,10 @@ Fixes
 ---
 - Fix bug where high-failure training could execute without Good-Luck Charm when charm was assumed in analysis but not queued.
 - Fix bug where Good-Luck Charm min-gain thresholds incorrectly included megaphone bonus in summer.
-- Fix bug where post-charm training selection could switch away from the intended stat.
+- Fix bug where post-charm training selection could switch away from the intended stat (e.g. Speed to Guts).
+- Fix charm vs energy blocking, megaphone double-decrement, forced-train traps, and stat-specific item targeting after OCR shifts.
+- Fix training stat tab re-clicks: full OCR scan only after Reset Whistle; post-item recheck uses cached board data.
+- Side-by-side package id: com.steve1316.uma_android_automation.custom
 
     </releaseNotes>
   </update>
