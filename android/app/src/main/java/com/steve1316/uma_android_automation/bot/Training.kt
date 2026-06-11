@@ -412,7 +412,31 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         /** Returns true when the bar belongs to Yayoi Akikawa or Etsuko Otonashi. */
         fun isAkikawaOrEtsukoBar(bar: CustomImageUtils.BarFillResult): Boolean = bar.isTrainerSupport && bar.trainerName in AKIKAWA_ETSUKO_TRAINER_NAMES
 
-        /** Whether charm-backed training should be skipped for low main-stat gain (all stats, including GUTS). */
+        /**
+         * True when charm may bypass failure filtering for a specific training option during analysis.
+         * Does not check inventory or pool rules — pair with [Campaign.assumesGoodLuckCharmMitigation] when needed.
+         */
+        fun wouldAllowCharmBypassForStat(
+            failureChance: Int,
+            mainStatGain: Int,
+            effectiveFailureChance: Int,
+            climaxForceCharmTraining: Boolean,
+            minStatGainForCharm: Int,
+            allowLowGainCharmAtZeroEnergy: Boolean,
+        ): Boolean {
+            if (climaxForceCharmTraining) {
+                return true
+            }
+            if (failureChance <= effectiveFailureChance) {
+                return false
+            }
+            if (mainStatGain >= minStatGainForCharm) {
+                return true
+            }
+            return allowLowGainCharmAtZeroEnergy
+        }
+
+        /** Whether charm-backed training should be skipped for low main-stat gain when failure still exceeds threshold. */
         fun wouldSkipForLowGainCharm(
             allowCharmForStat: Boolean,
             climaxForceCharmTraining: Boolean,
@@ -423,6 +447,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             allowCharmForStat &&
                 !climaxForceCharmTraining &&
                 !allowLowGainCharmAtZeroEnergy &&
+                failureChanceExceedsThreshold &&
                 mainStatGainBelowMin
 
         /** Effective failure ceiling for a training option, including risky-training overrides. */
@@ -1293,14 +1318,27 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val singleTraining = args["singleTraining"] as? Boolean ?: false
         val forceFullStatNavigation = args["forceFullStatNavigation"] as? Boolean ?: false
         val ignoreFailureChance = args["ignoreFailureChance"] as? Boolean ?: false
+        val minStatGainForCharm = args["minStatGainForCharm"] as? Int ?: 30
+        val climaxForceCharmTraining = args["climaxForceCharmTraining"] as? Boolean ?: false
+        val allowLowGainCharmAtZeroEnergy = args["allowLowGainCharmAtZeroEnergy"] as? Boolean ?: false
+        val charmUsedThisTurn = args["charmUsedThisTurn"] as? Boolean ?: false
 
-        // Skip training analysis entirely when energy is depleted and no charm is available to offset the failure chance.
+        // Skip training analysis only at 0% energy when no charm or energy items can help.
         if (!test && !ignoreFailureChance && !campaign.checkFinals() && campaign.trainee.energy <= 0) {
-            MessageLog.i(TAG, "[TRAINING] Skipping training analysis as energy is ${campaign.trainee.energy}% with no Good-Luck Charm to offset failure chance.")
-            needsEnergyRecovery = true
-            trainingMap.clear()
-            skippedTrainingMap.clear()
-            return
+            if (!campaign.hasTrainingMitigationItemsAvailable()) {
+                MessageLog.i(
+                    TAG,
+                    "[TRAINING] Skipping training analysis: energy is ${campaign.trainee.energy}% and no Good-Luck Charm or energy-restoring items are available.",
+                )
+                needsEnergyRecovery = true
+                trainingMap.clear()
+                skippedTrainingMap.clear()
+                return
+            }
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Energy is ${campaign.trainee.energy}% but Good-Luck Charm or energy items are available. Proceeding with training analysis.",
+            )
         }
 
         if (test) {
@@ -1539,23 +1577,33 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val isWithinRegularThreshold = failureChance <= maximumFailureChance
         val isWithinRiskyThreshold = enableRiskyTraining && failureChance <= riskyTrainingMaxFailureChance
         val isFinals = campaign.checkFinals()
-        if (test || isWithinRegularThreshold || isWithinRiskyThreshold || isFinals || ignoreFailureChance) {
-            if (!test) {
-                if (isWithinRegularThreshold) {
+        val exceedsMaxAcceptableFailure = !isWithinRegularThreshold && (!enableRiskyTraining || failureChance > riskyTrainingMaxFailureChance)
+        val hasMitigationItems = campaign.hasTrainingMitigationItemsAvailable()
+
+        if (!test) {
+            when {
+                isWithinRegularThreshold ->
                     MessageLog.i(TAG, "[TRAINING] $failureChance% within acceptable range of $maximumFailureChance%. Proceeding to acquire all other percentages and total stat increases...")
-                } else if (isWithinRiskyThreshold) {
+                isWithinRiskyThreshold ->
                     MessageLog.i(
                         TAG,
                         "[TRAINING] $failureChance% exceeds regular threshold ($maximumFailureChance%) but is within risky training threshold ($riskyTrainingMaxFailureChance%). Proceeding to acquire all other percentages and total stat increases...",
                     )
-                } else if (ignoreFailureChance) {
+                ignoreFailureChance ->
                     MessageLog.i(TAG, "[TRAINING] Flag set to ignore failure chance. Proceeding to acquire all other percentages and total stat increases...")
-                } else if (isFinals) {
+                isFinals ->
                     MessageLog.i(TAG, "[TRAINING] $failureChance% exceeds thresholds but it is the Finals. Ignoring and proceeding to acquire all other percentages and total stat increases...")
+                exceedsMaxAcceptableFailure && hasMitigationItems -> {
+                    val cap = if (enableRiskyTraining) riskyTrainingMaxFailureChance else maximumFailureChance
+                    MessageLog.i(
+                        TAG,
+                        "[TRAINING] Initial failure ($failureChance%) exceeds threshold ($cap%) but Good-Luck Charm or energy mitigation items are available. Scanning all stat tabs.",
+                    )
                 }
             }
+        }
 
-            // Early skill hint detection: If prioritization is enabled, scan for skill hints before analyzing trainings.
+        // Early skill hint detection: If prioritization is enabled, scan for skill hints before analyzing trainings.
             // This ensures skill hints are detected even if some trainings are blacklisted.
             if (!test && enablePrioritizeSkillHints) {
                 MessageLog.v(TAG, "[TRAINING] Skill hint prioritization is enabled. Scanning for skill hints before training analysis...")
@@ -1572,6 +1620,27 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     MessageLog.i(TAG, "[TRAINING] No skill hints found. Proceeding with normal training analysis.")
                 }
             }
+
+        if (
+            !test &&
+                !singleTraining &&
+                !isFinals &&
+                !ignoreFailureChance &&
+                exceedsMaxAcceptableFailure &&
+                !hasMitigationItems
+        ) {
+            val cap = if (enableRiskyTraining) riskyTrainingMaxFailureChance else maximumFailureChance
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Initial failure ($failureChance%) exceeds threshold ($cap%) and no Good-Luck Charm or energy mitigation items are available. Skipping full stat scan.",
+            )
+            trainingMap.clear()
+            skippedTrainingMap.clear()
+            if (campaign.trainee.energy <= 0) {
+                needsEnergyRecovery = true
+            }
+            return
+        }
 
             // Now analyze each stat.
             for (statName in StatName.entries) {
@@ -1763,7 +1832,18 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
                     // For Risky Training, filter out trainings that exceed the effective failure chance threshold or do not meet the minimum main stat gain threshold.
                     val mainStatGain = result.statGains[result.name] ?: 0
-                    val allowCharmForStat = ignoreFailureChance && isLuckyCharmAllowedForSelection(result.name)
+                    val allowCharmForStat =
+                        allowCharmBypassForAnalysis(
+                            statName = result.name,
+                            failureChance = result.failureChance,
+                            mainStatGain = mainStatGain,
+                            effectiveFailureChance = effectiveFailureChance,
+                            ignoreFailureChance = ignoreFailureChance,
+                            climaxForceCharmTraining = climaxForceCharmTraining,
+                            allowLowGainCharmAtZeroEnergy = allowLowGainCharmAtZeroEnergy,
+                            minStatGainForCharm = minStatGainForCharm,
+                            charmUsedThisTurn = charmUsedThisTurn,
+                        )
 
                     if (!test && !allowCharmForStat && result.failureChance > effectiveFailureChance) {
                         MessageLog.i(
@@ -1773,10 +1853,19 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                         continue
                     }
 
-                    if (!test && allowCharmForStat && result.failureChance > effectiveFailureChance && mainStatGain < 30) {
+                    if (
+                        !test &&
+                            wouldSkipForLowGainCharm(
+                                allowCharmForStat = allowCharmForStat,
+                                climaxForceCharmTraining = climaxForceCharmTraining,
+                                allowLowGainCharmAtZeroEnergy = allowLowGainCharmAtZeroEnergy,
+                                failureChanceExceedsThreshold = result.failureChance > effectiveFailureChance,
+                                mainStatGainBelowMin = mainStatGain < minStatGainForCharm,
+                            )
+                    ) {
                         MessageLog.i(
                             TAG,
-                            "[TRAINING] Skipping $statName training with Good-Luck Charm because main stat gain ($mainStatGain) is less than 30 and failure chance (${result.failureChance}%) is risky.",
+                            "[TRAINING] Skipping $statName training with Good-Luck Charm because main stat gain ($mainStatGain) is less than $minStatGainForCharm and failure chance (${result.failureChance}%) is risky.",
                         )
                         continue
                     }
@@ -1859,18 +1948,52 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     cachedAnalysisResults = analysisResults.toList()
                 }
             }
-        } else {
-            // Clear the Training map if the bot failed to have enough energy to conduct the training.
-            needsEnergyRecovery = true
-            trainingMap.clear()
-            skippedTrainingMap.clear()
-        }
 
         if (singleTraining) {
             MessageLog.v(TAG, "[TRAINING] Process to analyze the singular Training complete.")
         } else {
             MessageLog.v(TAG, "[TRAINING] Process to analyze all 5 Trainings complete.")
         }
+    }
+
+    /**
+     * Whether analysis may treat Good-Luck Charm as mitigating failure for [statName] on this option.
+     * Global [ignoreFailureChance] applies only during Climax force-charm or post-item charm use; otherwise per-stat rules apply.
+     */
+    private fun allowCharmBypassForAnalysis(
+        statName: StatName,
+        failureChance: Int,
+        mainStatGain: Int,
+        effectiveFailureChance: Int,
+        ignoreFailureChance: Boolean,
+        climaxForceCharmTraining: Boolean,
+        allowLowGainCharmAtZeroEnergy: Boolean,
+        minStatGainForCharm: Int,
+        charmUsedThisTurn: Boolean,
+    ): Boolean {
+        if (!isLuckyCharmAllowedForSelection(statName)) {
+            return false
+        }
+        if (climaxForceCharmTraining || charmUsedThisTurn) {
+            return true
+        }
+        if (ignoreFailureChance) {
+            return true
+        }
+        if (failureChance <= effectiveFailureChance) {
+            return false
+        }
+        if (campaign.assumesGoodLuckCharmMitigation(statName, failureChance, mainStatGain)) {
+            return true
+        }
+        return Companion.wouldAllowCharmBypassForStat(
+            failureChance,
+            mainStatGain,
+            effectiveFailureChance,
+            climaxForceCharmTraining = false,
+            minStatGainForCharm,
+            allowLowGainCharmAtZeroEnergy,
+        )
     }
 
     /**
@@ -1908,8 +2031,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     maximumFailureChance
                 }
 
-            val allowCharmForStat = ignoreFailureChance && (climaxForceCharmTraining || isLuckyCharmAllowedForSelection(result.name))
-
             val failureChanceForFiltering =
                 if (
                     postTrainingItemsRecheck &&
@@ -1930,6 +2051,19 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 } else {
                     result.failureChance
                 }
+
+            val allowCharmForStat =
+                allowCharmBypassForAnalysis(
+                    statName = result.name,
+                    failureChance = failureChanceForFiltering,
+                    mainStatGain = mainStatGainForCharmThreshold,
+                    effectiveFailureChance = effectiveFailureChance,
+                    ignoreFailureChance = ignoreFailureChance,
+                    climaxForceCharmTraining = climaxForceCharmTraining,
+                    allowLowGainCharmAtZeroEnergy = allowLowGainCharmAtZeroEnergy,
+                    minStatGainForCharm = minStatGainForCharm,
+                    charmUsedThisTurn = charmUsedThisTurn,
+                )
 
             // Filter out trainings that exceed the effective failure chance threshold (Finals bypass failure filtering).
             if (!test && !allowCharmForStat && !isFinals && failureChanceForFiltering > effectiveFailureChance) {
@@ -2413,6 +2547,15 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             return best.name
         }
 
+        findBestSafeFallbackTraining()?.let { safeStat ->
+            MessageLog.i(
+                TAG,
+                "[TRAINING] No training passed analysis filters. Falling back to safe executable option: $safeStat.",
+            )
+            lastSelectionSource = SelectionSource.FORCED_FROM_SKIPPED
+            return safeStat
+        }
+
         // Analysis produced no winning training. Pick a fallback and log which branch fired so that
         // a downstream `Selected Training: X` is never preceded by an unexplained "no training selected".
         if (forceSelection) {
@@ -2468,6 +2611,51 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         trainingMap.keys.firstOrNull { stat ->
             stat !in blacklist && (!excludeLowPriorityWit || stat != StatName.WIT)
         }
+
+    /**
+     * Best training that is within failure thresholds and may execute without Good-Luck Charm or energy mitigation.
+     * Includes options skipped only for charm-related reasons (e.g. low gain with charm at 0% failure).
+     */
+    fun findBestSafeFallbackTraining(): StatName? {
+        val skipLowPriorityWit = shouldSkipLowPriorityWit()
+        val blockEmptyWit = shouldBlockEmptyWitTraining()
+        fun isSelectable(stat: StatName): Boolean = stat !in blacklist && (!skipLowPriorityWit && !blockEmptyWit || stat != StatName.WIT)
+
+        val safeOptions =
+            trainingMap.values.filter { option ->
+                isSelectable(option.name) &&
+                    !exceedsFailureThreshold(option.failureChance, option.statGains[option.name] ?: 0)
+            } +
+                skippedTrainingMap.values.filter { option ->
+                    isSelectable(option.name) &&
+                        !exceedsFailureThreshold(option.failureChance, option.statGains[option.name] ?: 0)
+                }
+        if (safeOptions.isEmpty()) {
+            return null
+        }
+
+        val skillHintsPerLocation: Map<StatName, Int> = StatName.entries.associateWith { trainingMap[it]?.numSkillHints ?: skippedTrainingMap[it]?.numSkillHints ?: 0 }
+        val trainingConfig =
+            TrainingConfig(
+                currentStats = campaign.trainee.stats.asMap(),
+                statPrioritization = statPrioritization,
+                eventChoiceStatPriority = eventChoiceStatPriority,
+                summerTrainingStatPriority = summerTrainingStatPriority,
+                statTargets = campaign.trainee.getPhaseStatTargets(campaign.date.year),
+                currentDate = campaign.date,
+                scenario = game.scenario,
+                enableRainbowTrainingBonus = enableRainbowTrainingBonus,
+                focusOnSparkStatTarget = focusOnSparkStatTarget,
+                blacklist = blacklist,
+                disableTrainingOnMaxedStat = disableTrainingOnMaxedStat,
+                trainingOptions = safeOptions,
+                skillHintsPerLocation = skillHintsPerLocation,
+                enablePrioritizeSkillHints = enablePrioritizeSkillHints,
+                statsTrainedOverBuffer = statsTrainedOverBuffer,
+                trainerFriendshipInfluence = trainerFriendshipInfluence,
+            )
+        return safeOptions.maxByOrNull { scoreTraining(trainingConfig, it) }?.name
+    }
 
     /**
      * Log detailed selection reasoning and training analysis results for debugging.
@@ -2694,9 +2882,9 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             if (!needsEnergyRecovery) {
                 sb.appendLine("Could not confirm bot is on the Training screen. No analysis performed.")
             } else if (trainWitDuringFinale && campaign.date.day > 72) {
-                sb.appendLine("Energy recovery needed. No analysis performed. Bot will force Wit training during Finale.")
+                sb.appendLine("Energy depleted (0%). No analysis performed. Bot will force Wit training during Finale.")
             } else {
-                sb.appendLine("Energy recovery needed. No analysis performed.")
+                sb.appendLine("Energy depleted (0%). No analysis performed; bot will recover energy.")
             }
             return
         }

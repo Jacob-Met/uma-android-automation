@@ -418,33 +418,58 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Energy at or below which the bot backs out for rest/recovery when no viable training remains. */
     private val restRecoveryEnergyThreshold: Int = 50
 
+    /** Whether analysis may globally ignore failure thresholds (Climax force-charm only). Per-stat charm uses [assumesGoodLuckCharmMitigation]. */
+    private fun charmAssumedForAnalysis(): Boolean = isClimaxCharmTrainingActive()
+
+    override fun assumesGoodLuckCharmMitigation(stat: StatName, failureChance: Int, mainStatGain: Int): Boolean =
+        hasRemainingGoodLuckCharm() &&
+            passesGoodLuckCharmTrainingChecks(stat, trainee, failureChance, mainStatGain) &&
+            canUseFailureMitigationPoolItem("Good-Luck Charm", currentInventory, stat, trainee, failureChance)
+
+    override fun hasTrainingMitigationItemsAvailable(): Boolean =
+        hasGoodLuckCharmMitigationPotential() ||
+            hasUsableEnergyRecoveryItems() ||
+            hasFailureMitigationEnergyItemsPotential()
+
     /**
-     * Whether analysis may assume Good-Luck Charm will mitigate failure this turn.
-     * Conservative during pooled mitigation reserve unless a pool-override training exists in cache.
+     * Whether a Good-Luck Charm may still help this turn (including when the failure-mitigation pool is at the
+     * reserve floor but [summerCharmOverrideMinStatGain] override can spend from reserve after a full stat scan).
      */
-    private fun charmAssumedForAnalysis(): Boolean {
-        if (isClimaxCharmTrainingActive()) {
-            return true
-        }
+    private fun hasGoodLuckCharmMitigationPotential(): Boolean {
         if (!hasRemainingGoodLuckCharm()) {
             return false
         }
-        if (
-            isFailureMitigationPoolReservationPeriod() &&
-                failureMitigationPoolTotal(currentInventory) <= failureMitigationPoolReserve
-        ) {
-            return poolOverrideCharmLikelyForCachedResults()
+        if (!isFailureMitigationPoolReservationPeriod()) {
+            return true
         }
-        return true
+        if (failureMitigationPoolTotal(currentInventory) > failureMitigationPoolReserve) {
+            return true
+        }
+        return summerCharmOverrideMinStatGain > 0
     }
 
-    /** True when cached analysis contains a pool-override training that would spend a reserved charm. */
-    private fun poolOverrideCharmLikelyForCachedResults(): Boolean {
-        val results = training.cachedAnalysisResults ?: return false
-        return results.any { result ->
-            isFailureMitigationPoolOverride(result.name, trainee, result.failureChance) &&
-                passesGoodLuckCharmTrainingChecks(result.name, trainee, result.failureChance)
+    /**
+     * Whether high-failure energy mitigation items (Vita / Kale on the train path) may still help this turn.
+     * Vita 20/40 are outside the pool; pooled Vita 65 / Kale follow the same override rule as charms.
+     */
+    private fun hasFailureMitigationEnergyItemsPotential(): Boolean {
+        if (!enableEnergyItemForHighFailureTraining) {
+            return false
         }
+        if (listOf("Vita 20", "Vita 40").any { (currentInventory[it] ?: 0) > 0 }) {
+            return true
+        }
+        val pooledEnergyItems = failureMitigationPoolItems.filter { it != "Good-Luck Charm" }
+        if (pooledEnergyItems.none { (currentInventory[it] ?: 0) > 0 }) {
+            return false
+        }
+        if (!isFailureMitigationPoolReservationPeriod()) {
+            return true
+        }
+        if (failureMitigationPoolTotal(currentInventory) > failureMitigationPoolReserve) {
+            return true
+        }
+        return summerCharmOverrideMinStatGain > 0
     }
 
     /** Failure chance and main gain for [stat] from training maps or cached OCR. */
@@ -481,6 +506,69 @@ class Trackblazer(game: Game) : Campaign(game) {
         return !training.exceedsFailureThreshold(failure, mainGain)
     }
 
+    /**
+     * When the selected training will not receive failure mitigation, prefer a safe fallback from analysis
+     * instead of queuing training items and resting.
+     */
+    private fun resolveExecutableTrainingSelection(
+        trainingSelected: StatName?,
+        climaxCharmTraining: Boolean,
+    ): StatName? {
+        if (trainingSelected == null) {
+            return training.findBestSafeFallbackTraining()
+        }
+        if (climaxCharmTraining && isClimaxCharmTrainingActive()) {
+            return trainingSelected
+        }
+        val preFail = training.capturePreItemFailureSnapshot()[trainingSelected] ?: 0
+        val mainGain = preItemMainGainFor(trainingSelected)
+        if (!training.requiresFailureMitigationBeforeExecute(preFail, mainGain, charmUsed = false, climaxForceCharm = false)) {
+            return trainingSelected
+        }
+        if (wouldGoodLuckCharmMitigateTraining(trainingSelected, trainee)) {
+            return trainingSelected
+        }
+        failureMitigationChoiceForPass = resolveFailureMitigationChoice(trainingSelected, trainee, currentInventory)
+        if (failureMitigationChoiceForPass != FailureMitigationChoice.NONE) {
+            return trainingSelected
+        }
+        val fallback = training.findBestSafeFallbackTraining()
+        if (fallback != null) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] $trainingSelected needs mitigation that will not queue; switching to executable fallback: $fallback.",
+            )
+            return fallback
+        }
+        return null
+    }
+
+    /**
+     * When every stat exceeds failure thresholds, pick the best option that charm or energy mitigation
+     * can still cover (e.g. all tabs at 40% but Good-Luck Charm or Vita qualifies on a high-gain stat).
+     */
+    private fun bestMitigationBackedTrainingPick(): StatName? {
+        if (!hasTrainingMitigationItemsAvailable()) {
+            return null
+        }
+        val stats =
+            training.cachedAnalysisResults?.map { it.name }
+                ?: (training.trainingMap.keys + training.skippedTrainingMap.keys).distinct()
+        if (stats.isEmpty()) {
+            return null
+        }
+        return stats
+            .filter { it !in training.blacklist }
+            .filter { stat ->
+                wouldGoodLuckCharmMitigateTraining(stat, trainee) ||
+                    (
+                        enableEnergyItemForHighFailureTraining &&
+                            resolveFailureMitigationChoice(stat, trainee, currentInventory) != FailureMitigationChoice.NONE
+                    )
+            }
+            .maxByOrNull { selectedTrainingMainGain(it) }
+    }
+
     /** Builds training analysis arguments, applying aggressive charm bypass rules during Climax. */
     private fun buildTrainingAnalysisArgs(): Map<String, Any?> {
         val hasCharm = hasRemainingGoodLuckCharm()
@@ -489,7 +577,7 @@ class Trackblazer(game: Game) : Campaign(game) {
             "ignoreFailureChance" to charmAssumedForAnalysis(),
             "minStatGainForCharm" to if (climaxCharmTraining) 0 else minCharmGain,
             "climaxForceCharmTraining" to climaxCharmTraining,
-            "allowLowGainCharmAtZeroEnergy" to (hasCharm && energyLowEnoughForRestRecovery(trainee.energy)),
+            "allowLowGainCharmAtZeroEnergy" to (hasCharm && trainee.energy <= 0 && !climaxCharmTraining),
         )
     }
 
@@ -981,6 +1069,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         trainingSelected: StatName,
         trainee: Trainee,
         failureChance: Int,
+        mainStatGainOverride: Int? = null,
     ): Boolean {
         if (!isClimaxCharmTrainingActive() && !training.isLuckyCharmAllowedForSelection(trainingSelected)) {
             return false
@@ -991,7 +1080,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (shouldConserveTrainingEffectItems(trainingSelected, trainee)) {
             return false
         }
-        val mainGain = selectedTrainingMainGain(trainingSelected, trainee)
+        val mainGain = mainStatGainOverride ?: selectedTrainingMainGain(trainingSelected, trainee)
         val maxFail = training.getMaximumFailureChance()
         if (!isClimaxCharmTrainingActive() && failureChance > maxFail && mainGain < minCharmGain) {
             return false
@@ -1168,7 +1257,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (bUsedCharmToday) {
             recheckArgs["ignoreFailureChance"] = true
             recheckArgs["allowLowGainCharmAtZeroEnergy"] = true
-        } else if (energyLowEnoughForRestRecovery(trainee.energy)) {
+        } else if (trainee.energy <= 0) {
             recheckArgs["allowLowGainCharmAtZeroEnergy"] = true
         }
         training.analyzeTrainings(recheckArgs)
@@ -2897,7 +2986,9 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
 
             if (trainingSelected != null) {
-                val executed = executeTrainingWithItems(trainingSelected, climaxCharmTraining = false)
+                trainingSelected = resolveExecutableTrainingSelection(trainingSelected, climaxCharmTraining = false)
+                val executed =
+                    trainingSelected?.let { executeTrainingWithItems(it, climaxCharmTraining = false) }
                 if (executed == null) {
                     MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Irregular training execute blocked. Backing out.")
                     backOutFromTrainingForRecovery("Irregular training execute blocked.")
@@ -2967,7 +3058,8 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         // Final Training Execution (items — ankle weights, megaphones, charms, etc. — run after selection is final).
         if (trainingSelected != null) {
-            trainingSelected = executeTrainingWithItems(trainingSelected, climaxCharmTraining)
+            trainingSelected = resolveExecutableTrainingSelection(trainingSelected, climaxCharmTraining)
+            trainingSelected = trainingSelected?.let { executeTrainingWithItems(it, climaxCharmTraining) }
         }
 
         if (trainingSelected == null && isClimaxCharmTrainingActive()) {
@@ -2981,7 +3073,18 @@ class Trackblazer(game: Game) : Campaign(game) {
                 backOutFromTrainingForRecovery("No viable Climax training after charm mitigation.")
             }
         } else if (trainingSelected == null) {
-            backOutFromTrainingForRecovery("No suitable training found after analysis and item pass.")
+            val mitigationPick = bestMitigationBackedTrainingPick()
+            if (mitigationPick != null) {
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] All trainings exceed failure thresholds, but $mitigationPick can use Good-Luck Charm or energy mitigation. Retrying.",
+                )
+                trainingSelected = resolveExecutableTrainingSelection(mitigationPick, climaxCharmTraining)
+                trainingSelected = trainingSelected?.let { executeTrainingWithItems(it, climaxCharmTraining) }
+            }
+            if (trainingSelected == null) {
+                backOutFromTrainingForRecovery("No suitable training found after analysis and item pass.")
+            }
         }
 
         bIsIrregularTraining = false
