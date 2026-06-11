@@ -1,23 +1,29 @@
 <AppUpdater>
   <update>
-    <latestVersion>5.6.1</latestVersion>
-    <url>https://github.com/steve1316/uma-android-automation/releases</url>
+    <latestVersion>1.0.0</latestVersion>
+    <url>https://github.com/Jacob-Met/uma-android-automation/releases</url>
     <releaseNotes>
-v5.6.1 - Changelog
+v1.0.0 - Changelog
 
 > [!NOTE]
-> Note that `armeabi-v7a` has been dropped in favor of `x86_64`. Installing this variant on x86 devices results in a significant performance boost. You may need to increase `Wait Delay` setting since the bot will now be going super fast in order to avoid issues because of it.
+> Jacob-Met custom fork (Trackblazer). Based on upstream v5.6.1.
 
 Adjustments
 ---
-- Relax Trackblazer Glow Sticks conservation so the bot is willing to use them on top-tier G1 races instead of hoarding for later turns.
-- Speed/Wit trainings will now no longer be forcibly picked if failure is high with no Good-Luck Charm available and will fall back to resting instead.
+- Add Trackblazer failure-mitigation system (Good-Luck Charm vs energy items, pool reserve, Climax force-charm).
+- Add megaphone summer reserve, surplus burn, and ankle-weight min-gain gates.
+- Add Reset Whistle priority, post-shuffle recovery, and conservation rules.
+- Add Wit training rules (skip low-priority, never-click-empty, prefer rest, friendship-bar exceptions).
+- Add Junior/pre-debut friendship and top-3 main-gain training priority.
+- Add per-skill hint level targets in skill plans.
+- Add pause/resume overlay, run summary export, and auto-load Uma preset support.
+- Add trainer friendship influence scaling and extensive Trackblazer scenario override settings.
 
 Fixes
 ---
-- Fix bug where long page titles in the frontend were overflowing off the right edge on narrow phones.
-- Fix bug where a conflict with healing at the Infirmary caused the date in memory to be stale.
-- Fix bug where the Trackblazer Megaphone duration counter was not decremented after completing a mandatory race, causing the buff timer to drift.
+- Fix bug where high-failure training could execute without Good-Luck Charm when charm was assumed in analysis but not queued.
+- Fix bug where Good-Luck Charm min-gain thresholds incorrectly included megaphone bonus in summer.
+- Fix bug where post-charm training selection could switch away from the intended stat.
 
     </releaseNotes>
   </update>
