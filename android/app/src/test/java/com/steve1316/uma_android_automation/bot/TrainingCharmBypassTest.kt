@@ -21,6 +21,20 @@ class TrainingCharmBypassTest {
     }
 
     @Test
+    @DisplayName("Low-gain charm skip applies even when failure is below threshold (GUTS parity)")
+    fun testLowGainCharmSkipAppliesBelowFailureThreshold() {
+        assertTrue(
+            Training.wouldSkipForLowGainCharm(
+                allowCharmForStat = true,
+                climaxForceCharmTraining = false,
+                allowLowGainCharmAtZeroEnergy = false,
+                failureChanceExceedsThreshold = false,
+                mainStatGainBelowMin = true,
+            ),
+        )
+    }
+
+    @Test
     @DisplayName("Low-gain charm skip still applies without zero-energy bypass")
     fun testLowGainCharmSkipWithoutBypass() {
         assertTrue(

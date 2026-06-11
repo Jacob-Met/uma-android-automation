@@ -671,8 +671,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         // Skip racing requirements checks during Summer unless skipSummerTrainingForAgenda is enabled.
         if (campaign.date.isSummer() && !(skipSummerTrainingForAgenda && enableUserInGameRaceAgenda)) {
             if (hasFanRequirement || hasTrophyRequirement) {
-                MessageLog.i(TAG, "[RACE] It is currently Summer. Skipping racing requirements checks and clearing flags.")
-                clearRacingRequirementFlags()
+                MessageLog.i(TAG, "[RACE] It is currently Summer. Skipping racing requirements checks (flags retained for post-summer).")
             }
             return
         }
@@ -2140,12 +2139,14 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                     return true
                 }
             }
-            MessageLog.i(TAG, "[RACE] Smart Race Solver's planned race \"$plannedKey\" was not found among on-screen candidates. Canceling racing process.")
-            return false
+            MessageLog.i(
+                TAG,
+                "[RACE] Smart Race Solver's planned race \"$plannedKey\" was not found among on-screen candidates. Falling back to on-screen scan.",
+            )
         }
 
-        // Fallback when the solver had no plan or chose Train/Rest: scan every on-screen
-        // race and let pickRace decide.
+        // Fallback when the solver had no plan, chose Train/Rest, or the planned race is off-screen: scan every
+        // on-screen race and let pickRace decide.
         val currentRaces =
             doublePredictionLocations.flatMap { location ->
                 val raceName = game.imageUtils.extractRaceName(location)

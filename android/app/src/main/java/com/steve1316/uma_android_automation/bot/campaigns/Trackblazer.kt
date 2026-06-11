@@ -167,6 +167,15 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Whether the Good-Luck Charm has been used this turn. */
     private var bUsedCharmToday: Boolean = false
 
+    /** Prevents double megaphone decrement when a race completes via both handleRaceEvents and executeAction. */
+    private var megaphoneDecrementedThisTurn: Boolean = false
+
+    /** Stat that megaphone/ankle weights were queued for this training-item pass (null = none or global-only items). */
+    private var statSpecificTrainingItemsQueuedFor: StatName? = null
+
+    /** When true, [manageInventoryItems] only scans megaphone + ankle weights for [trainingSelected]. */
+    private var bStatSpecificItemsOnlyPass: Boolean = false
+
     /** Whether an energy-restoring item was queued during the current training-item pass (reset each [manageInventoryItems] call). */
     private var bUsedEnergyItemThisPass: Boolean = false
 
@@ -395,36 +404,92 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Returns true during Trackblazer Climax (Finale turns 73-75). */
     private fun isClimaxPhase(): Boolean = date.bIsFinaleSeason && date.day >= 73
 
-    /** Remaining Climax turns including the current turn (73→3, 74→2, 75→1). */
-    private fun remainingClimaxTurns(): Int = if (isClimaxPhase()) (76 - date.day).coerceIn(1, 3) else 0
-
-    /** Returns true when unused Good-Luck Charm inventory can cover every remaining Climax turn. */
-    private fun hasEnoughClimaxCharmsForRemainingTurns(): Boolean =
-        isClimaxPhase() && (currentInventory["Good-Luck Charm"] ?: 0) >= remainingClimaxTurns()
-
     /** Returns true when a Good-Luck Charm is available in inventory and has not been used today. */
     private fun hasRemainingGoodLuckCharm(): Boolean = date.day >= 13 && !bUsedCharmToday && (currentInventory["Good-Luck Charm"] ?: 0) > 0
 
     /** Returns true when full Climax charm training should override rest/recovery paths. */
     private fun isClimaxCharmTrainingActive(): Boolean =
-        enableClimaxCharmTraining && isClimaxPhase() && hasRemainingGoodLuckCharm() && hasEnoughClimaxCharmsForRemainingTurns()
+        enableClimaxCharmTraining && isClimaxPhase() && hasRemainingGoodLuckCharm()
 
-    /** Returns true when the >= 20% failure floor may be ignored for Good-Luck Charm use during Climax. */
+    /** Returns true when >= 20% failure floor may be ignored for Good-Luck Charm use during Climax. */
     private fun canBypassClimaxCharmFailureFloor(): Boolean =
-        enableClimaxCharmTraining && isClimaxPhase() && hasEnoughClimaxCharmsForRemainingTurns()
+        enableClimaxCharmTraining && isClimaxPhase() && hasRemainingGoodLuckCharm()
 
     /** Energy at or below which the bot backs out for rest/recovery when no viable training remains. */
     private val restRecoveryEnergyThreshold: Int = 50
+
+    /**
+     * Whether analysis may assume Good-Luck Charm will mitigate failure this turn.
+     * Conservative during pooled mitigation reserve unless a pool-override training exists in cache.
+     */
+    private fun charmAssumedForAnalysis(): Boolean {
+        if (isClimaxCharmTrainingActive()) {
+            return true
+        }
+        if (!hasRemainingGoodLuckCharm()) {
+            return false
+        }
+        if (
+            isFailureMitigationPoolReservationPeriod() &&
+                failureMitigationPoolTotal(currentInventory) <= failureMitigationPoolReserve
+        ) {
+            return poolOverrideCharmLikelyForCachedResults()
+        }
+        return true
+    }
+
+    /** True when cached analysis contains a pool-override training that would spend a reserved charm. */
+    private fun poolOverrideCharmLikelyForCachedResults(): Boolean {
+        val results = training.cachedAnalysisResults ?: return false
+        return results.any { result ->
+            isFailureMitigationPoolOverride(result.name, trainee, result.failureChance) &&
+                passesGoodLuckCharmTrainingChecks(result.name, trainee, result.failureChance)
+        }
+    }
+
+    /** Failure chance and main gain for [stat] from training maps or cached OCR. */
+    private fun trainingFailureAndMainGain(stat: StatName): Pair<Int, Int> {
+        val cached = training.cachedAnalysisResults?.firstOrNull { it.name == stat }
+        val option = training.trainingMap[stat] ?: training.skippedTrainingMap[stat]
+        val failure = cached?.failureChance ?: option?.failureChance ?: 0
+        val gain = cached?.statGains?.get(stat) ?: option?.statGains?.get(stat) ?: 0
+        return failure to gain
+    }
+
+    /** Whether Good-Luck Charm would actually queue for [stat] (pool, mood, min-gain, Wit rules). */
+    private fun wouldGoodLuckCharmMitigateTraining(
+        stat: StatName,
+        trainee: Trainee,
+        inventory: Map<String, Int> = currentInventory,
+    ): Boolean {
+        if (isClimaxCharmTrainingActive()) {
+            return true
+        }
+        val (failureChance, _) = trainingFailureAndMainGain(stat)
+        return charmEligibleForFailureMitigation(stat, trainee, failureChance, inventory)
+    }
+
+    /** Whether a force-picked training can execute with charm or acceptable failure. */
+    private fun isViableForcedTrainingPick(stat: StatName): Boolean {
+        if (shouldRejectWhistlePostShuffleResult(stat)) {
+            return false
+        }
+        val (failure, mainGain) = trainingFailureAndMainGain(stat)
+        if (wouldGoodLuckCharmMitigateTraining(stat, trainee)) {
+            return true
+        }
+        return !training.exceedsFailureThreshold(failure, mainGain)
+    }
 
     /** Builds training analysis arguments, applying aggressive charm bypass rules during Climax. */
     private fun buildTrainingAnalysisArgs(): Map<String, Any?> {
         val hasCharm = hasRemainingGoodLuckCharm()
         val climaxCharmTraining = isClimaxCharmTrainingActive()
         return mapOf(
-            "ignoreFailureChance" to hasCharm,
+            "ignoreFailureChance" to charmAssumedForAnalysis(),
             "minStatGainForCharm" to if (climaxCharmTraining) 0 else minCharmGain,
             "climaxForceCharmTraining" to climaxCharmTraining,
-            "allowLowGainCharmAtZeroEnergy" to (hasCharm && trainee.energy <= 0),
+            "allowLowGainCharmAtZeroEnergy" to (hasCharm && energyLowEnoughForRestRecovery(trainee.energy)),
         )
     }
 
@@ -787,20 +852,20 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (!enableEnergyItemForHighFailureTraining) {
             return false
         }
+        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        if (forPoolOverrideCheck && isFailureMitigationPoolReservationPeriod()) {
+            if (buildFailureMitigationEnergyPlan(trainingSelected, trainee, inventory, failureChance, ignorePoolReserve = true) != null) {
+                return true
+            }
+            if (buildFailureMitigationEnergyPlan(trainingSelected, trainee, inventory, failureChance) != null) {
+                return true
+            }
+            return false
+        }
         if (lowTierFailureMitigationEnergyQualifies(trainingSelected, inventory)) {
             return true
         }
-        if (!forPoolOverrideCheck || !isFailureMitigationPoolReservationPeriod()) {
-            return highTierFailureMitigationEnergyQualifies(trainingSelected, inventory)
-        }
-        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
-        if (failureMitigationPoolTotal(inventory) > failureMitigationPoolReserve) {
-            return highTierFailureMitigationEnergyQualifies(trainingSelected, inventory)
-        }
-        val tier = failureMitigationEnergyTargetTier(trainingSelected, inventory, failureChance, ignorePoolReserve = true)
-        return (
-            tier == FailureMitigationEnergyTier.KALE_100 || tier == FailureMitigationEnergyTier.VITA_65
-        ) && buildFailureMitigationEnergyPlan(trainingSelected, trainee, inventory, failureChance, ignorePoolReserve = true) != null
+        return highTierFailureMitigationEnergyQualifies(trainingSelected, inventory)
     }
 
     /** Whether Good-Luck Charm may be used for failure mitigation (respects pooled mitigation reserve). */
@@ -819,14 +884,57 @@ class Trackblazer(game: Game) : Campaign(game) {
         return canUseFailureMitigationPoolItem("Good-Luck Charm", inventory, trainingSelected, trainee, failureChance)
     }
 
-    /** Returns true when any energy item should be considered for high-failure training (charm-like bypass). */
+    /** Returns true when high-failure energy mitigation is the active choice for [trainingSelected] this pass. */
     private fun shouldConsiderEnergyItemForHighFailureTrain(trainingSelected: StatName?): Boolean {
-        if (trainingSelected == null || failureMitigationChoiceForPass == FailureMitigationChoice.CHARM) {
+        if (trainingSelected == null || failureMitigationChoiceForPass != FailureMitigationChoice.ENERGY) {
             return false
         }
-        return failureMitigationChoiceForPass == FailureMitigationChoice.ENERGY ||
-            highTierFailureMitigationEnergyQualifies(trainingSelected) ||
+        return highTierFailureMitigationEnergyQualifies(trainingSelected) ||
             lowTierFailureMitigationEnergyQualifies(trainingSelected)
+    }
+
+    /** Ankle weight item name for [stat], or empty when Wit / null. */
+    private fun ankleWeightItemForStat(stat: StatName?): String =
+        when (stat) {
+            StatName.SPEED -> "Speed Ankle Weights"
+            StatName.STAMINA -> "Stamina Ankle Weights"
+            StatName.POWER -> "Power Ankle Weights"
+            StatName.GUTS -> "Guts Ankle Weights"
+            else -> ""
+        }
+
+    private fun markStatSpecificTrainingItemQueued(stat: StatName) {
+        statSpecificTrainingItemsQueuedFor = stat
+    }
+
+    /**
+     * Opens the Training Items dialog after a post-recheck stat switch to queue megaphone/ankle weights for [stat] only.
+     */
+    private fun queueStatSpecificTrainingEffectItems(stat: StatName) {
+        if (date.day < 13) {
+            return
+        }
+        val neededWeight = ankleWeightItemForStat(stat)
+        val hasMegaphones = hasMegaphoneAvailableForTraining(stat, trainee, currentInventory)
+        val hasAnkleWeights =
+            neededWeight.isNotEmpty() &&
+                (currentInventory[neededWeight] ?: 0) > 0 &&
+                isAnkleWeightEligibleForUse(neededWeight, stat, currentInventory)
+        if (!hasMegaphones && !hasAnkleWeights) {
+            return
+        }
+        MessageLog.i(
+            TAG,
+            "[TRACKBLAZER] Post-recheck stat switch to $stat: queuing megaphone/ankle weights for the new selection.",
+        )
+        bStatSpecificItemsOnlyPass = true
+        try {
+            if (shopList.openTrainingItemsDialog()) {
+                manageInventoryItems(trainee, stat)
+            }
+        } finally {
+            bStatSpecificItemsOnlyPass = false
+        }
     }
 
     /** Highest failure margin among available low-tier energy items (excluding reserves). High-tier items ignore margins. */
@@ -922,6 +1030,14 @@ class Trackblazer(game: Game) : Campaign(game) {
             return FailureMitigationChoice.CHARM
         }
 
+        if (highTierQualifies && !charmMitigationQualifies) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Failure mitigation: +65/+100 energy over Good-Luck Charm (charm unavailable or conserved; failure $failureChance%).",
+            )
+            return FailureMitigationChoice.ENERGY
+        }
+
         if (energyQualifies) {
             val energyLabel =
                 when {
@@ -987,6 +1103,55 @@ class Trackblazer(game: Game) : Campaign(game) {
     }
 
     /**
+     * When Good-Luck Charm was chosen for mitigation but could not be queued, fall back to energy if available.
+     */
+    private fun reconcileFailureMitigationAfterSkippedCharm(
+        trainingSelected: StatName,
+        inventory: Map<String, Int>,
+    ) {
+        if (failureMitigationChoiceForPass != FailureMitigationChoice.CHARM || bUsedCharmToday) {
+            return
+        }
+        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        val energyQualifies =
+            highTierFailureMitigationEnergyQualifies(trainingSelected, inventory) ||
+                lowTierFailureMitigationEnergyQualifies(trainingSelected, inventory)
+        if (energyQualifies) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Good-Luck Charm was not queued; falling back to energy failure mitigation for $trainingSelected.",
+            )
+            failureMitigationChoiceForPass = FailureMitigationChoice.ENERGY
+        } else {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Good-Luck Charm was not queued and no energy mitigation is available for $trainingSelected.",
+            )
+            failureMitigationChoiceForPass = FailureMitigationChoice.NONE
+        }
+        failureMitigationEnergyPlanForPass = null
+        failureMitigationEnergyQueuedCounts.clear()
+    }
+
+    /**
+     * When CHARM was chosen but charm cannot queue (conservation, pool, mood), reconcile to ENERGY before the item scan.
+     */
+    private fun preReconcileCharmMitigationIfBlocked(
+        trainingSelected: StatName,
+        trainee: Trainee,
+    ) {
+        if (failureMitigationChoiceForPass != FailureMitigationChoice.CHARM) {
+            return
+        }
+        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        val skipTrainingEffectItems = shouldConserveTrainingEffectItems(trainingSelected, trainee)
+        if (shouldQueueGoodLuckCharmForTraining(trainingSelected, trainee, failureChance, skipTrainingEffectItems)) {
+            return
+        }
+        reconcileFailureMitigationAfterSkippedCharm(trainingSelected, currentInventory)
+    }
+
+    /**
      * Re-analyzes trainings after Good-Luck Charm and/or energy items were queued, then re-selects training.
      * Keeps pre-item Wit failure in mind for low-priority Wit when charm zeroed on-screen failure.
      */
@@ -1004,14 +1169,23 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (bUsedCharmToday) {
             recheckArgs["ignoreFailureChance"] = true
             recheckArgs["allowLowGainCharmAtZeroEnergy"] = true
+        } else if (energyLowEnoughForRestRecovery(trainee.energy)) {
+            recheckArgs["allowLowGainCharmAtZeroEnergy"] = true
         }
         training.analyzeTrainings(recheckArgs)
+
+        val energyMitigationUsed = bUsedEnergyItemThisPass && failureMitigationEnergyQueuedCounts.isNotEmpty()
 
         if (
             bUsedCharmToday &&
                 trainingSelected != null &&
                 training.trainingMap.containsKey(trainingSelected) &&
-                training.isTrainingSelectionAllowedAfterItems(trainingSelected, preItemFailure, charmUsed = true)
+                training.isTrainingSelectionAllowedAfterItems(
+                    trainingSelected,
+                    preItemFailure,
+                    charmUsed = true,
+                    energyMitigationUsed = false,
+                )
         ) {
             MessageLog.i(TAG, "[TRACKBLAZER] Post-item recheck keeping charm-backed selection: $trainingSelected.")
             return trainingSelected
@@ -1024,11 +1198,55 @@ class Trackblazer(game: Game) : Campaign(game) {
                 training.recommendTraining()
             }
 
-        if (selected != null && !training.isTrainingSelectionAllowedAfterItems(selected, preItemFailure, bUsedCharmToday)) {
+        if (
+            selected != null &&
+                !training.isTrainingSelectionAllowedAfterItems(
+                    selected,
+                    preItemFailure,
+                    bUsedCharmToday,
+                    energyMitigationUsed,
+                )
+        ) {
             MessageLog.i(TAG, "[TRACKBLAZER] Post-item recheck rejected $selected.")
             selected = null
         } else if (selected != null && selected != trainingSelected) {
-            MessageLog.i(TAG, "[TRACKBLAZER] Post-item recheck changed training selection from $trainingSelected to $selected.")
+            val original = trainingSelected
+            if (
+                original != null &&
+                    statSpecificTrainingItemsQueuedFor == original &&
+                    selected != original
+            ) {
+                if (
+                    training.trainingMap.containsKey(original) &&
+                        training.isTrainingSelectionAllowedAfterItems(
+                            original,
+                            preItemFailure,
+                            bUsedCharmToday,
+                            energyMitigationUsed,
+                        )
+                ) {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Post-item recheck keeping $original instead of $selected (megaphone/ankle weights already queued for $original).",
+                    )
+                    return original
+                }
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Post-item recheck rejected stat switch from $original to $selected (stat-specific items locked to $original).",
+                )
+                selected = null
+            } else {
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Post-item recheck changed training selection from $trainingSelected to $selected.",
+                )
+                failureMitigationChoiceForPass = resolveFailureMitigationChoice(selected, trainee, currentInventory)
+                preReconcileCharmMitigationIfBlocked(selected, trainee)
+                failureMitigationEnergyPlanForPass = null
+                failureMitigationEnergyQueuedCounts.clear()
+                queueStatSpecificTrainingEffectItems(selected)
+            }
         } else if (selected != null) {
             MessageLog.i(TAG, "[TRACKBLAZER] Post-item recheck confirmed training selection: $selected.")
         }
@@ -1146,6 +1364,26 @@ class Trackblazer(game: Game) : Campaign(game) {
             return selected
         }
 
+        if (whistleForcesTraining) {
+            val preForced = training.recommendTraining(forceSelection = true)
+            when {
+                preForced != null && isViableForcedTrainingPick(preForced) -> {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Viable forced pick on current board ($preForced). Skipping Reset Whistle.",
+                    )
+                    return preForced
+                }
+                preForced != null -> {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Skipping Reset Whistle: forced pick $preForced would fail mitigation on current board.",
+                    )
+                    return null
+                }
+            }
+        }
+
         MessageLog.i(TAG, "[TRACKBLAZER] No suitable training found. Using Reset Whistle.")
         if (!shopList.openTrainingItemsDialog()) {
             return selected
@@ -1179,19 +1417,11 @@ class Trackblazer(game: Game) : Campaign(game) {
             selected == null ->
                 MessageLog.i(TAG, "[TRACKBLAZER] Reset Whistle re-analysis returned no training; nothing to execute.")
             training.lastSelectionSource == SelectionSource.FORCED_FROM_SKIPPED -> {
-                val forcedCandidate = training.cachedAnalysisResults?.firstOrNull { it.name == selected }
-                val forcedFail = forcedCandidate?.failureChance ?: 0
-                val forcedBaseGain = forcedCandidate?.statGains?.get(selected) ?: 0
-                val charmAvailable = (currentInventory["Good-Luck Charm"] ?: 0) > 0
-                val charmWouldFire =
-                    isClimaxCharmTrainingActive() ||
-                        (
-                            charmAvailable && !bUsedCharmToday && forcedFail >= 20 && !shouldConserveTrainingEffectItems(selected, trainee) && forcedBaseGain >= minCharmGain && training.isLuckyCharmAllowedForSelection(selected)
-                        )
-                if (!charmWouldFire && forcedFail >= 50) {
+                val (forcedFail, forcedBaseGain) = trainingFailureAndMainGain(selected)
+                if (!isViableForcedTrainingPick(selected)) {
                     MessageLog.i(
                         TAG,
-                        "[TRACKBLAZER] Skipping Whistle force-pick: $selected at $forcedFail% fail with no Good-Luck Charm. Falling back to recovery.",
+                        "[TRACKBLAZER] Skipping Whistle force-pick: $selected at $forcedFail% fail without viable mitigation. Falling back to recovery.",
                     )
                     selected = null
                 } else {
@@ -1867,12 +2097,11 @@ class Trackblazer(game: Game) : Campaign(game) {
             // If we are, we should treat it as a mandatory race and NOT an extra race.
             if (IconRaceDayRibbon.check(game.imageUtils, sourceBitmap = sourceBitmap) || IconGoalRibbon.check(game.imageUtils, sourceBitmap = sourceBitmap)) {
                 MessageLog.i(TAG, "[TRACKBLAZER] Mandatory race ribbon detected. Processing as mandatory race.")
-                val result = super.handleRaceEvents(true)
-                // Mandatory races bypass executeAction(), so decrement the megaphone counter here to match the per-turn decrement applied to other actions.
-                if (result) {
-                    decrementMegaphoneTurnCounter(trainee)
+                val mandatoryResult = super.handleRaceEvents(true)
+                if (mandatoryResult) {
+                    finishTurnMegaphoneDecrement()
                 }
-                return result
+                return mandatoryResult
             }
 
             MessageLog.i(TAG, "[TRACKBLAZER] Checking for suitable races.")
@@ -1920,6 +2149,7 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         val result = super.handleRaceEvents(isScheduledRace)
         if (result) {
+            finishTurnMegaphoneDecrement()
             if (!counterUpdatedByOCR) {
                 consecutiveRaceCount++
                 MessageLog.i(TAG, "[TRACKBLAZER] Incremented consecutive race count to $consecutiveRaceCount.")
@@ -1961,6 +2191,8 @@ class Trackblazer(game: Game) : Campaign(game) {
         bUsedHammerToday = false
         bIsIrregularTraining = false
         bHasCheckedIrregularTrainingThisTurn = false
+        megaphoneDecrementedThisTurn = false
+        statSpecificTrainingItemsQueuedFor = null
         training.clearAnalysisCache()
     }
 
@@ -2156,8 +2388,7 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
 
         if (result && action != MainScreenAction.NONE) {
-            // Turn is over, decrement megaphone counter.
-            decrementMegaphoneTurnCounter(trainee)
+            finishTurnMegaphoneDecrement()
 
             // Increment the shop check counter if it is active.
             if (shopCheckCounter > 0) {
@@ -2580,9 +2811,29 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (selected == null) {
             return null
         }
-        training.executeTraining(selected)
+        if (!training.executeTraining(selected)) {
+            return null
+        }
         training.firstTrainingCheck = false
         return selected
+    }
+
+    /** Backs out of the Training screen and attempts mood or energy recovery on the main screen. */
+    private fun backOutFromTrainingForRecovery(reason: String) {
+        MessageLog.i(TAG, "[TRACKBLAZER] $reason Backing out for recovery.")
+        training.firstTrainingCheck = false
+        ButtonBack.click(game.imageUtils)
+        game.wait(1.0)
+
+        if (checkMainScreen()) {
+            if (trainee.mood == Mood.AWFUL || (trainee.mood <= Mood.NORMAL && trainee.energy >= 20)) {
+                MessageLog.i(TAG, "[TRACKBLAZER] Mood is ${trainee.mood}. Attempting to recover mood.")
+                recoverMood()
+            } else {
+                MessageLog.i(TAG, "[TRACKBLAZER] Energy is ${trainee.energy}%. Attempting to recover energy.")
+                recoverEnergy()
+            }
+        }
     }
 
     /** Main stat gain for [stat] from the latest analysis snapshot. */
@@ -2599,6 +2850,9 @@ class Trackblazer(game: Game) : Campaign(game) {
      */
     private fun shouldBlockUnmitigatedHighFailureExecute(selected: StatName, climaxCharmTraining: Boolean): Boolean {
         if (bUsedCharmToday) {
+            return false
+        }
+        if (bUsedEnergyItemThisPass && failureMitigationEnergyQueuedCounts.isNotEmpty()) {
             return false
         }
         if (climaxCharmTraining && isClimaxCharmTrainingActive()) {
@@ -2644,7 +2898,13 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
 
             if (trainingSelected != null) {
-                executeTrainingWithItems(trainingSelected, climaxCharmTraining = false)
+                val executed = executeTrainingWithItems(trainingSelected, climaxCharmTraining = false)
+                if (executed == null) {
+                    MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Irregular training execute blocked. Backing out.")
+                    backOutFromTrainingForRecovery("Irregular training execute blocked.")
+                } else {
+                    trainingSelected = executed
+                }
             } else {
                 MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Irregular training unexpectedly became null. Backing out.")
                 ButtonBack.click(game.imageUtils)
@@ -2715,119 +2975,14 @@ class Trackblazer(game: Game) : Campaign(game) {
             val climaxSelected = training.selectHighestNonMaxedStatForClimax()
             if (climaxSelected != null) {
                 MessageLog.i(TAG, "[TRACKBLAZER] Climax phase with remaining Good-Luck Charm(s). Training $climaxSelected instead of resting.")
-                executeTrainingWithItems(climaxSelected, climaxCharmTraining = true)
-            } else {
-                MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Climax charm training requested but no non-maxed stat is available. Backing out for recovery.")
-                training.firstTrainingCheck = false
-                ButtonBack.click(game.imageUtils)
-                game.wait(1.0)
-                if (checkMainScreen()) {
-                    recoverEnergy()
-                }
+                trainingSelected = executeTrainingWithItems(climaxSelected, climaxCharmTraining = true)
+            }
+            if (trainingSelected == null) {
+                MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Climax charm training unavailable or blocked. Backing out for recovery.")
+                backOutFromTrainingForRecovery("No viable Climax training after charm mitigation.")
             }
         } else if (trainingSelected == null) {
-            // Most optimal action must be taken if no suitable training is found to avoid a dead/wasted turn.
-            // Resting has 62.5% chance of being +50 energy, Shrine (remove status conditions) has 30% chance in recreation.
-            if (trainee.mood <= Mood.NORMAL || trainee.energy <= 50) {
-                MessageLog.i(TAG, "[TRACKBLAZER] Still no suitable training found. Backing out for recovery.")
-
-                // firstTrainingCheck is false since there is no suitable training (breaks looping on recovery/energy)
-                training.firstTrainingCheck = false
-                ButtonBack.click(game.imageUtils)
-                game.wait(1.0)
-
-                if (checkMainScreen()) {
-                    if (trainee.mood == Mood.AWFUL || (trainee.mood <= Mood.NORMAL && trainee.energy >= 20)) {
-                        MessageLog.i(TAG, "[TRACKBLAZER] Mood is ${trainee.mood}. Attempting to recover mood.")
-                        recoverMood()
-                    } else {
-                        MessageLog.i(TAG, "[TRACKBLAZER] Energy is ${trainee.energy}%. Attempting to recover energy.")
-                        recoverEnergy()
-                    }
-                }
-            } else {
-                // Force a training (Only Wit if negative conditions to avoid possible stat reductions such as Slow Metabolism)
-                // 80 Energy is optimal for Wit, as there may be post events that provide additional energy.
-                val forcedStat = if (trainee.energy >= 80 && trainee.currentNegativeStatuses.isEmpty()) StatName.SPEED else StatName.WIT
-
-                if (forcedStat == StatName.WIT && training.shouldPreferRestOverWitTraining()) {
-                    MessageLog.i(TAG, "[TRACKBLAZER] Forced Wit skipped (prefer rest/recreation over Wit). Backing out for recovery.")
-                    training.firstTrainingCheck = false
-                    ButtonBack.click(game.imageUtils)
-                    game.wait(1.0)
-
-                    if (checkMainScreen()) {
-                        if (trainee.mood == Mood.AWFUL || (trainee.mood <= Mood.NORMAL && trainee.energy >= 20)) {
-                            MessageLog.i(TAG, "[TRACKBLAZER] Mood is ${trainee.mood}. Attempting to recover mood.")
-                            recoverMood()
-                        } else {
-                            MessageLog.i(TAG, "[TRACKBLAZER] Energy is ${trainee.energy}%. Attempting to recover energy.")
-                            recoverEnergy()
-                        }
-                    }
-                } else if (forcedStat == StatName.WIT && training.shouldBlockEmptyWitTraining()) {
-                    MessageLog.i(
-                        TAG,
-                        "[TRACKBLAZER] Forced Wit skipped (empty/all-orange low-hint Wit: no below-orange bars, or all orange without rainbow and ≤1 hint; Akikawa/Etsuko excluded). Backing out for recovery.",
-                    )
-                    training.firstTrainingCheck = false
-                    ButtonBack.click(game.imageUtils)
-                    game.wait(1.0)
-
-                    if (checkMainScreen()) {
-                        if (trainee.mood == Mood.AWFUL || (trainee.mood <= Mood.NORMAL && trainee.energy >= 20)) {
-                            MessageLog.i(TAG, "[TRACKBLAZER] Mood is ${trainee.mood}. Attempting to recover mood.")
-                            recoverMood()
-                        } else {
-                            MessageLog.i(TAG, "[TRACKBLAZER] Energy is ${trainee.energy}%. Attempting to recover energy.")
-                            recoverEnergy()
-                        }
-                    }
-                } else if (forcedStat == StatName.WIT && training.shouldSkipLowPriorityWit()) {
-                    MessageLog.i(
-                        TAG,
-                        "[TRACKBLAZER] Forced Wit skipped (low-priority Wit rule: main stats over failure threshold and Wit not in top-3 stat priority). Backing out for recovery.",
-                    )
-                    training.firstTrainingCheck = false
-                    ButtonBack.click(game.imageUtils)
-                    game.wait(1.0)
-
-                    if (checkMainScreen()) {
-                        if (trainee.mood == Mood.AWFUL || (trainee.mood <= Mood.NORMAL && trainee.energy >= 20)) {
-                            MessageLog.i(TAG, "[TRACKBLAZER] Mood is ${trainee.mood}. Attempting to recover mood.")
-                            recoverMood()
-                        } else {
-                            MessageLog.i(TAG, "[TRACKBLAZER] Energy is ${trainee.energy}%. Attempting to recover energy.")
-                            recoverEnergy()
-                        }
-                    }
-                } else {
-                // Refuse to force-train if the forced stat was already rejected by analysis (high failure chance, low gain with charm, etc.) or is blacklisted. Recover instead.
-                val skippedForced = training.skippedTrainingMap[forcedStat]
-                val forcedIsBlacklisted = forcedStat in training.blacklist
-                if (skippedForced != null || forcedIsBlacklisted) {
-                    val reason = skippedForced?.skipReason ?: "blacklisted"
-                    MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Cannot force $forcedStat training ($reason). Backing out for recovery instead.")
-
-                    training.firstTrainingCheck = false
-                    ButtonBack.click(game.imageUtils)
-                    game.wait(1.0)
-
-                    if (checkMainScreen()) {
-                        if (trainee.mood == Mood.AWFUL || (trainee.mood <= Mood.NORMAL && trainee.energy >= 20)) {
-                            MessageLog.i(TAG, "[TRACKBLAZER] Mood is ${trainee.mood}. Attempting to recover mood.")
-                            recoverMood()
-                        } else {
-                            MessageLog.i(TAG, "[TRACKBLAZER] Energy is ${trainee.energy}%. Attempting to recover energy.")
-                            recoverEnergy()
-                        }
-                    }
-                } else {
-                    MessageLog.i(TAG, "[TRACKBLAZER] Still no suitable training found. Energy (${trainee.energy}%) and Mood (${trainee.mood}) are sufficient. Forcing $forcedStat training.")
-                    executeTrainingWithItems(forcedStat, climaxCharmTraining = false)
-                }
-                }
-            }
+            backOutFromTrainingForRecovery("No suitable training found after analysis and item pass.")
         }
 
         bIsIrregularTraining = false
@@ -2966,11 +3121,17 @@ class Trackblazer(game: Game) : Campaign(game) {
         MessageLog.i(TAG, "[TRACKBLAZER] Starting inventory management pass.")
         bKaleJuiceQueuedThisPass = false
         bUsedEnergyItemThisPass = false
-        failureMitigationChoiceForPass = FailureMitigationChoice.NONE
+        if (!bStatSpecificItemsOnlyPass) {
+            statSpecificTrainingItemsQueuedFor = null
+            failureMitigationChoiceForPass = FailureMitigationChoice.NONE
+        }
         failureMitigationEnergyPlanForPass = null
         failureMitigationEnergyQueuedCounts.clear()
         if (trainee != null && trainingSelected != null && !bDryRun) {
-            failureMitigationChoiceForPass = resolveFailureMitigationChoice(trainingSelected, trainee, currentInventory)
+            if (!bStatSpecificItemsOnlyPass) {
+                failureMitigationChoiceForPass = resolveFailureMitigationChoice(trainingSelected, trainee, currentInventory)
+                preReconcileCharmMitigationIfBlocked(trainingSelected, trainee)
+            }
         }
         val initialEnergy = trainee?.energy ?: 0
         val initialMood = trainee?.mood ?: Mood.NORMAL
@@ -2989,18 +3150,22 @@ class Trackblazer(game: Game) : Campaign(game) {
                     trainingSelected != null &&
                         trainee != null &&
                         shouldConserveTrainingEffectItems(trainingSelected, trainee)
-                val neededWeight =
-                    when (trainingSelected) {
-                        StatName.SPEED -> "Speed Ankle Weights"
-                        StatName.STAMINA -> "Stamina Ankle Weights"
-                        StatName.POWER -> "Power Ankle Weights"
-                        StatName.GUTS -> "Guts Ankle Weights"
-                        else -> ""
-                    }
+                val neededWeight = ankleWeightItemForStat(trainingSelected)
 
                 currentInventory
                     .filter { (name, count) ->
                         if (count <= 0) return@filter false
+
+                        if (bStatSpecificItemsOnlyPass) {
+                            if (trainee == null || trainingSelected == null) return@filter false
+                            val isMegaphone =
+                                name == "Empowering Megaphone" || name == "Motivating Megaphone" || name == "Coaching Megaphone"
+                            val isAnkleWeight = name == neededWeight
+                            return@filter (
+                                isMegaphone && hasMegaphoneAvailableForTraining(trainingSelected, trainee, currentInventory)
+                            ) ||
+                                (isAnkleWeight && isAnkleWeightEligibleForUse(name, trainingSelected, currentInventory))
+                        }
 
                         val info = shopList.shopItems[name]
                         val isStat = info?.category == "Stats"
@@ -3232,6 +3397,12 @@ class Trackblazer(game: Game) : Campaign(game) {
                 "[WARN] manageInventoryItems:: Scheduled post-event cure (${pendingPostEventCureItem}) was not queued this pass.",
             )
         }
+
+        if (!bDryRun && !bStatSpecificItemsOnlyPass && trainee != null && trainingSelected != null &&
+            failureMitigationChoiceForPass == FailureMitigationChoice.CHARM && !bUsedCharmToday
+        ) {
+            reconcileFailureMitigationAfterSkippedCharm(trainingSelected, nextInventory)
+        }
     }
 
     /**
@@ -3282,16 +3453,17 @@ class Trackblazer(game: Game) : Campaign(game) {
             return null
         }
 
+        if (bStatSpecificItemsOnlyPass) {
+            val megaphoneNames = listOf("Empowering Megaphone", "Motivating Megaphone", "Coaching Megaphone")
+            val neededWeight = ankleWeightItemForStat(trainingSelected)
+            if (itemName != neededWeight && itemName !in megaphoneNames) {
+                return null
+            }
+        }
+
         // Ankle Weights Check.
         if (date.day >= 13 && trainingSelected != null) {
-            val neededWeight =
-                when (trainingSelected) {
-                    StatName.SPEED -> "Speed Ankle Weights"
-                    StatName.STAMINA -> "Stamina Ankle Weights"
-                    StatName.POWER -> "Power Ankle Weights"
-                    StatName.GUTS -> "Guts Ankle Weights"
-                    else -> ""
-                }
+            val neededWeight = ankleWeightItemForStat(trainingSelected)
             if (itemName == neededWeight) {
                 if (shouldSkipAnkleWeightForSummerReserve(itemName, nextInventory)) {
                     MessageLog.i(
@@ -3311,12 +3483,14 @@ class Trackblazer(game: Game) : Campaign(game) {
                 }
                 val reason = "Boosting $trainingSelected training gains."
                 if (clickItemPlusButton(itemName, entry, "[TRACKBLAZER] Queuing $itemName via inline pass.", nextInventory, reason = reason)) {
+                    markStatSpecificTrainingItemQueued(trainingSelected)
                     return reason
                 }
             }
         }
 
         val failureChance = if (trainingSelected != null) training.trainingMap[trainingSelected]?.failureChance ?: 0 else 0
+        if (!bStatSpecificItemsOnlyPass) {
         val skipTrainingEffectItems = trainingSelected != null && shouldConserveTrainingEffectItems(trainingSelected, trainee)
 
         // Good-Luck Charm Check (mutually exclusive with high-failure energy mitigation on the same training turn).
@@ -3351,22 +3525,21 @@ class Trackblazer(game: Game) : Campaign(game) {
                     }
                 }
             }
+            trainingSelected?.let { reconcileFailureMitigationAfterSkippedCharm(it, nextInventory) }
         }
 
-        // Charm queued or planned this pass blocks extra energy items (charm zeros failure; energy is applied after training).
+        // Charm queued this pass blocks extra energy items (charm zeros failure; energy is applied after training).
         val charmBeingUsedThisTurn =
             bUsedCharmToday ||
-                failureMitigationChoiceForPass == FailureMitigationChoice.CHARM ||
                 (
-                    failureMitigationChoiceForPass == FailureMitigationChoice.NONE &&
-                        trainingSelected != null &&
+                    trainingSelected != null &&
                         shouldQueueGoodLuckCharmForTraining(trainingSelected, trainee, failureChance, skipTrainingEffectItems)
                 )
 
         // High-failure energy train (mutually exclusive with Good-Luck Charm on the same training turn).
         if (
             enableEnergyItemForHighFailureTraining &&
-                failureMitigationChoiceForPass != FailureMitigationChoice.CHARM &&
+                failureMitigationChoiceForPass == FailureMitigationChoice.ENERGY &&
                 !charmBeingUsedThisTurn &&
                 isFailureMitigationEnergyItem(itemName) &&
                 trainingSelected != null &&
@@ -3530,6 +3703,8 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
         }
 
+        } // end !bStatSpecificItemsOnlyPass (charm/energy/mood/stat/bad-condition paths)
+
         // Megaphone Check.
         val megaphoneNames = listOf("Empowering Megaphone", "Motivating Megaphone", "Coaching Megaphone")
         if (trainingSelected != null && megaphoneNames.contains(itemName)) {
@@ -3652,6 +3827,7 @@ class Trackblazer(game: Game) : Campaign(game) {
                     }
                 if (trainingSelected != null) {
                     refreshFailureMitigationChoiceAfterMegaphone(trainingSelected, trainee, nextInventory)
+                    markStatSpecificTrainingItemQueued(trainingSelected)
                 }
                 return reason
             }
@@ -3878,6 +4054,15 @@ class Trackblazer(game: Game) : Campaign(game) {
         }
     }
 
+    /** Decrements the active megaphone duration once per turn (race prep path or executeAction). */
+    private fun finishTurnMegaphoneDecrement() {
+        if (megaphoneDecrementedThisTurn) {
+            return
+        }
+        decrementMegaphoneTurnCounter(trainee)
+        megaphoneDecrementedThisTurn = true
+    }
+
     /** Decrements the active megaphone duration at end of turn; clears type when expired. */
     private fun decrementMegaphoneTurnCounter(trainee: Trainee) {
         if (trainee.megaphoneTurnCounter <= 0) return
@@ -3983,35 +4168,24 @@ class Trackblazer(game: Game) : Campaign(game) {
             !skipTrainingEffectItems &&
                 trainingSelected != null &&
                 hasMegaphoneAvailableForTraining(trainingSelected, trainee, currentInventory)
-        val neededAnkleWeight =
-            if (trainingSelected != null) {
-                when (trainingSelected) {
-                    StatName.SPEED -> "Speed Ankle Weights"
-                    StatName.STAMINA -> "Stamina Ankle Weights"
-                    StatName.POWER -> "Power Ankle Weights"
-                    StatName.GUTS -> "Guts Ankle Weights"
-                    else -> ""
-                }
-            } else {
-                ""
-            }
+        val neededAnkleWeight = ankleWeightItemForStat(trainingSelected)
         val hasAnkleWeights =
             trainingSelected != null &&
                 neededAnkleWeight.isNotEmpty() &&
                 (currentInventory[neededAnkleWeight] ?: 0) > 0 &&
                 isAnkleWeightEligibleForUse(neededAnkleWeight, trainingSelected, currentInventory)
-        failureMitigationChoiceForPass = FailureMitigationChoice.NONE
         if (trainingSelected != null) {
             failureMitigationChoiceForPass = resolveFailureMitigationChoice(trainingSelected, trainee, currentInventory)
+            preReconcileCharmMitigationIfBlocked(trainingSelected, trainee)
+        } else {
+            failureMitigationChoiceForPass = FailureMitigationChoice.NONE
         }
 
         val failureChance = if (trainingSelected != null) training.trainingMap[trainingSelected]?.failureChance ?: 0 else 0
         val hasCharm =
             trainingSelected != null &&
                 shouldQueueGoodLuckCharmForTraining(trainingSelected, trainee, failureChance, skipTrainingEffectItems)
-        val highFailureEnergyTrain =
-            failureMitigationChoiceForPass == FailureMitigationChoice.ENERGY ||
-                (shouldConsiderEnergyItemForHighFailureTrain(trainingSelected) && hasEnergyItems)
+        val highFailureEnergyTrain = failureMitigationChoiceForPass == FailureMitigationChoice.ENERGY
 
         val potentialUse =
             shouldTryEnergyRecoveryItems(trainee.energy) ||
@@ -4041,6 +4215,9 @@ class Trackblazer(game: Game) : Campaign(game) {
 
             MessageLog.i(TAG, "[TRACKBLAZER] Opening Training Items dialog (${reasons.joinToString(", ")})...")
             if (shopList.openTrainingItemsDialog()) {
+                if (hasCharm || highFailureEnergyTrain) {
+                    training.clearAnalysisCache()
+                }
                 manageInventoryItems(trainee, trainingSelected)
             }
         } else {

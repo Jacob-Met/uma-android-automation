@@ -412,7 +412,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         /** Returns true when the bar belongs to Yayoi Akikawa or Etsuko Otonashi. */
         fun isAkikawaOrEtsukoBar(bar: CustomImageUtils.BarFillResult): Boolean = bar.isTrainerSupport && bar.trainerName in AKIKAWA_ETSUKO_TRAINER_NAMES
 
-        /** Whether charm-backed training should be skipped for low main-stat gain at risky failure chance. */
+        /** Whether charm-backed training should be skipped for low main-stat gain (all stats, including GUTS). */
         fun wouldSkipForLowGainCharm(
             allowCharmForStat: Boolean,
             climaxForceCharmTraining: Boolean,
@@ -423,7 +423,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             allowCharmForStat &&
                 !climaxForceCharmTraining &&
                 !allowLowGainCharmAtZeroEnergy &&
-                failureChanceExceedsThreshold &&
                 mainStatGainBelowMin
 
         /** Effective failure ceiling for a training option, including risky-training overrides. */
@@ -1881,6 +1880,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val irregularTrainingMinStatGain = args["irregularTrainingMinStatGain"] as? Int ?: 30
         val climaxForceCharmTraining = args["climaxForceCharmTraining"] as? Boolean ?: false
         val allowLowGainCharmAtZeroEnergy = args["allowLowGainCharmAtZeroEnergy"] as? Boolean ?: false
+        val isFinals = campaign.checkFinals()
         val postTrainingItemsRecheck = args["postTrainingItemsRecheck"] as? Boolean ?: false
         @Suppress("UNCHECKED_CAST")
         val preItemFailureSnapshot = args["preItemFailureSnapshot"] as? Map<StatName, Int> ?: emptyMap()
@@ -1924,8 +1924,8 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     result.failureChance
                 }
 
-            // Filter out trainings that exceed the effective failure chance threshold.
-            if (!test && !allowCharmForStat && failureChanceForFiltering > effectiveFailureChance) {
+            // Filter out trainings that exceed the effective failure chance threshold (Finals bypass failure filtering).
+            if (!test && !allowCharmForStat && !isFinals && failureChanceForFiltering > effectiveFailureChance) {
                 val skipReason =
                     if (enableRiskyTraining && mainStatGain >= riskyTrainingMinStatGain) {
                         MessageLog.i(
@@ -2414,14 +2414,22 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 val pick = topSkipped.key
                 if (!((skipLowPriorityWit || blockEmptyWit) && pick.name == StatName.WIT)) {
                     val mainGain = pick.statGains[pick.name] ?: 0
-                    MessageLog.i(
-                        TAG,
-                        "[TRAINING] Analysis rejected all trainings. forceSelection=true → picking highest-scored REJECTED training: " +
-                            "${pick.name} (score=${String.format("%.2f", topSkipped.value)}, fail=${pick.failureChance}%, mainGain=$mainGain). " +
-                            "This selection will execute despite analysis rejection.",
-                    )
-                    lastSelectionSource = SelectionSource.FORCED_FROM_SKIPPED
-                    return pick.name
+                    if (exceedsFailureThreshold(pick.failureChance, mainGain)) {
+                        MessageLog.i(
+                            TAG,
+                            "[TRAINING] Analysis rejected all trainings. forceSelection=true → skipping forced pick ${pick.name} " +
+                                "(${pick.failureChance}% failure exceeds threshold without mitigation).",
+                        )
+                    } else {
+                        MessageLog.i(
+                            TAG,
+                            "[TRAINING] Analysis rejected all trainings. forceSelection=true → picking highest-scored REJECTED training: " +
+                                "${pick.name} (score=${String.format("%.2f", topSkipped.value)}, fail=${pick.failureChance}%, mainGain=$mainGain). " +
+                                "This selection will execute despite analysis rejection.",
+                        )
+                        lastSelectionSource = SelectionSource.FORCED_FROM_SKIPPED
+                        return pick.name
+                    }
                 }
             }
             val defaulted =
@@ -3114,6 +3122,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         stat: StatName,
         preItemFailure: Map<StatName, Int>,
         charmUsed: Boolean,
+        energyMitigationUsed: Boolean = false,
     ): Boolean {
         if (stat == StatName.WIT && shouldBlockEmptyWitTraining()) {
             MessageLog.i(
@@ -3144,6 +3153,27 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 MessageLog.i(
                     TAG,
                     "[TRAINING] Post-item recheck blocking Wit: pre-item failure ($preFail%) exceeds threshold ($threshold%) and Wit is low-priority without friendship-bar exception.",
+                )
+                return false
+            }
+        }
+
+        val option = trainingMap[stat] ?: return false
+        val mainGain = option.statGains[stat] ?: 0
+        if (energyMitigationUsed && !charmUsed && exceedsFailureThreshold(option.failureChance, mainGain)) {
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Post-item recheck blocking $stat: failure (${option.failureChance}%) still exceeds threshold after energy mitigation.",
+            )
+            return false
+        }
+
+        if (!charmUsed && !energyMitigationUsed) {
+            val preFail = preItemFailure[stat] ?: return true
+            if (exceedsFailureThreshold(preFail, mainGain)) {
+                MessageLog.i(
+                    TAG,
+                    "[TRAINING] Post-item recheck blocking $stat: pre-item failure ($preFail%) exceeds threshold without mitigation.",
                 )
                 return false
             }
@@ -3386,12 +3416,12 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
      *
      * @param trainingSelected The name of the training to execute.
      */
-    fun executeTraining(trainingSelected: StatName?) {
+    fun executeTraining(trainingSelected: StatName?): Boolean {
         MessageLog.v(TAG, "[TRAINING] Now starting process to execute $trainingSelected training...")
 
         if (trainingSelected == StatName.WIT && shouldBlockEmptyWitTraining()) {
             MessageLog.w(TAG, "[WARN] executeTraining:: Blocking Wit (empty/all-orange low-hint per never-click-empty-Wit rules).")
-            return
+            return false
         }
 
         if (trainingSelected != null && trainingMap[trainingSelected] == null) {
@@ -3403,7 +3433,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                         TAG,
                         "[WARN] executeTraining:: Refusing rejected $trainingSelected training (${skipped.failureChance}% failure, skip=${skipped.skipReason}).",
                     )
-                    return
+                    return false
                 }
             }
         }
@@ -3453,11 +3483,11 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             game.waitForLoading()
 
             MessageLog.v(TAG, "[TRAINING] Process to execute training completed.")
-        } else {
-            MessageLog.v(TAG, "[TRAINING] Conditions have not been met so training will not be done.")
+            clearAnalysisCache()
+            return true
         }
 
-        // Now reset the Training maps and analysis cache.
-        clearAnalysisCache()
+        MessageLog.v(TAG, "[TRAINING] Conditions have not been met so training will not be done.")
+        return false
     }
 }
