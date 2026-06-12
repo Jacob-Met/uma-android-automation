@@ -215,6 +215,36 @@ abstract class Campaign(game: Game) : Task(game) {
      */
     protected var bHasHandledSkillPointCheck: Boolean = false
 
+    /** Skill-point threshold from settings (exposed for overlay resume coordination). */
+    fun skillPointsRequiredForOverlayResume(): Int = skillPointsRequired
+
+    /** Whether skill-point checking is enabled in settings. */
+    fun enableSkillPointCheckForOverlayResume(): Boolean = enableSkillPointCheck
+
+    /** Marks the skill-point threshold as handled for this session. */
+    fun markSkillPointCheckHandledForOverlayResume() {
+        bHasHandledSkillPointCheck = true
+    }
+
+    /** Whether the skill-point threshold has already been handled this session. */
+    fun hasHandledSkillPointCheckForOverlayResume(): Boolean = bHasHandledSkillPointCheck
+
+    /** Whether the user's in-game race agenda feature is enabled in settings. */
+    fun isUserAgendaEnabledForOverlayResume(): Boolean = racing.isUserAgendaEnabledForOverlayResume()
+
+    /** Whether the race agenda has already been loaded this career. */
+    fun isAgendaLoadedForOverlayResume(): Boolean = racing.isAgendaLoadedForOverlayResume()
+
+    /** Marks the agenda as loaded so overlay resume does not repeat the load flow. */
+    fun markAgendaLoadedForOverlayResume() {
+        racing.markAgendaLoadedForOverlayResume()
+    }
+
+    /** Continues or completes race agenda loading after overlay pause mid-flow. */
+    fun loadUserRaceAgendaForOverlayResume() {
+        racing.loadUserRaceAgenda()
+    }
+
     /** Flag indicating if the pre-finals check has been handled. */
     protected var bHasHandledPreFinalsCheck: Boolean = false
 
@@ -689,6 +719,14 @@ abstract class Campaign(game: Game) : Task(game) {
     }
 
     /**
+     * Re-reads persisted SQLite settings into training, racing, and other live campaign modules.
+     */
+    override fun reloadRuntimeSettings() {
+        training.reloadRuntimeSettings()
+        racing.reloadRuntimeSettings()
+    }
+
+    /**
      * Resets any scenario-specific daily flags when a new day is detected.
      */
     open fun resetDailyFlags() {
@@ -1160,6 +1198,7 @@ abstract class Campaign(game: Game) : Task(game) {
             Log.d(TAG, "[DEBUG] updateDate:: Date did not change.")
             return false
         } else {
+            com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.onTurnAdvanced(this, date.day)
             MessageLog.v(TAG, "[DATE] New date: $date")
             return true
         }
@@ -1661,6 +1700,13 @@ abstract class Campaign(game: Game) : Task(game) {
         // Scenario-specific pre-update hook.
         onBeforeMainScreenUpdate()
 
+        // Read the current turn before overlay-resume skips and agenda load need it.
+        if (!bHasCheckedDateThisTurn) {
+            updateDate()
+        }
+
+        com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.applySessionStartSkipsOnce(this)
+
         // Perform first-time setup of loading the user's race agenda if needed.
         racing.loadUserRaceAgenda()
 
@@ -1839,6 +1885,12 @@ abstract class Campaign(game: Game) : Task(game) {
             bHasHandledSkillPointCheck = false
         }
 
+        if (
+            com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.shouldForceSkillPointCheck(this)
+        ) {
+            bHasHandledSkillPointCheck = false
+        }
+
         if (!bHasHandledSkillPointCheck && enableSkillPointCheck && trainee.skillPoints >= skillPointsRequired) {
             if (skillPlan.skillPlans["skillPointCheck"]?.bIsEnabled ?: false) {
                 // Ensure we are actually at the Main screen before attempting to navigate.
@@ -2013,8 +2065,14 @@ abstract class Campaign(game: Game) : Task(game) {
      */
     override fun process(): TaskResult? {
         try {
+            com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.initializeSessionIfNeeded(this)
+
             // We always check for dialogs first.
             if (tryHandleAllDialogs()) {
+                return null
+            }
+
+            if (com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.handleMidFlowResume(this)) {
                 return null
             }
 

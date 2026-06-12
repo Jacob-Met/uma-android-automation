@@ -708,6 +708,7 @@ const ScenarioOverridesSettings = () => {
                                                 </View>
 
                                                 {scenarioOverrides.trackblazerEnableIrregularTraining && (
+                                                    <>
                                                     <View style={styles.section}>
                                                         <CustomSlider
                                                             searchId="trackblazer-irregular-training-min-stat-gain"
@@ -725,6 +726,45 @@ const ScenarioOverridesSettings = () => {
                                                             description="Sets the minimum main stat gain required to skip racing and perform Irregular Training instead."
                                                         />
                                                     </View>
+                                                    <View style={styles.section}>
+                                                        <CustomCheckbox
+                                                            searchId="trackblazer-enable-irregular-training-with-agenda"
+                                                            checked={scenarioOverrides.trackblazerEnableIrregularTrainingWithAgenda}
+                                                            onCheckedChange={(checked) => updateOverrideSetting("trackblazerEnableIrregularTrainingWithAgenda", checked)}
+                                                            label="Allow Irregular Training With User Agenda"
+                                                            description="When user in-game agenda is enabled, still evaluate irregular training on scheduled/mandatory race days for selected grades."
+                                                        />
+                                                    </View>
+                                                    {scenarioOverrides.trackblazerEnableIrregularTrainingWithAgenda && (
+                                                        <View style={styles.section}>
+                                                            <Text style={{ fontSize: 16, color: colors.foreground, marginBottom: 8 }}>Irregular Training Agenda Grades</Text>
+                                                            <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                                                                {["G1", "G2", "G3"].map((grade) => (
+                                                                    <View
+                                                                        key={grade}
+                                                                        style={{
+                                                                            padding: 10,
+                                                                            borderRadius: 8,
+                                                                            marginRight: 8,
+                                                                            marginBottom: 8,
+                                                                            backgroundColor: scenarioOverrides.trackblazerIrregularTrainingAgendaGrades.includes(grade) ? colors.primary : colors.card,
+                                                                        }}
+                                                                        onTouchEnd={() => {
+                                                                            const current = scenarioOverrides.trackblazerIrregularTrainingAgendaGrades
+                                                                            if (current.includes(grade)) {
+                                                                                updateOverrideSetting("trackblazerIrregularTrainingAgendaGrades", current.filter((g) => g !== grade))
+                                                                            } else {
+                                                                                updateOverrideSetting("trackblazerIrregularTrainingAgendaGrades", [...current, grade])
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        <Text style={{ fontSize: 14, fontWeight: "600", color: scenarioOverrides.trackblazerIrregularTrainingAgendaGrades.includes(grade) ? colors.background : colors.foreground }}>{grade}</Text>
+                                                                    </View>
+                                                                ))}
+                                                            </View>
+                                                        </View>
+                                                    )}
+                                                    </>
                                                 )}
 
                                                 <View style={styles.section}>

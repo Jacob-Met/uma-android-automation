@@ -30,6 +30,8 @@ import com.steve1316.uma_android_automation.types.GameDate
 import com.steve1316.uma_android_automation.types.StatName
 import com.steve1316.uma_android_automation.utils.CustomImageUtils
 import com.steve1316.uma_android_automation.utils.RunSummaryTracker
+import com.steve1316.uma_android_automation.utils.ActionDelays
+import com.steve1316.uma_android_automation.utils.DelayCalibration
 import org.opencv.core.Point
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
@@ -93,97 +95,97 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     private val scenario = game.scenario
 
     /** The current stat prioritization settings. */
-    private val statPrioritizationRaw: List<StatName> = SettingsHelper.getStringArraySetting("training", "statPrioritization").map { StatName.fromName(it)!! }
+    private var statPrioritizationRaw: List<StatName> = SettingsHelper.getStringArraySetting("training", "statPrioritization").map { StatName.fromName(it)!! }
 
     /** The final stat prioritization list. */
-    internal val statPrioritization: List<StatName> = statPrioritizationRaw.ifEmpty { StatName.entries }
+    internal var statPrioritization: List<StatName> = statPrioritizationRaw.ifEmpty { StatName.entries }
 
     /** The raw stat prioritization list for in-game event choices, sourced from user settings. */
-    private val eventChoiceStatPriorityRaw: List<StatName> = SettingsHelper.getStringArraySetting("training", "eventChoiceStatPriority").map { StatName.fromName(it)!! }
+    private var eventChoiceStatPriorityRaw: List<StatName> = SettingsHelper.getStringArraySetting("training", "eventChoiceStatPriority").map { StatName.fromName(it)!! }
 
     /** The final stat prioritization list applied to event choice scoring. Falls back to [statPrioritization] if unset. */
-    internal val eventChoiceStatPriority: List<StatName> = eventChoiceStatPriorityRaw.ifEmpty { statPrioritization }
+    internal var eventChoiceStatPriority: List<StatName> = eventChoiceStatPriorityRaw.ifEmpty { statPrioritization }
 
     /** The raw stat prioritization list for Summer Training, sourced from user settings. */
-    private val summerTrainingStatPriorityRaw: List<StatName> = SettingsHelper.getStringArraySetting("training", "summerTrainingStatPriority").map { StatName.fromName(it)!! }
+    private var summerTrainingStatPriorityRaw: List<StatName> = SettingsHelper.getStringArraySetting("training", "summerTrainingStatPriority").map { StatName.fromName(it)!! }
 
     /** The final stat prioritization list applied during Summer Training. Falls back to [statPrioritization] if unset. */
-    internal val summerTrainingStatPriority: List<StatName> = summerTrainingStatPriorityRaw.ifEmpty { statPrioritization }
+    internal var summerTrainingStatPriority: List<StatName> = summerTrainingStatPriorityRaw.ifEmpty { statPrioritization }
 
     /** The maximum allowed failure chance for training. */
-    private val maximumFailureChance: Int = SettingsHelper.getIntSetting("training", "maximumFailureChance")
+    private var maximumFailureChance: Int = SettingsHelper.getIntSetting("training", "maximumFailureChance")
 
     /** Whether to skip training for stats at their cap. */
-    private val disableTrainingOnMaxedStat: Boolean = SettingsHelper.getBooleanSetting("training", "disableTrainingOnMaxedStat")
+    private var disableTrainingOnMaxedStat: Boolean = SettingsHelper.getBooleanSetting("training", "disableTrainingOnMaxedStat")
 
     /** List of stats to prioritize for spark events. */
-    private val focusOnSparkStatTarget: List<StatName> = SettingsHelper.getStringArraySetting("training", "focusOnSparkStatTarget").map { StatName.fromName(it)!! }
+    private var focusOnSparkStatTarget: List<StatName> = SettingsHelper.getStringArraySetting("training", "focusOnSparkStatTarget").map { StatName.fromName(it)!! }
 
     /** Whether the rainbow training bonus is active. */
-    private val enableRainbowTrainingBonus: Boolean = SettingsHelper.getBooleanSetting("training", "enableRainbowTrainingBonus")
+    private var enableRainbowTrainingBonus: Boolean = SettingsHelper.getBooleanSetting("training", "enableRainbowTrainingBonus")
 
     /**
      * How much Yayoi Akikawa and Etsuko Otonashi friendship bars influence training selection (0-100).
      * 100 preserves current behavior; 0 ignores their bars in friendship scoring.
      */
-    private val trainerFriendshipInfluence: Int = SettingsHelper.getIntSetting("training", "trainerFriendshipInfluence", 0)
+    private var trainerFriendshipInfluence: Int = SettingsHelper.getIntSetting("training", "trainerFriendshipInfluence", 0)
 
     /** Whether to enable risky training logic. */
-    private val enableRiskyTraining: Boolean = SettingsHelper.getBooleanSetting("training", "enableRiskyTraining")
+    private var enableRiskyTraining: Boolean = SettingsHelper.getBooleanSetting("training", "enableRiskyTraining")
 
     /** The minimum stat gain required for risky training. */
-    private val riskyTrainingMinStatGain: Int = SettingsHelper.getIntSetting("training", "riskyTrainingMinStatGain")
+    private var riskyTrainingMinStatGain: Int = SettingsHelper.getIntSetting("training", "riskyTrainingMinStatGain")
 
     /** The maximum failure chance allowed for risky training. */
-    private val riskyTrainingMaxFailureChance: Int = SettingsHelper.getIntSetting("training", "riskyTrainingMaxFailureChance")
+    private var riskyTrainingMaxFailureChance: Int = SettingsHelper.getIntSetting("training", "riskyTrainingMaxFailureChance")
 
     /** Whether to force Wit training during the Finale. */
-    private val trainWitDuringFinale: Boolean = SettingsHelper.getBooleanSetting("training", "trainWitDuringFinale")
+    private var trainWitDuringFinale: Boolean = SettingsHelper.getBooleanSetting("training", "trainWitDuringFinale")
 
     /** Whether Good-Luck Charm may bypass failure thresholds for Wit when Wit is not in top-3 stat prioritization. */
-    private val enableLuckyCharmWitTraining: Boolean = SettingsHelper.getBooleanSetting("training", "enableLuckyCharmWitTraining", true)
+    private var enableLuckyCharmWitTraining: Boolean = SettingsHelper.getBooleanSetting("training", "enableLuckyCharmWitTraining", true)
 
     /** Whether to prefer rest/recreation over Wit training for energy recovery paths. */
-    private val preferRestOverWitTraining: Boolean = SettingsHelper.getBooleanSetting("training", "preferRestOverWitTraining", true)
+    private var preferRestOverWitTraining: Boolean = SettingsHelper.getBooleanSetting("training", "preferRestOverWitTraining", true)
 
     /**
      * When enabled, skip low-priority Wit when main stats fail (Classic/Senior) or when friendship-bar rules do not justify Wit (Junior/pre-debut).
      * Does not apply on turn 75.
      */
-    private val skipLowPriorityWitWhenMainStatsFail: Boolean =
+    private var skipLowPriorityWitWhenMainStatsFail: Boolean =
         SettingsHelper.getBooleanSetting("training", "skipLowPriorityWitWhenMainStatsFail", true)
 
     /**
      * When enabled, never execute Wit training that has zero qualifying Uma/Riko/Sirius friendship bars below orange
      * (Akikawa/Etsuko bars do not count). Wit in top-3 stat prioritization and the friendship-bar exception still apply.
      */
-    private val enableNeverClickEmptyWitTraining: Boolean =
+    private var enableNeverClickEmptyWitTraining: Boolean =
         SettingsHelper.getBooleanSetting("training", "enableNeverClickEmptyWitTraining", true)
 
     /** Minimum non-Akikawa/Etsuko friendship bars below orange on Wit to still train Wit when the exception is enabled. */
-    private val witTrainingFriendshipBarMinimum: Int = SettingsHelper.getIntSetting("training", "witTrainingFriendshipBarMinimum", 2)
+    private var witTrainingFriendshipBarMinimum: Int = SettingsHelper.getIntSetting("training", "witTrainingFriendshipBarMinimum", 2)
 
     /**
      * During Junior/pre-debut with skip-low-priority-Wit enabled, prefer a top-3 priority stat over Wit when it has at least this many
      * qualifying friendship bars below orange (mixed orange + below-orange bars still count the below-orange ones).
      */
-    private val top3FriendshipBarMinimum: Int = SettingsHelper.getIntSetting("training", "top3FriendshipBarMinimum", 2)
+    private var top3FriendshipBarMinimum: Int = SettingsHelper.getIntSetting("training", "top3FriendshipBarMinimum", 2)
 
     /**
      * During Junior/pre-debut with skip-low-priority-Wit enabled, prefer a top-3 priority stat when its main stat gain
      * meets [juniorTop3MainStatGainMinimum], regardless of friendship bars on that training.
      */
-    private val enableJuniorTop3MainStatGainPriority: Boolean =
+    private var enableJuniorTop3MainStatGainPriority: Boolean =
         SettingsHelper.getBooleanSetting("training", "enableJuniorTop3MainStatGainPriority", true)
 
     /** Minimum main stat gain required for [enableJuniorTop3MainStatGainPriority] to pick a top-3 training. */
-    private val juniorTop3MainStatGainMinimum: Int = SettingsHelper.getIntSetting("training", "juniorTop3MainStatGainMinimum", 20)
+    private var juniorTop3MainStatGainMinimum: Int = SettingsHelper.getIntSetting("training", "juniorTop3MainStatGainMinimum", 20)
 
     /**
      * When [preferRestOverWitTraining] is enabled, still train Wit if at least [witTrainingFriendshipBarMinimum]
      * non-Akikawa/Etsuko friendship bars on Wit are below orange. Defaults to enabled unless legacy minimum was 0.
      */
-    private val enableWitTrainingFriendshipBarException: Boolean =
+    private var enableWitTrainingFriendshipBarException: Boolean =
         SettingsHelper.getBooleanSetting(
             "training",
             "enableWitTrainingFriendshipBarException",
@@ -191,16 +193,16 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         )
 
     /** Whether to prioritize skill hints. */
-    private val enablePrioritizeSkillHints: Boolean = SettingsHelper.getBooleanSetting("training", "enablePrioritizeSkillHints")
+    private var enablePrioritizeSkillHints: Boolean = SettingsHelper.getBooleanSetting("training", "enablePrioritizeSkillHints")
 
     /** Whether to enable validation of training analysis. */
-    private val enableTrainingAnalysisValidation: Boolean = SettingsHelper.getBooleanSetting("training", "enableTrainingAnalysisValidation")
+    private var enableTrainingAnalysisValidation: Boolean = SettingsHelper.getBooleanSetting("training", "enableTrainingAnalysisValidation")
 
     /** Classic Year milestone percentage (applied to primary stat targets during Junior Year). */
-    private val classicMilestonePct: Int = SettingsHelper.getIntSetting("training", "classicMilestonePercent", 33)
+    private var classicMilestonePct: Int = SettingsHelper.getIntSetting("training", "classicMilestonePercent", 33)
 
     /** Senior Year milestone percentage (applied to primary stat targets during Classic Year). */
-    private val seniorMilestonePct: Int = SettingsHelper.getIntSetting("training", "seniorMilestonePercent", 66)
+    private var seniorMilestonePct: Int = SettingsHelper.getIntSetting("training", "seniorMilestonePercent", 66)
 
     /** Map of current stat targets. */
     private var statTargets: Map<StatName, Int> = emptyMap()
@@ -212,13 +214,127 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     private val statsTrainedOverBuffer: MutableSet<StatName> = mutableSetOf()
 
     /** List of stat trainings to ignore. */
-    internal val blacklist: List<StatName?> = SettingsHelper.getStringArraySetting("training", "trainingBlacklist").map { StatName.fromName(it) }
+    internal var blacklist: List<StatName?> = SettingsHelper.getStringArraySetting("training", "trainingBlacklist").map { StatName.fromName(it) }
+
+    /** Additional stat blacklist applied during Summer training turns only. */
+    private var summerTrainingBlacklist: List<StatName?> =
+        SettingsHelper.getStringArraySetting("training", "summerTrainingBlacklist").map { StatName.fromName(it) }
+
+    /** Additional stat blacklist applied during Finale (turns 73–75) only. */
+    private var finaleTrainingBlacklist: List<StatName?> =
+        SettingsHelper.getStringArraySetting("training", "finaleTrainingBlacklist").map { StatName.fromName(it) }
+
+    /** When first-tab failure exceeds risky cap by at most this many points, still scan all stat tabs (B1). */
+    private var fullScanRiskyOvershootPercent: Int =
+        SettingsHelper.getIntSetting("training", "fullScanRiskyOvershootPercent", 5)
+
+    /** When enabled, friendship-bar rules from Junior/pre-debut continue through [hardcoreFriendshipOptimizationUntilTurn]. */
+    private var enableHardcoreFriendshipOptimization: Boolean =
+        SettingsHelper.getBooleanSetting("training", "enableHardcoreFriendshipOptimization", false)
+
+    /** Last career turn (inclusive) that uses hardcore friendship optimization when enabled. */
+    private var hardcoreFriendshipOptimizationUntilTurn: Int =
+        SettingsHelper.getIntSetting("training", "hardcoreFriendshipOptimizationUntilTurn", 30)
+
+    /** When enabled, ignore pal-card trainer friendship bars (Riko, Tazuna, etc.) in training friendship scoring. */
+    private var ignorePalCardFriendshipBarsInTraining: Boolean =
+        SettingsHelper.getBooleanSetting("training", "ignorePalCardFriendshipBarsInTraining", false)
+
+    /**
+     * When enabled, never pick a top-3 priority training with zero qualifying below-orange bars if another top-3
+     * priority training has at least [top3FriendshipBarMinimum] below-orange bars.
+     */
+    private var enableNeverClickEmptyTop3PriorityTraining: Boolean =
+        SettingsHelper.getBooleanSetting("training", "enableNeverClickEmptyTop3PriorityTraining", false)
+
+    /** Whether the last analysis skipped the full 5-tab scan due to high first-tab failure without mitigation. */
+    var skippedFullScanDueToHighFirstTabFailure: Boolean = false
+
+    /** Whether analysis skipped because first-tab failure was only slightly above the risky threshold (full scan ran). */
+    var analyzedDespiteSlightRiskyOvershoot: Boolean = false
 
     /** Whether the last analysis was skipped due to energy being too low (failure chance too high). */
     var needsEnergyRecovery: Boolean = false
 
+    /** Re-reads training settings from SQLite into this live session. */
+    fun reloadRuntimeSettings() {
+        statPrioritizationRaw = SettingsHelper.getStringArraySetting("training", "statPrioritization").map { StatName.fromName(it)!! }
+        statPrioritization = statPrioritizationRaw.ifEmpty { StatName.entries }
+        eventChoiceStatPriorityRaw = SettingsHelper.getStringArraySetting("training", "eventChoiceStatPriority").map { StatName.fromName(it)!! }
+        eventChoiceStatPriority = eventChoiceStatPriorityRaw.ifEmpty { statPrioritization }
+        summerTrainingStatPriorityRaw = SettingsHelper.getStringArraySetting("training", "summerTrainingStatPriority").map { StatName.fromName(it)!! }
+        summerTrainingStatPriority = summerTrainingStatPriorityRaw.ifEmpty { statPrioritization }
+        maximumFailureChance = SettingsHelper.getIntSetting("training", "maximumFailureChance")
+        disableTrainingOnMaxedStat = SettingsHelper.getBooleanSetting("training", "disableTrainingOnMaxedStat")
+        focusOnSparkStatTarget = SettingsHelper.getStringArraySetting("training", "focusOnSparkStatTarget").map { StatName.fromName(it)!! }
+        enableRainbowTrainingBonus = SettingsHelper.getBooleanSetting("training", "enableRainbowTrainingBonus")
+        trainerFriendshipInfluence = SettingsHelper.getIntSetting("training", "trainerFriendshipInfluence", 0)
+        enableRiskyTraining = SettingsHelper.getBooleanSetting("training", "enableRiskyTraining")
+        riskyTrainingMinStatGain = SettingsHelper.getIntSetting("training", "riskyTrainingMinStatGain")
+        riskyTrainingMaxFailureChance = SettingsHelper.getIntSetting("training", "riskyTrainingMaxFailureChance")
+        trainWitDuringFinale = SettingsHelper.getBooleanSetting("training", "trainWitDuringFinale")
+        enableLuckyCharmWitTraining = SettingsHelper.getBooleanSetting("training", "enableLuckyCharmWitTraining", true)
+        preferRestOverWitTraining = SettingsHelper.getBooleanSetting("training", "preferRestOverWitTraining", true)
+        skipLowPriorityWitWhenMainStatsFail = SettingsHelper.getBooleanSetting("training", "skipLowPriorityWitWhenMainStatsFail", true)
+        enableNeverClickEmptyWitTraining = SettingsHelper.getBooleanSetting("training", "enableNeverClickEmptyWitTraining", true)
+        witTrainingFriendshipBarMinimum = SettingsHelper.getIntSetting("training", "witTrainingFriendshipBarMinimum", 2)
+        top3FriendshipBarMinimum = SettingsHelper.getIntSetting("training", "top3FriendshipBarMinimum", 2)
+        enableJuniorTop3MainStatGainPriority = SettingsHelper.getBooleanSetting("training", "enableJuniorTop3MainStatGainPriority", true)
+        juniorTop3MainStatGainMinimum = SettingsHelper.getIntSetting("training", "juniorTop3MainStatGainMinimum", 20)
+        enableWitTrainingFriendshipBarException =
+            SettingsHelper.getBooleanSetting(
+                "training",
+                "enableWitTrainingFriendshipBarException",
+                witTrainingFriendshipBarMinimum > 0,
+            )
+        enablePrioritizeSkillHints = SettingsHelper.getBooleanSetting("training", "enablePrioritizeSkillHints")
+        enableTrainingAnalysisValidation = SettingsHelper.getBooleanSetting("training", "enableTrainingAnalysisValidation")
+        classicMilestonePct = SettingsHelper.getIntSetting("training", "classicMilestonePercent", 33)
+        seniorMilestonePct = SettingsHelper.getIntSetting("training", "seniorMilestonePercent", 66)
+        blacklist = SettingsHelper.getStringArraySetting("training", "trainingBlacklist").map { StatName.fromName(it) }
+        summerTrainingBlacklist = SettingsHelper.getStringArraySetting("training", "summerTrainingBlacklist").map { StatName.fromName(it) }
+        finaleTrainingBlacklist = SettingsHelper.getStringArraySetting("training", "finaleTrainingBlacklist").map { StatName.fromName(it) }
+        fullScanRiskyOvershootPercent = SettingsHelper.getIntSetting("training", "fullScanRiskyOvershootPercent", 5)
+        enableHardcoreFriendshipOptimization = SettingsHelper.getBooleanSetting("training", "enableHardcoreFriendshipOptimization", false)
+        hardcoreFriendshipOptimizationUntilTurn = SettingsHelper.getIntSetting("training", "hardcoreFriendshipOptimizationUntilTurn", 30)
+        ignorePalCardFriendshipBarsInTraining = SettingsHelper.getBooleanSetting("training", "ignorePalCardFriendshipBarsInTraining", false)
+        enableNeverClickEmptyTop3PriorityTraining =
+            SettingsHelper.getBooleanSetting("training", "enableNeverClickEmptyTop3PriorityTraining", false)
+    }
+
     /** Whether this is the first training check of the turn. */
     internal var firstTrainingCheck = true
+
+    /** Whether [statName] is blacklisted for the current turn (base, Summer, or Finale lists). */
+    internal fun isStatBlacklisted(statName: StatName): Boolean {
+        if (statName in blacklist) {
+            return true
+        }
+        if (campaign.date.isSummer() && statName in summerTrainingBlacklist) {
+            return true
+        }
+        if (campaign.date.bIsFinaleSeason && statName in finaleTrainingBlacklist) {
+            return true
+        }
+        return false
+    }
+
+    /** Qualifying below-orange friendship bars for the current friendship-exclusion settings. */
+    private fun friendshipBarsBelowOrange(bars: List<CustomImageUtils.BarFillResult>): Int =
+        countQualifyingFriendshipBarsBelowOrange(bars, trainerFriendshipInfluence, ignorePalCardFriendshipBarsInTraining)
+
+    /** Friendship bar stats for the current friendship-exclusion settings. */
+    private fun qualifyingFriendshipBarStatsFor(bars: List<CustomImageUtils.BarFillResult>): Companion.QualifyingFriendshipBarStats {
+        val qualifying =
+            bars.filter {
+                !Companion.isExcludedFriendshipBar(it, trainerFriendshipInfluence, ignorePalCardFriendshipBarsInTraining)
+            }
+        return Companion.QualifyingFriendshipBarStats(
+            belowOrange = qualifying.count { it.dominantColor != "orange" },
+            orange = qualifying.count { it.dominantColor == "orange" },
+            total = qualifying.size,
+        )
+    }
 
     /**
      * Retrieve the current stat cap for a given stat.
@@ -358,6 +474,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val enablePrioritizeSkillHints: Boolean = false,
         val statsTrainedOverBuffer: Set<StatName> = emptySet(),
         val trainerFriendshipInfluence: Int = 100,
+        val ignorePalCardFriendshipBarsInTraining: Boolean = false,
     ) {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -411,6 +528,40 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
         /** Returns true when the bar belongs to Yayoi Akikawa or Etsuko Otonashi. */
         fun isAkikawaOrEtsukoBar(bar: CustomImageUtils.BarFillResult): Boolean = bar.isTrainerSupport && bar.trainerName in AKIKAWA_ETSUKO_TRAINER_NAMES
+
+        /** Pal-card trainer supports (Riko, Tazuna, etc.) — not Akikawa/Etsuko. */
+        fun isPalCardTrainerBar(bar: CustomImageUtils.BarFillResult): Boolean =
+            bar.isTrainerSupport && !isAkikawaOrEtsukoBar(bar)
+
+        /** Whether a friendship bar should be excluded from qualifying friendship counts / scoring. */
+        fun isExcludedFriendshipBar(
+            bar: CustomImageUtils.BarFillResult,
+            trainerFriendshipInfluence: Int,
+            ignorePalCardFriendshipBars: Boolean,
+        ): Boolean {
+            if (isAkikawaOrEtsukoBar(bar) && trainerFriendshipInfluence <= 0) {
+                return true
+            }
+            if (ignorePalCardFriendshipBars && isPalCardTrainerBar(bar)) {
+                return true
+            }
+            return false
+        }
+
+        /** Counts qualifying friendship bars below orange, honoring Akikawa/Etsuko and optional pal-card exclusions. */
+        fun countQualifyingFriendshipBarsBelowOrange(
+            bars: List<CustomImageUtils.BarFillResult>,
+            trainerFriendshipInfluence: Int = 100,
+            ignorePalCardFriendshipBars: Boolean = false,
+        ): Int =
+            bars.count { bar ->
+                bar.dominantColor != "orange" &&
+                    !isExcludedFriendshipBar(bar, trainerFriendshipInfluence, ignorePalCardFriendshipBars)
+            }
+
+        /** Counts Uma/Riko/Sirius friendship bars below orange, excluding Akikawa and Etsuko. */
+        fun countNonAkikawaEtsukoFriendshipBarsBelowOrange(bars: List<CustomImageUtils.BarFillResult>): Int =
+            bars.count { bar -> bar.dominantColor != "orange" && !isAkikawaOrEtsukoBar(bar) }
 
         /**
          * True when charm may bypass failure filtering for a specific training option during analysis.
@@ -499,10 +650,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 riskyTrainingMaxFailureChance,
             )
         }
-
-        /** Counts Uma/Riko/Sirius friendship bars below orange, excluding Akikawa and Etsuko. */
-        fun countNonAkikawaEtsukoFriendshipBarsBelowOrange(bars: List<CustomImageUtils.BarFillResult>): Int =
-            bars.count { bar -> bar.dominantColor != "orange" && !isAkikawaOrEtsukoBar(bar) }
 
         /** Friendship bar breakdown on a training option (Akikawa/Etsuko bars excluded). */
         data class QualifyingFriendshipBarStats(
@@ -1086,7 +1233,9 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     }
 
                 if (baseValue > 0) {
-                    if (isAkikawaOrEtsukoBar(bar) && influenceScale <= 0.0) continue
+                    if (isExcludedFriendshipBar(bar, config.trainerFriendshipInfluence, config.ignorePalCardFriendshipBarsInTraining)) {
+                        continue
+                    }
 
                     // Apply diminishing returns for relationship building.
                     val fillLevel = bar.fillPercent / 100.0
@@ -1308,6 +1457,8 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
      */
     fun analyzeTrainings(args: Map<String, Any?> = emptyMap()) {
         needsEnergyRecovery = false
+        skippedFullScanDueToHighFirstTabFailure = false
+        analyzedDespiteSlightRiskyOvershoot = false
         val test = args["test"] as? Boolean ?: false
         val singleTraining = args["singleTraining"] as? Boolean ?: false
         val forceFullStatNavigation = args["forceFullStatNavigation"] as? Boolean ?: false
@@ -1438,6 +1589,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
          * @return Whether we successfully navigated to the specified training page.
          */
         fun goToStat(statName: StatName, timeoutMs: Int = 5000): Boolean {
+            val tabSwitchDelay = ActionDelays.get("training.tabSwitch", 0.5)
             val startTime = System.currentTimeMillis()
 
             // KeyError indicates programmer error.
@@ -1456,13 +1608,16 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     button.click(game.imageUtils)
 
                     // Wait for screen to finish updating before proceeding.
-                    game.wait(0.2, skipWaitingForLoading = true)
+                    DelayCalibration.markDetected("training.tabSwitch")
+                    game.wait(tabSwitchDelay, skipWaitingForLoading = true)
                     if (header.check(game.imageUtils)) {
+                        DelayCalibration.logExecution("training.tabSwitch", tabSwitchDelay, success = true)
                         return true
                     }
                 }
 
                 MessageLog.w(TAG, "[WARN] goToStat:: Failed to go to $statName on training screen after 3 attempts.")
+                DelayCalibration.logFailureFromPattern("training.tabSwitch", tabSwitchDelay)
                 return false
             }
 
@@ -1477,6 +1632,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             val activeStat: StatName? = getActiveStat(activeStatBudgetMs)
             if (activeStat == null) {
                 MessageLog.w(TAG, "[WARN] goToStat:: getActiveStat returned null.")
+                DelayCalibration.logFailureFromPattern("training.tabSwitch", tabSwitchDelay)
                 return false
             }
 
@@ -1494,17 +1650,20 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     break
                 }
                 button.click(game.imageUtils)
-                game.wait(0.2, skipWaitingForLoading = true)
+                DelayCalibration.markDetected("training.tabSwitch")
+                game.wait(tabSwitchDelay, skipWaitingForLoading = true)
 
                 val attemptDeadline = (System.currentTimeMillis() + 1200).coerceAtMost(postClickDeadline)
                 do {
                     if (header.check(game.imageUtils)) {
+                        DelayCalibration.logExecution("training.tabSwitch", tabSwitchDelay, success = true)
                         return true
                     }
                 } while (System.currentTimeMillis() < attemptDeadline)
             }
 
             MessageLog.w(TAG, "[WARN] goToStat:: Timed out while waiting for $statName training header.")
+            DelayCalibration.logFailureFromPattern("training.tabSwitch", tabSwitchDelay)
             return false
         }
 
@@ -1614,19 +1773,34 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 }
             }
 
+        val slightlyOverRiskyOnly =
+            enableRiskyTraining &&
+                exceedsMaxAcceptableFailure &&
+                failureChance <= riskyTrainingMaxFailureChance + fullScanRiskyOvershootPercent.coerceAtLeast(0)
+
+        if (slightlyOverRiskyOnly && !test) {
+            analyzedDespiteSlightRiskyOvershoot = true
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Initial failure ($failureChance%) slightly exceeds risky threshold ($riskyTrainingMaxFailureChance%) by ≤$fullScanRiskyOvershootPercent%. Scanning all stat tabs.",
+            )
+        }
+
         if (
             !test &&
                 !singleTraining &&
                 !isFinals &&
                 !ignoreFailureChance &&
                 exceedsMaxAcceptableFailure &&
-                !hasMitigationItems
+                !hasMitigationItems &&
+                !slightlyOverRiskyOnly
         ) {
             val cap = if (enableRiskyTraining) riskyTrainingMaxFailureChance else maximumFailureChance
             MessageLog.i(
                 TAG,
                 "[TRAINING] Initial failure ($failureChance%) exceeds threshold ($cap%) and no Good-Luck Charm or energy mitigation items are available. Skipping full stat scan.",
             )
+            skippedFullScanDueToHighFirstTabFailure = true
             trainingMap.clear()
             skippedTrainingMap.clear()
             if (campaign.trainee.energy <= 0) {
@@ -1637,7 +1811,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
             // Now analyze each stat.
             for (statName in StatName.entries) {
-                if (!test && statName in blacklist) {
+                if (!test && isStatBlacklisted(statName)) {
                     MessageLog.i(TAG, "[TRAINING] Skipping $statName training due to being blacklisted.")
                     continue
                 }
@@ -2478,6 +2652,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 enablePrioritizeSkillHints = enablePrioritizeSkillHints,
                 statsTrainedOverBuffer = statsTrainedOverBuffer,
                 trainerFriendshipInfluence = trainerFriendshipInfluence,
+                ignorePalCardFriendshipBarsInTraining = ignorePalCardFriendshipBarsInTraining,
             )
 
         // Compute scores and determine the best training option.
@@ -2492,6 +2667,15 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             MessageLog.i(TAG, "[TRAINING] ${pick.reason}")
             lastSelectionSource = pick.source
             return pick.stat
+        }
+
+        resolveWitUnderThresholdFriendshipPick()?.let { wit ->
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Wit friendship pick: $wit under failure threshold with ≥${witTrainingFriendshipBarMinimum.coerceAtLeast(1)} qualifying below-orange bar(s).",
+            )
+            lastSelectionSource = SelectionSource.FRIENDSHIP_PRIORITY
+            return wit
         }
 
         val skipLowPriorityWit = shouldSkipLowPriorityWit()
@@ -2512,9 +2696,11 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             )
         }
         trainingScores =
-            trainingMap.values
-                .filter { (!skipLowPriorityWit && !blockEmptyWit) || it.name != StatName.WIT }
-                .associateWith { scoreTraining(trainingConfig, it) }
+            applyNeverClickEmptyTop3PriorityFilter(
+                trainingMap.values
+                    .filter { (!skipLowPriorityWit && !blockEmptyWit) || it.name != StatName.WIT }
+                    .associateWith { scoreTraining(trainingConfig, it) },
+            )
         skippedScores = skippedTrainingMap.values.associateWith { scoreTraining(trainingConfig, it) }
         best = trainingScores.maxByOrNull { it.value }?.key
 
@@ -2633,6 +2819,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 enablePrioritizeSkillHints = enablePrioritizeSkillHints,
                 statsTrainedOverBuffer = statsTrainedOverBuffer,
                 trainerFriendshipInfluence = trainerFriendshipInfluence,
+                ignorePalCardFriendshipBarsInTraining = ignorePalCardFriendshipBarsInTraining,
             )
         return safeOptions.maxByOrNull { scoreTraining(trainingConfig, it) }?.name
     }
@@ -2860,7 +3047,12 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     private fun appendTrainingDetails(sb: StringBuilder, blacklist: List<StatName?> = emptyList(), selected: TrainingOption? = null) {
         if (trainingMap.isEmpty() && skippedTrainingMap.isEmpty()) {
             if (!needsEnergyRecovery) {
-                sb.appendLine("Could not confirm bot is on the Training screen. No analysis performed.")
+                when {
+                    skippedFullScanDueToHighFirstTabFailure ->
+                        sb.appendLine("Skipped full stat scan (high first-tab failure, no mitigation items). No analysis performed.")
+                    else ->
+                        sb.appendLine("Could not confirm bot is on the Training screen. No analysis performed.")
+                }
             } else if (trainWitDuringFinale && campaign.date.day > 72) {
                 sb.appendLine("Energy depleted (0%). No analysis performed. Bot will force Wit training during Finale.")
             } else {
@@ -2983,7 +3175,15 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
      * Turn 75 is excluded by callers since resting on the final turn has no benefit.
      */
     /** True during pre-debut and Junior year when friendship scoring takes priority over stat efficiency. */
-    fun isFriendshipPriorityYear(): Boolean = campaign.date.bIsPreDebut || campaign.date.year == DateYear.JUNIOR
+    fun isFriendshipPriorityYear(): Boolean {
+        if (campaign.date.bIsPreDebut || campaign.date.year == DateYear.JUNIOR) {
+            return true
+        }
+        if (enableHardcoreFriendshipOptimization && campaign.date.day <= hardcoreFriendshipOptimizationUntilTurn) {
+            return true
+        }
+        return false
+    }
 
     private fun hasSummerTop3WitOverrideForCurrentAnalysis(): Boolean =
         Companion.hasSummerTop3WitOverride(
@@ -3044,6 +3244,55 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     private data class JuniorFriendshipPick(val stat: StatName, val source: SelectionSource, val reason: String)
 
     /**
+     * When Wit is under the failure threshold and has enough qualifying below-orange bars, prefer Wit
+     * (after full scan, including when first tab was only slightly over the risky cap).
+     */
+    private fun resolveWitUnderThresholdFriendshipPick(): StatName? {
+        if (StatName.WIT !in trainingMap || isWitInTopStatPriorities(statPrioritization)) {
+            return null
+        }
+        if (shouldBlockEmptyWitTraining()) {
+            return null
+        }
+        val option = trainingMap[StatName.WIT] ?: return null
+        val mainGain = option.statGains[StatName.WIT] ?: 0
+        if (exceedsFailureThreshold(option.failureChance, mainGain)) {
+            return null
+        }
+        val minBars = witTrainingFriendshipBarMinimum.coerceAtLeast(1)
+        if (friendshipBarsBelowOrange(getWitRelationshipBars()) < minBars) {
+            return null
+        }
+        return StatName.WIT
+    }
+
+    /** Drops empty top-3 priority trainings when another top-3 option has enough below-orange bars. */
+    private fun applyNeverClickEmptyTop3PriorityFilter(
+        scores: Map<TrainingOption, Double>,
+    ): Map<TrainingOption, Double> {
+        if (!enableNeverClickEmptyTop3PriorityTraining || scores.isEmpty()) {
+            return scores
+        }
+        val top3 = statPrioritization.take(3).toSet()
+        val minBars = top3FriendshipBarMinimum.coerceAtLeast(1)
+        val top3WithQualifyingBars =
+            top3.filter { stat ->
+                stat in trainingMap &&
+                    qualifyingFriendshipBarStatsFor(getRelationshipBarsFor(stat)).belowOrange >= minBars
+            }
+        if (top3WithQualifyingBars.isEmpty()) {
+            return scores
+        }
+        return scores.filter { (option, _) ->
+            if (option.name !in top3) {
+                true
+            } else {
+                qualifyingFriendshipBarStatsFor(getRelationshipBarsFor(option.name)).belowOrange >= minBars
+            }
+        }
+    }
+
+    /**
      * Junior/pre-debut friendship priority when Wit is low-priority and [skipLowPriorityWitWhenMainStatsFail] is enabled.
      *
      * Compares bar stacks before defaulting to Wit:
@@ -3060,7 +3309,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val minWitBars = witTrainingFriendshipBarMinimum.coerceAtLeast(1)
         val minTop3Bars = top3FriendshipBarMinimum.coerceAtLeast(1)
         val minMainGain = juniorTop3MainStatGainMinimum.coerceAtLeast(1)
-        val witBarCount = countNonAkikawaEtsukoFriendshipBarsBelowOrange(getWitRelationshipBars())
+        val witBarCount = friendshipBarsBelowOrange(getWitRelationshipBars())
         val witTrainable = StatName.WIT in trainingMap.keys
 
         val eligibleTop3Stat =
@@ -3070,7 +3319,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 }
                 val mainGain = trainingMap[stat]?.statGains?.get(stat) ?: 0
                 isJuniorTop3FriendshipCandidateEligible(
-                    qualifyingFriendshipBarStats(getRelationshipBarsFor(stat)),
+                    qualifyingFriendshipBarStatsFor(getRelationshipBarsFor(stat)),
                     mainGain,
                     minTop3Bars,
                     enableJuniorTop3MainStatGainPriority,
@@ -3080,7 +3329,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             }
 
         if (eligibleTop3Stat != null) {
-            val top3Stats = qualifyingFriendshipBarStats(getRelationshipBarsFor(eligibleTop3Stat))
+            val top3Stats = qualifyingFriendshipBarStatsFor(getRelationshipBarsFor(eligibleTop3Stat))
             if (shouldTop3FriendshipBeatWit(top3Stats, witBarCount)) {
                 return JuniorFriendshipPick(
                     stat = eligibleTop3Stat,
@@ -3096,7 +3345,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             val mainGainPriorityStat = findTop3PriorityStatWithMainStatGainForCurrentAnalysis(minMainGain)
             if (mainGainPriorityStat != null) {
                 val mainGain = trainingMap[mainGainPriorityStat]?.statGains?.get(mainGainPriorityStat) ?: 0
-                val mainGainStats = qualifyingFriendshipBarStats(getRelationshipBarsFor(mainGainPriorityStat))
+                val mainGainStats = qualifyingFriendshipBarStatsFor(getRelationshipBarsFor(mainGainPriorityStat))
                 val mixedBypass =
                     isSingleOrangeSingleBelowOrangePattern(mainGainStats) &&
                         enableJuniorTop3MainStatGainPriority &&
@@ -3132,7 +3381,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         }
 
         if (eligibleTop3Stat != null) {
-            val top3Stats = qualifyingFriendshipBarStats(getRelationshipBarsFor(eligibleTop3Stat))
+            val top3Stats = qualifyingFriendshipBarStatsFor(getRelationshipBarsFor(eligibleTop3Stat))
             return JuniorFriendshipPick(
                 stat = eligibleTop3Stat,
                 source = SelectionSource.FRIENDSHIP_PRIORITY,
@@ -3298,6 +3547,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         preItemFailure: Map<StatName, Int>,
         charmUsed: Boolean,
         energyMitigationUsed: Boolean = false,
+        climaxForceCharm: Boolean = false,
     ): Boolean {
         if (stat == StatName.WIT && shouldBlockEmptyWitTraining()) {
             MessageLog.i(
@@ -3336,6 +3586,9 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val option = trainingMap[stat] ?: return false
         val mainGain = option.statGains[stat] ?: 0
         if (energyMitigationUsed && !charmUsed && exceedsFailureThreshold(option.failureChance, mainGain)) {
+            if (climaxForceCharm && campaign.assumesGoodLuckCharmMitigation(stat, option.failureChance, mainGain)) {
+                return true
+            }
             MessageLog.i(
                 TAG,
                 "[TRAINING] Post-item recheck blocking $stat: failure (${option.failureChance}%) still exceeds threshold after energy mitigation.",

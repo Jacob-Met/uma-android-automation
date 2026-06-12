@@ -265,6 +265,45 @@ const searchConfig: SearchOption[] = [
         page: "TrainingSettings",
     },
     {
+        id: "ignore-pal-card-friendship-bars-in-training",
+        title: "Ignore Pal-Card Friendship Bars in Training",
+        description:
+            "When enabled, trainer pal-card bars (Riko Kashimoto, Tazuna Hayakawa, etc.) are excluded from friendship scoring and bar counts during training selection. Does not affect recreation.",
+        page: "TrainingSettings",
+    },
+    {
+        id: "enable-hardcore-friendship-optimization",
+        title: "Hardcore Friendship Optimization Until Turn",
+        description: "Extends Junior/pre-debut friendship bar rules (top-3 vs Wit comparisons) through the configured turn, not just Junior year.",
+        page: "TrainingSettings",
+    },
+    {
+        id: "hardcore-friendship-optimization-until-turn",
+        title: "Hardcore Friendship Until Turn",
+        description: "Last career turn (inclusive) that uses hardcore friendship optimization when enabled.",
+        page: "TrainingSettings",
+        parentId: "enable-hardcore-friendship-optimization",
+    },
+    {
+        id: "full-scan-risky-overshoot-percent",
+        title: "Full Scan Risky Overshoot Margin (%)",
+        description:
+            "When the first training tab exceeds the risky failure cap by at most this many points, still scan all stat tabs. Also enables Wit friendship pick when Wit is under the failure threshold with enough below-orange bars.",
+        page: "TrainingSettings",
+    },
+    {
+        id: "summer-training-blacklist",
+        title: "Summer Blacklist",
+        description: "Stats blacklisted during Summer training only. Independent of the main training blacklist.",
+        page: "TrainingSettings",
+    },
+    {
+        id: "finale-training-blacklist",
+        title: "Finale Blacklist",
+        description: "Stats blacklisted during the Finale season only. Independent of the main training blacklist.",
+        page: "TrainingSettings",
+    },
+    {
         id: "enable-training-analysis-validation",
         title: "Enable Training Analysis Validation",
         description:
@@ -556,6 +595,51 @@ const searchConfig: SearchOption[] = [
             "When enabled, the bot will perform scheduled races from the in-game racing agenda during Summer instead of prioritizing Summer training. Note that this requires 'Enable User In-Game Race Agenda' to be enabled.",
         page: "RacingSettings",
         parentId: "enable-user-in-game-race-agenda",
+    },
+
+    // ============================================================
+    // Unique Race Settings
+    // ============================================================
+    {
+        id: "enable-unique-race-strategy-overrides",
+        title: "Enable Unique Race Strategy Overrides",
+        description: "When enabled, configured races use their override running style instead of per-distance or blanket strategy for that race only.",
+        page: "UniqueRaceSettings",
+    },
+    {
+        id: "unique-race-name-picker",
+        title: "Unique Race Name",
+        description: "Select a race to configure a per-race running-style override.",
+        page: "UniqueRaceSettings",
+        parentId: "enable-unique-race-strategy-overrides",
+    },
+    {
+        id: "unique-race-strategy-picker",
+        title: "Unique Race Running Style",
+        description: "Running style to use for the selected unique race override.",
+        page: "UniqueRaceSettings",
+        parentId: "enable-unique-race-strategy-overrides",
+    },
+    {
+        id: "unique-race-enable-irregular-training",
+        title: "Enable Irregular Training for This Race",
+        description: "When this race is scheduled or mandatory, still evaluate irregular training before racing.",
+        page: "UniqueRaceSettings",
+        parentId: "enable-unique-race-strategy-overrides",
+    },
+    {
+        id: "unique-race-enable-retry-override",
+        title: "Override Max Retries for This Race",
+        description: "When enabled, uses a custom retry count on loss instead of the global Trackblazer max retries setting.",
+        page: "UniqueRaceSettings",
+        parentId: "enable-unique-race-strategy-overrides",
+    },
+    {
+        id: "unique-race-max-retries",
+        title: "Max Retries for This Race",
+        description: "Number of retry attempts allowed if this unique race is lost.",
+        page: "UniqueRaceSettings",
+        parentId: "unique-race-enable-retry-override",
     },
 
     // ============================================================
@@ -1016,6 +1100,13 @@ const searchConfig: SearchOption[] = [
         page: "ScenarioOverridesSettings",
     },
     {
+        id: "trackblazer-enable-irregular-training-with-agenda",
+        title: "Allow Irregular Training With User Agenda",
+        description: "When user in-game agenda is enabled, still evaluate irregular training on scheduled/mandatory race days for selected grades.",
+        page: "ScenarioOverridesSettings",
+        parentId: "trackblazer-enable-irregular-training",
+    },
+    {
         id: "trackblazer-excluded-items",
         title: "Trackblazer Items to Exclude from Shop",
         description: "Select items that the bot will never purchase from the shop in the Trackblazer scenario.",
@@ -1289,6 +1380,63 @@ const searchConfig: SearchOption[] = [
         title: "Model context window",
         description: "Engine KV-cache size for the chatbot LLM. 4096 tokens is the default; raising it requires the loaded model to support it. Changing this reloads the model on the next chat call.",
         page: "LLMSettings",
+    },
+    {
+        id: "advanced-enable-delay-calibration",
+        title: "Enable delay calibration",
+        description: "Collect per-action timing data during bot runs started and stopped from Home.",
+        page: "AdvancedSettings",
+    },
+    {
+        id: "advanced-delay-calibration-increment",
+        title: "Delay adjustment step",
+        description: "How much each +/- button changes an action delay during calibration tuning.",
+        page: "AdvancedSettings",
+        parentId: "advanced-enable-delay-calibration",
+    },
+    {
+        id: "advanced-delay-training.enter",
+        title: "Training screen entry delay",
+        description: "Wait after opening the training screen before stat analysis.",
+        page: "AdvancedSettings",
+        parentId: "advanced-enable-delay-calibration",
+    },
+    {
+        id: "advanced-delay-trackblazer.itemAnimation",
+        title: "Trackblazer item-use animation delay",
+        description: "Wait after confirming training item use before closing the dialog.",
+        page: "AdvancedSettings",
+        parentId: "advanced-enable-delay-calibration",
+    },
+    {
+        id: "advanced-overlay-resume-recheck-skills",
+        title: "Recheck skills on overlay resume",
+        description: "Run skill-point check immediately when restarting from the overlay button.",
+        page: "AdvancedSettings",
+    },
+    {
+        id: "advanced-overlay-resume-reload-agenda",
+        title: "Reload agenda on overlay resume",
+        description: "Reload the in-game race agenda immediately when restarting from the overlay button.",
+        page: "AdvancedSettings",
+    },
+    {
+        id: "advanced-overlay-resume-recheck-shop",
+        title: "Recheck shop on overlay resume",
+        description: "Run the Trackblazer initial shop check immediately when restarting from the overlay button.",
+        page: "AdvancedSettings",
+    },
+    {
+        id: "advanced-overlay-recheck-shop-turn-change",
+        title: "Recheck shop when turn changes",
+        description: "After overlay resume, run shop check when the in-game turn advances past the paused turn.",
+        page: "AdvancedSettings",
+    },
+    {
+        id: "advanced-overlay-recheck-skills-threshold",
+        title: "Recheck skills when over threshold",
+        description: "After overlay resume, run skill check when skill points meet the configured threshold.",
+        page: "AdvancedSettings",
     },
 ]
 

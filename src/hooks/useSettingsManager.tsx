@@ -8,6 +8,7 @@ import { databaseManager } from "../lib/database"
 import { startTiming } from "../lib/performanceLogger"
 import { logWithTimestamp, logErrorWithTimestamp } from "../lib/logger"
 import { deepMerge, convertSettingsToBatch, applyMigrations, stripDbOwnedKeys, normalizeImportedSettings } from "../lib/settingsUtils"
+import { notifyKotlinRuntimeSettingsUpdated } from "../lib/notifyKotlinRuntimeSettings"
 
 export { deepMerge, convertSettingsToBatch, applyMigrations, normalizeImportedSettings }
 
@@ -92,6 +93,7 @@ export const useSettingsManager = () => {
                 logWithTimestamp(`[SettingsManager] Auto-saving ${batch.length} settings (slices: ${Object.keys(toPersist).join(", ")}).`)
                 await databaseManager.saveSettingsBatch(batch)
                 lastSavedSettingsRef.current = current
+                notifyKotlinRuntimeSettingsUpdated()
                 logWithTimestamp("[SettingsManager] Auto-save completed.")
             } catch (error) {
                 logErrorWithTimestamp(`[SettingsManager] Auto-save failed: ${error}`)
@@ -120,6 +122,7 @@ export const useSettingsManager = () => {
             const localSettings: Settings = newSettings ? newSettings : settingsRef.current
             await databaseManager.saveSettingsBatch(convertSettingsToBatch(localSettings))
             lastSavedSettingsRef.current = localSettings
+            notifyKotlinRuntimeSettingsUpdated()
             endTiming({ status: "success", hasNewSettings: !!newSettings })
         } catch (error) {
             logErrorWithTimestamp(`Error saving settings: ${error}`)
@@ -144,6 +147,7 @@ export const useSettingsManager = () => {
             const localSettings: Settings = newSettings ? newSettings : settingsRef.current
             await databaseManager.saveSettingsBatch(convertSettingsToBatch(localSettings))
             lastSavedSettingsRef.current = localSettings
+            notifyKotlinRuntimeSettingsUpdated()
             endTiming({ status: "success", hasNewSettings: !!newSettings, immediate: true })
         } catch (error) {
             logErrorWithTimestamp(`Error saving settings immediately: ${error}`)

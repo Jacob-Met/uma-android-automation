@@ -26,6 +26,7 @@ import com.steve1316.automation_library.utils.MyAccessibilityService
 import com.steve1316.automation_library.utils.SettingsHelper
 import com.steve1316.uma_android_automation.bot.Game
 import com.steve1316.uma_android_automation.utils.LogStreamServer
+import com.steve1316.uma_android_automation.utils.RuntimeSettingsNotifier
 import dev.kord.common.entity.Snowflake
 import dev.kord.core.Kord
 import kotlinx.coroutines.runBlocking
@@ -95,6 +96,7 @@ class StartModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     @ReactMethod
     fun start() {
         if (readyCheck()) {
+            com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.onHomeStartRequested()
             // Initialize SQLite settings.
             Log.d(TAG, "Starting SQLite settings initialization...")
 
@@ -171,7 +173,17 @@ class StartModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     /** This is called when the Stop button is pressed and will begin stopping the MediaProjection service. */
     @ReactMethod
     fun stop() {
+        com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.onHomeStopRequested()
         stopProjection()
+    }
+
+    /**
+     * Pushes the latest SQLite settings into a running bot session, if any.
+     * Safe to call after every settings save — no-op when the bot thread is not active.
+     */
+    @ReactMethod
+    fun notifyRuntimeSettingsUpdated() {
+        RuntimeSettingsNotifier.notifySettingsUpdated()
     }
 
     /** Opens the system Accessibility settings page to allow the user to toggle the service off and on. */

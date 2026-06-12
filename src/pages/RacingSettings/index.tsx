@@ -494,6 +494,13 @@ const RacingSettings = () => {
                         />
 
                         <NavigationLink
+                            title="Go to Unique Race Settings"
+                            description="Type a race name, tap to configure per-race running style and irregular training overrides."
+                            onPress={() => navigation.navigate("UniqueRaceSettings" as never)}
+                            style={{ ...styles.section, marginTop: 0 }}
+                        />
+
+                        <NavigationLink
                             title="Go to Smart Race Solver Settings"
                             description="Plans every turn of the career to maximize score by targeting epithet rewards. The bot only races when the solver picks a race; other turns become training or rest."
                             disabled={!enableFarmingFans || enableForceRacing || enableUserInGameRaceAgenda}

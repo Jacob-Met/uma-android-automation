@@ -21,6 +21,9 @@ import com.steve1316.uma_android_automation.components.LabelNowLoading
 import com.steve1316.uma_android_automation.utils.CustomImageUtils
 import com.steve1316.uma_android_automation.utils.RunSummaryTracker
 import com.steve1316.uma_android_automation.utils.UmaPresetApplier
+import com.steve1316.uma_android_automation.utils.ActionDelays
+import com.steve1316.uma_android_automation.utils.DelayCalibration
+import com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.opencv.core.Point
@@ -52,19 +55,19 @@ class Game(val myContext: Context) {
     val scenario: String = SettingsHelper.getStringSetting("general", "scenario")
 
     /** Whether debug mode is enabled for additional logging and saving debugging images to storage. */
-    val debugMode: Boolean = SettingsHelper.getBooleanSetting("debug", "enableDebugMode")
+    var debugMode: Boolean = SettingsHelper.getBooleanSetting("debug", "enableDebugMode")
 
     /** The default wait delay between common actions. */
-    val waitDelay: Double = SettingsHelper.getDoubleSetting("general", "waitDelay")
+    var waitDelay: Double = SettingsHelper.getDoubleSetting("general", "waitDelay")
 
     /** The wait delay specifically for dialog interactions. */
-    val dialogWaitDelay: Double = SettingsHelper.getDoubleSetting("general", "dialogWaitDelay")
+    var dialogWaitDelay: Double = SettingsHelper.getDoubleSetting("general", "dialogWaitDelay")
 
     /** Extra pacing on the training screen (analysis, stat OCR, backing out). */
-    val trainingWaitDelay: Double = SettingsHelper.getDoubleSetting("general", "trainingWaitDelay", 0.1)
+    var trainingWaitDelay: Double = SettingsHelper.getDoubleSetting("general", "trainingWaitDelay", 0.1)
 
     /** Delay between taps when performing multi-tap dialog / button spam (taps > 1). */
-    val dialogTapDelay: Double = SettingsHelper.getDoubleSetting("general", "dialogTapDelay", 0.1)
+    var dialogTapDelay: Double = SettingsHelper.getDoubleSetting("general", "dialogTapDelay", 0.1)
 
     /** Holds the task instance corresponding to the selected scenario. */
     val task: Task =
@@ -89,6 +92,21 @@ class Game(val myContext: Context) {
 
     companion object {
         private val TAG: String = "[${MainActivity.loggerTag}]Game"
+
+        /** Live bot session, set for the duration of [start] … [start] return. */
+        @Volatile
+        var activeInstance: Game? = null
+    }
+
+    /** Re-reads general/debug delays and cascades reload to image utils and the active campaign task. */
+    fun reloadRuntimeSettings() {
+        debugMode = SettingsHelper.getBooleanSetting("debug", "enableDebugMode")
+        waitDelay = SettingsHelper.getDoubleSetting("general", "waitDelay")
+        dialogWaitDelay = SettingsHelper.getDoubleSetting("general", "dialogWaitDelay")
+        trainingWaitDelay = SettingsHelper.getDoubleSetting("general", "trainingWaitDelay", 0.1)
+        dialogTapDelay = SettingsHelper.getDoubleSetting("general", "dialogTapDelay", 0.1)
+        imageUtils.reloadRuntimeSettings()
+        task.reloadRuntimeSettings()
     }
 
     // Initialize Discord settings from SQLite.
@@ -208,7 +226,10 @@ class Game(val myContext: Context) {
 
         if (!ignoreWaiting) {
             // Now check if the game is waiting for a server response from the tap and wait if necessary.
-            wait(0.20)
+            val tapPostDelay = ActionDelays.get("game.tapPost", 0.2)
+            DelayCalibration.markDetected("game.tapPost")
+            wait(tapPostDelay)
+            DelayCalibration.logExecution("game.tapPost", tapPostDelay, success = true)
             waitForLoading()
         }
     }
@@ -294,9 +315,15 @@ class Game(val myContext: Context) {
         RunSummaryTracker.reset(scenario)
         UmaPresetApplier.resetSession()
 
+        activeInstance = this
+        var taskResult: TaskResult? = null
+        try {
         // Start debug tests here if enabled. Otherwise, proceed with regular bot operations.
         // A small delay here to ensure any notifications are out of the way.
-        wait(3.0)
+        val startupDelay = ActionDelays.get("game.startup", 3.0)
+        DelayCalibration.markDetected("game.startup")
+        wait(startupDelay)
+        DelayCalibration.logExecution("game.startup", startupDelay, success = true)
         if (!task.startTests()) {
             // Send Discord notification that the run has started.
             if (DiscordUtils.enableDiscordNotifications) {
@@ -311,7 +338,7 @@ class Game(val myContext: Context) {
                 }
                 DiscordUtils.queue.add("```diff\n+ ${MessageLog.getSystemTimeString()} Bot run started! Scenario: $scenario```$logViewerString")
             }
-            task.start()
+            taskResult = task.start()
         }
 
         MessageLog.i(TAG, "[INFO] Total runtime of ${MessageLog.formatElapsedTime(startTime, System.currentTimeMillis())} and stopped at ${MessageLog.getSystemTimeString()}.")
@@ -322,5 +349,9 @@ class Game(val myContext: Context) {
         }
 
         return true
+        } finally {
+            OverlayResumeCoordinator.onBotSessionEnded(this, taskResult)
+            activeInstance = null
+        }
     }
 }

@@ -94,6 +94,8 @@ export function buildSettingsBanner(settings: Settings): string {
 
 ---------- Training Options ----------
 🚫 Training Blacklist: ${settings.training.trainingBlacklist.length === 0 ? "No Trainings blacklisted" : `${settings.training.trainingBlacklist.join(", ")}`}
+☀️ Summer Training Blacklist: ${(settings.training.summerTrainingBlacklist ?? []).length === 0 ? "None" : `${settings.training.summerTrainingBlacklist.join(", ")}`}
+🏁 Finale Training Blacklist: ${(settings.training.finaleTrainingBlacklist ?? []).length === 0 ? "None" : `${settings.training.finaleTrainingBlacklist.join(", ")}`}
 📊 Stat Prioritization: ${
         settings.training.statPrioritization.length === 0 ? "Using Default Stat Prioritization: Speed, Stamina, Power, Wit, Guts" : `${settings.training.statPrioritization.join(", ")}`
     }
@@ -118,6 +120,10 @@ export function buildSettingsBanner(settings: Settings): string {
 📏 Preferred Distance Override: ${settings.training.preferredDistanceOverride === "Default" ? "Default" : settings.training.preferredDistanceOverride}
 🌈 Enable Rainbow Training Bonus: ${settings.training.enableRainbowTrainingBonus ? "✅" : "❌"}
 👩‍🏫 Akikawa & Etsuko Friendship Influence: ${settings.training.trainerFriendshipInfluence}%
+🎴 Ignore Pal-Card Friendship Bars (Training): ${settings.training.ignorePalCardFriendshipBarsInTraining ? "✅" : "❌"}
+💪 Hardcore Friendship Optimization: ${settings.training.enableHardcoreFriendshipOptimization ? `✅ (until turn ${settings.training.hardcoreFriendshipOptimizationUntilTurn})` : "❌"}
+🚫 Never Click Empty Top-3 Priority: ${settings.training.enableNeverClickEmptyTop3PriorityTraining ? "✅" : "❌"}
+🔍 Full Scan Risky Overshoot Margin: ${settings.training.fullScanRiskyOvershootPercent ?? 5}%
 💡 Prioritize Skill Hints: ${settings.training.enablePrioritizeSkillHints ? "✅" : "❌"}
 ☀️ Must Rest Before Summer: ${settings.training.mustRestBeforeSummer ? "✅" : "❌"}
 🎯 Train Wit During Finale: ${settings.training.trainWitDuringFinale ? "✅" : "❌"}
@@ -157,6 +163,7 @@ ${longTargetsString}
 🎯 Per-Distance Strategy: ${settings.racing.enablePerDistanceStrategy ? "Enabled" : "Disabled"}
 🎯 Junior Year Race Strategy: ${settings.racing.enablePerDistanceStrategy ? `[Short: ${settings.racing.juniorYearPerDistanceStrategies?.Short ?? "Default"}, Mile: ${settings.racing.juniorYearPerDistanceStrategies?.Mile ?? "Default"}, Medium: ${settings.racing.juniorYearPerDistanceStrategies?.Medium ?? "Default"}, Long: ${settings.racing.juniorYearPerDistanceStrategies?.Long ?? "Default"}]` : settings.racing.juniorYearRaceStrategy}
 🎯 Classic/Senior Year Race Strategy: ${settings.racing.enablePerDistanceStrategy ? `[Short: ${settings.racing.originalPerDistanceStrategies?.Short ?? "Default"}, Mile: ${settings.racing.originalPerDistanceStrategies?.Mile ?? "Default"}, Medium: ${settings.racing.originalPerDistanceStrategies?.Medium ?? "Default"}, Long: ${settings.racing.originalPerDistanceStrategies?.Long ?? "Default"}]` : settings.racing.originalRaceStrategy}
+🏆 Unique Race Strategy Overrides: ${settings.racing.enableUniqueRaceStrategyOverrides ? "✅" : "❌"}${settings.racing.enableUniqueRaceStrategyOverrides ? ` (${(() => { try { return Object.keys(JSON.parse(settings.racing.uniqueRaceStrategyOverrides || "{}")).length } catch { return 0 } })()} race(s))` : ""}
 
 ---------- Smart Race Solver Options ----------
 🤖 Enable Smart Race Solver: ${settings.racing.enableSmartRaceSolver ? "✅" : "❌"}
@@ -244,6 +251,7 @@ ${longTargetsString}
 🔄 Trackblazer Retry Grades: ${settings.scenarioOverrides?.trackblazerRetryRacesBeforeFinalGrades?.join(", ")}
 ✨ Trackblazer Enable Irregular Training: ${settings.scenarioOverrides?.trackblazerEnableIrregularTraining ? "✅" : "❌"}
 ✨ Trackblazer Irregular Training Min Gain: ${settings.scenarioOverrides?.trackblazerIrregularTrainingMinStatGain}
+📋 Irregular Training With Agenda: ${settings.scenarioOverrides?.trackblazerEnableIrregularTrainingWithAgenda ? `✅ (${settings.scenarioOverrides?.trackblazerIrregularTrainingAgendaGrades?.join(", ")})` : "❌"}
 🏇 Trackblazer Preferred Distances: ${settings.scenarioOverrides?.trackblazerPreferredDistances?.length === 0 ? "None" : settings.scenarioOverrides?.trackblazerPreferredDistances?.join(", ")}
 🏇 Trackblazer Preferred Surfaces: ${settings.scenarioOverrides?.trackblazerPreferredSurfaces?.length === 0 ? "None" : settings.scenarioOverrides?.trackblazerPreferredSurfaces?.join(", ")}
 

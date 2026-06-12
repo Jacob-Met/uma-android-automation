@@ -13,12 +13,15 @@ import { ThemeProvider, useTheme } from "./context/ThemeContext"
 import { SearchProvider } from "./context/SearchRegistryContext"
 import { ProfileProvider } from "./context/ProfileContext"
 import { useBootstrap } from "./hooks/useBootstrap"
+import { useFirstRunGate } from "./hooks/useFirstRunGate"
+import FirstRunWizard from "./pages/FirstRunWizard"
 import Home from "./pages/Home"
 import Settings from "./pages/Settings"
 import TrainingSettings from "./pages/TrainingSettings"
 import TrainingEventSettings from "./pages/TrainingEventSettings"
 import RacingSettings from "./pages/RacingSettings"
 import SmartRaceSolverSettings from "./pages/SmartRaceSolverSettings"
+import UniqueRaceSettings from "./pages/UniqueRaceSettings"
 import SkillSettings from "./pages/SkillSettings"
 import SkillPlanSettings from "./pages/SkillPlanSettings"
 import { skillPlanSettingsPages } from "./pages/SkillPlanSettings/config"
@@ -26,6 +29,7 @@ import EventLogVisualizer from "./pages/EventLogVisualizer"
 import ImportSettingsPreview from "./pages/ImportSettingsPreview"
 import ScenarioOverridesSettings from "./pages/ScenarioOverridesSettings"
 import DebugSettings from "./pages/DebugSettings"
+import AdvancedSettings from "./pages/AdvancedSettings"
 import DiscordSettings from "./pages/DiscordSettings"
 import LLMSettings from "./pages/LLMSettings"
 import Chat from "./pages/Chat"
@@ -54,6 +58,7 @@ function SettingsStack() {
             <Stack.Screen name="TrainingEventSettings" component={TrainingEventSettings} />
             <Stack.Screen name="RacingSettings" component={RacingSettings} />
             <Stack.Screen name="SmartRaceSolverSettings" component={SmartRaceSolverSettings} />
+            <Stack.Screen name="UniqueRaceSettings" component={UniqueRaceSettings} />
             <Stack.Screen name="SkillSettings" component={SkillSettings} />
             {Object.entries(skillPlanSettingsPages).map(([key, config]) => (
                 <Stack.Screen key={key} name={config.name}>
@@ -63,6 +68,7 @@ function SettingsStack() {
             <Stack.Screen name="EventLogVisualizer" component={EventLogVisualizer} />
             <Stack.Screen name="ImportSettingsPreview" component={ImportSettingsPreview} />
             <Stack.Screen name="ScenarioOverridesSettings" component={ScenarioOverridesSettings} />
+            <Stack.Screen name="AdvancedSettings" component={AdvancedSettings} />
             <Stack.Screen name="DebugSettings" component={DebugSettings} />
             <Stack.Screen name="DiscordSettings" component={DiscordSettings} />
             <Stack.Screen name="LLMSettings" component={LLMSettings} />
@@ -101,12 +107,15 @@ function MainDrawer() {
 function AppWithBootstrap({ theme, colors }: { theme: string; colors: any }) {
     // Initialize app with bootstrap logic.
     useBootstrap()
+    const { ready, isFirstRun, markComplete } = useFirstRunGate()
+
+    if (!ready) return null
 
     return (
         <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: colors.background }}>
             <NavigationContainer theme={NAV_THEME[theme as "light" | "dark"]}>
                 <StatusBar style={theme === "light" ? "dark" : "light"} />
-                <MainDrawer />
+                {isFirstRun ? <FirstRunWizard onComplete={markComplete} /> : <MainDrawer />}
                 <PortalHost />
             </NavigationContainer>
         </SafeAreaView>

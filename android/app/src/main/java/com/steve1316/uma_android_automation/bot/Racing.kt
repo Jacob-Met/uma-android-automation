@@ -49,6 +49,8 @@ import com.steve1316.uma_android_automation.types.RaceGrade
 import com.steve1316.uma_android_automation.types.RunningStyle
 import com.steve1316.uma_android_automation.types.TrackDistance
 import com.steve1316.uma_android_automation.types.TrackSurface
+import com.steve1316.uma_android_automation.utils.ActionDelays
+import com.steve1316.uma_android_automation.utils.DelayCalibration
 import com.steve1316.uma_android_automation.utils.RunSummaryTracker
 import com.steve1316.uma_android_automation.utils.CustomImageUtils.RaceDetails
 import com.steve1316.uma_android_automation.utils.LogStreamServer
@@ -65,69 +67,74 @@ import org.opencv.core.Point
  */
 class Racing(private val game: Game, private val campaign: Campaign) {
     /** Whether to enable farming fans through extra races. */
-    val enableFarmingFans = SettingsHelper.getBooleanSetting("racing", "enableFarmingFans")
+    var enableFarmingFans = SettingsHelper.getBooleanSetting("racing", "enableFarmingFans")
 
     /** Whether to ignore the warning that appears when racing three times in a row. */
-    val ignoreConsecutiveRaceWarning = SettingsHelper.getBooleanSetting("racing", "ignoreConsecutiveRaceWarning")
+    var ignoreConsecutiveRaceWarning = SettingsHelper.getBooleanSetting("racing", "ignoreConsecutiveRaceWarning")
 
     /** Whether to bypass the low-energy racing block in Trackblazer. */
-    val ignoreLowEnergyRacingBlock = SettingsHelper.getBooleanSetting("racing", "ignoreLowEnergyRacingBlock")
+    var ignoreLowEnergyRacingBlock = SettingsHelper.getBooleanSetting("racing", "ignoreLowEnergyRacingBlock")
 
     /** The number of days to wait between running extra races. */
-    private val daysToRunExtraRaces: Int = SettingsHelper.getIntSetting("racing", "daysToRunExtraRaces")
+    private var daysToRunExtraRaces: Int = SettingsHelper.getIntSetting("racing", "daysToRunExtraRaces")
 
     /** Whether to disable race retries. */
-    internal val disableRaceRetries: Boolean = SettingsHelper.getBooleanSetting("racing", "disableRaceRetries")
+    internal var disableRaceRetries: Boolean = SettingsHelper.getBooleanSetting("racing", "disableRaceRetries")
 
     /** Whether to enable a free race retry if available. */
-    internal val enableFreeRaceRetry: Boolean = SettingsHelper.getBooleanSetting("racing", "enableFreeRaceRetry")
+    internal var enableFreeRaceRetry: Boolean = SettingsHelper.getBooleanSetting("racing", "enableFreeRaceRetry")
 
     /** Whether to automatically complete the career on a failure. */
-    internal val enableCompleteCareerOnFailure: Boolean = SettingsHelper.getBooleanSetting("racing", "enableCompleteCareerOnFailure")
+    internal var enableCompleteCareerOnFailure: Boolean = SettingsHelper.getBooleanSetting("racing", "enableCompleteCareerOnFailure")
 
     /** Whether to force the bot to race extra races regardless of other conditions. */
-    val enableForceRacing = SettingsHelper.getBooleanSetting("racing", "enableForceRacing")
+    var enableForceRacing = SettingsHelper.getBooleanSetting("racing", "enableForceRacing")
 
     /** Whether the Smart Race Solver schedules extra races for the trainee. */
-    val enableSmartRaceSolver =
-        SettingsHelper.getBooleanSetting("racing", "enableSmartRaceSolver").also {
-            // Pushes the flag to the Remote Log Viewer so it can hide the Race History panel when SRS is off.
-            LogStreamServer.broadcastSmartRaceSolverEnabled(it)
-            if (it) SmartRaceSolverIntegration.reset()
-        }
+    var enableSmartRaceSolver = SettingsHelper.getBooleanSetting("racing", "enableSmartRaceSolver")
 
     /** Whether to use the in-game race agenda feature. */
-    val enableUserInGameRaceAgenda = SettingsHelper.getBooleanSetting("racing", "enableUserInGameRaceAgenda")
+    var enableUserInGameRaceAgenda = SettingsHelper.getBooleanSetting("racing", "enableUserInGameRaceAgenda")
 
     /** Whether to limit extra races to only those in the in-game agenda. */
-    private val limitRacesToInGameAgenda = SettingsHelper.getBooleanSetting("racing", "limitRacesToInGameAgenda", true)
+    private var limitRacesToInGameAgenda = SettingsHelper.getBooleanSetting("racing", "limitRacesToInGameAgenda", true)
 
     /** The specific in-game race agenda selected by the user. */
-    private val selectedUserAgenda = SettingsHelper.getStringSetting("racing", "selectedUserAgenda")
+    private var selectedUserAgenda = SettingsHelper.getStringSetting("racing", "selectedUserAgenda")
 
     /** Optional custom agenda title that overrides the selected agenda name for OCR matching. */
-    private val customAgendaTitle = SettingsHelper.getStringSetting("racing", "customAgendaTitle")
+    private var customAgendaTitle = SettingsHelper.getStringSetting("racing", "customAgendaTitle")
 
     /** The effective agenda name used for OCR matching — custom title if provided, otherwise the selected agenda. */
-    private val effectiveAgendaName = if (customAgendaTitle.isNotBlank()) customAgendaTitle else selectedUserAgenda
+    private var effectiveAgendaName = if (customAgendaTitle.isNotBlank()) customAgendaTitle else selectedUserAgenda
 
     /** Whether to skip Summer training to do races from the in-game agenda. */
-    val skipSummerTrainingForAgenda = SettingsHelper.getBooleanSetting("racing", "skipSummerTrainingForAgenda")
+    var skipSummerTrainingForAgenda = SettingsHelper.getBooleanSetting("racing", "skipSummerTrainingForAgenda")
 
     /**
      * When enabled (default), always skip race simulation via View Results and never tap Race Again.
      * When disabled, runs the full race simulation via the manual race button on the prep screen.
      */
-    val enableSkipRaceSimulation: Boolean = SettingsHelper.getBooleanSetting("racing", "enableSkipRaceSimulation", true)
+    var enableSkipRaceSimulation: Boolean = SettingsHelper.getBooleanSetting("racing", "enableSkipRaceSimulation", true)
 
     /** Extra pacing while loading and selecting the in-game race agenda. */
-    private val agendaWaitDelay: Double = SettingsHelper.getDoubleSetting("racing", "agendaWaitDelay", 0.5)
+    private var agendaWaitDelay: Double = SettingsHelper.getDoubleSetting("racing", "agendaWaitDelay", 0.5)
 
     /** Extra pacing after opening the running-style dialog when per-distance strategy is enabled. */
-    private val raceStrategyWaitDelay: Double = SettingsHelper.getDoubleSetting("racing", "raceStrategyWaitDelay", 0.5)
+    private var raceStrategyWaitDelay: Double = SettingsHelper.getDoubleSetting("racing", "raceStrategyWaitDelay", 0.5)
+
+    init {
+        LogStreamServer.broadcastSmartRaceSolverEnabled(enableSmartRaceSolver)
+        if (enableSmartRaceSolver) {
+            SmartRaceSolverIntegration.reset()
+        }
+    }
 
     /** The current number of retries available for the run. */
     internal var raceRetries = campaign.getMaxRaceRetries()
+
+    /** Retry attempts used on the current race (reset at the start of [runRaceWithRetries]). */
+    internal var retriesThisRace = 0
 
     /** Whether to check for the consecutive race warning. */
     internal var raceRepeatWarningCheck = false
@@ -156,6 +163,56 @@ class Racing(private val game: Game, private val campaign: Campaign) {
     /** Tracks if the user's race agenda has been loaded during this career. */
     private var hasLoadedUserRaceAgenda = false
 
+    /** Whether the user's in-game race agenda feature is enabled in settings. */
+    fun isUserAgendaEnabledForOverlayResume(): Boolean = enableUserInGameRaceAgenda
+
+    /** Whether the race agenda has already been loaded this career. */
+    fun isAgendaLoadedForOverlayResume(): Boolean = hasLoadedUserRaceAgenda
+
+    /** Marks the agenda as loaded so overlay resume does not repeat the load flow. */
+    fun markAgendaLoadedForOverlayResume() {
+        hasLoadedUserRaceAgenda = true
+    }
+
+    private fun agendaWait() {
+        DelayCalibration.markDetected("racing.agenda")
+        game.wait(agendaWaitDelay)
+        DelayCalibration.logExecution("racing.agenda", agendaWaitDelay, success = true)
+    }
+
+    /** Re-reads racing settings from SQLite into this live session. */
+    fun reloadRuntimeSettings() {
+        val prevSmartRaceSolver = enableSmartRaceSolver
+        enableFarmingFans = SettingsHelper.getBooleanSetting("racing", "enableFarmingFans")
+        ignoreConsecutiveRaceWarning = SettingsHelper.getBooleanSetting("racing", "ignoreConsecutiveRaceWarning")
+        ignoreLowEnergyRacingBlock = SettingsHelper.getBooleanSetting("racing", "ignoreLowEnergyRacingBlock")
+        daysToRunExtraRaces = SettingsHelper.getIntSetting("racing", "daysToRunExtraRaces")
+        disableRaceRetries = SettingsHelper.getBooleanSetting("racing", "disableRaceRetries")
+        enableFreeRaceRetry = SettingsHelper.getBooleanSetting("racing", "enableFreeRaceRetry")
+        enableCompleteCareerOnFailure = SettingsHelper.getBooleanSetting("racing", "enableCompleteCareerOnFailure")
+        enableForceRacing = SettingsHelper.getBooleanSetting("racing", "enableForceRacing")
+        enableSmartRaceSolver = SettingsHelper.getBooleanSetting("racing", "enableSmartRaceSolver")
+        if (enableSmartRaceSolver != prevSmartRaceSolver) {
+            LogStreamServer.broadcastSmartRaceSolverEnabled(enableSmartRaceSolver)
+            if (enableSmartRaceSolver) {
+                SmartRaceSolverIntegration.reset()
+            }
+        }
+        enableUserInGameRaceAgenda = SettingsHelper.getBooleanSetting("racing", "enableUserInGameRaceAgenda")
+        limitRacesToInGameAgenda = SettingsHelper.getBooleanSetting("racing", "limitRacesToInGameAgenda", true)
+        selectedUserAgenda = SettingsHelper.getStringSetting("racing", "selectedUserAgenda")
+        customAgendaTitle = SettingsHelper.getStringSetting("racing", "customAgendaTitle")
+        effectiveAgendaName = if (customAgendaTitle.isNotBlank()) customAgendaTitle else selectedUserAgenda
+        skipSummerTrainingForAgenda = SettingsHelper.getBooleanSetting("racing", "skipSummerTrainingForAgenda")
+        enableSkipRaceSimulation = SettingsHelper.getBooleanSetting("racing", "enableSkipRaceSimulation", true)
+        agendaWaitDelay = SettingsHelper.getDoubleSetting("racing", "agendaWaitDelay", 0.5)
+        raceStrategyWaitDelay = SettingsHelper.getDoubleSetting("racing", "raceStrategyWaitDelay", 0.5)
+        enableStopOnMandatoryRace = SettingsHelper.getBooleanSetting("racing", "enableStopOnMandatoryRaces")
+        juniorYearRaceStrategy = SettingsHelper.getStringSetting("racing", "juniorYearRaceStrategy")
+        userSelectedOriginalStrategy = SettingsHelper.getStringSetting("racing", "originalRaceStrategy")
+        enablePerDistanceStrategy = SettingsHelper.getBooleanSetting("racing", "enablePerDistanceStrategy")
+    }
+
     /** Tracks the grade of the last race that was selected. */
     var lastRaceGrade: RaceGrade? = null
 
@@ -174,19 +231,19 @@ class Racing(private val game: Game, private val campaign: Campaign) {
     var bRetriedCurrentRace: Boolean = false
 
     /** Whether to stop the bot when a mandatory race is detected. */
-    internal val enableStopOnMandatoryRace: Boolean = SettingsHelper.getBooleanSetting("racing", "enableStopOnMandatoryRaces")
+    internal var enableStopOnMandatoryRace: Boolean = SettingsHelper.getBooleanSetting("racing", "enableStopOnMandatoryRaces")
 
     /** Whether a mandatory race has been detected during the check. */
     internal var detectedMandatoryRaceCheck = false
 
     /** The race strategy override for the Junior Year. */
-    internal val juniorYearRaceStrategy = SettingsHelper.getStringSetting("racing", "juniorYearRaceStrategy")
+    internal var juniorYearRaceStrategy = SettingsHelper.getStringSetting("racing", "juniorYearRaceStrategy")
 
     /** The user's originally selected race strategy. */
-    internal val userSelectedOriginalStrategy = SettingsHelper.getStringSetting("racing", "originalRaceStrategy")
+    internal var userSelectedOriginalStrategy = SettingsHelper.getStringSetting("racing", "originalRaceStrategy")
 
     /** Whether per-distance strategy mode is enabled. */
-    private val enablePerDistanceStrategy = SettingsHelper.getBooleanSetting("racing", "enablePerDistanceStrategy")
+    private var enablePerDistanceStrategy = SettingsHelper.getBooleanSetting("racing", "enablePerDistanceStrategy")
 
     /** Whether the Junior Year strategy override has been applied. */
     private var bHasSetStrategyJunior: Boolean = false
@@ -202,6 +259,15 @@ class Racing(private val game: Game, private val campaign: Campaign) {
      * re-open the running-style dialog when the distance bucket or year map (Junior vs Classic/Senior) changes.
      */
     private var lastPerDistanceStrategyContext: PerDistanceStrategyContext? = null
+
+    /** Distance bucket for which a per-distance strategy switch was last triggered. */
+    private var activePerDistanceStrategyKey: String? = null
+
+    /**
+     * How many upcoming races should still run [selectRaceStrategy] after a distance-bucket switch
+     * (switch race + next race). Zero means skip re-application until the bucket changes again.
+     */
+    private var perDistanceStrategyAppliesRemaining: Int = 0
 
     /** Snapshot of the inputs that drive per-distance running-style selection for a single race. */
     private data class PerDistanceStrategyContext(
@@ -289,6 +355,9 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         /** The name of the race name column. */
         private const val RACES_COLUMN_NAME = "name"
 
+        /** The races.json key column (OCR-style unique race identifier). */
+        private const val RACES_COLUMN_KEY = "key"
+
         /** The name of the race grade column. */
         private const val RACES_COLUMN_GRADE = "grade"
 
@@ -372,6 +441,9 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         // Only load the agenda once per career.
         if (!enableUserInGameRaceAgenda || hasLoadedUserRaceAgenda || campaign.date.bIsFinaleSeason) {
             return
+        } else if (com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.shouldSkipImmediateAgendaLoad(campaign)) {
+            MessageLog.i(TAG, "[RACE] Skipping race agenda load after overlay resume (toggle off).")
+            return
         } else if (LabelRaceCriteriaMaiden.check(game.imageUtils)) {
             MessageLog.i(TAG, "[RACE] A maiden race needs to be won first before applying the user's race agenda.")
             return
@@ -404,7 +476,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         game.waitForLoading()
 
         // Wait for any dialog (e.g. consecutive race warning) to appear before checking.
-        game.wait(agendaWaitDelay)
+        agendaWait()
 
         // We are forced to race, so we need to ignore this warning dialog.
         campaign.handleDialogs(args = mapOf("overrideIgnoreConsecutiveRaceWarning" to true))
@@ -414,7 +486,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         MessageLog.i(TAG, "[RACE] Loading user's in-game race agenda: $effectiveAgendaName")
 
         // It is assumed that the user is already at the screen with the list of selectable races.
-        game.wait(agendaWaitDelay)
+        agendaWait()
 
         // Taps on the Agenda button.
         if (!ButtonAgenda.click(game.imageUtils)) {
@@ -423,18 +495,18 @@ class Racing(private val game: Game, private val campaign: Campaign) {
             game.waitForLoading()
             return
         }
-        game.wait(agendaWaitDelay)
+        agendaWait()
 
         // Taps on the My Agenda button.
         if (!ButtonMyAgendas.click(game.imageUtils)) {
             MessageLog.w(TAG, "[WARN] loadUserRaceAgenda:: Could not find the My Agenda button. Closing and backing out.")
             ButtonClose.click(game.imageUtils)
-            game.wait(agendaWaitDelay)
+            agendaWait()
             ButtonBack.click(game.imageUtils)
             game.waitForLoading()
             return
         }
-        game.wait(agendaWaitDelay)
+        agendaWait()
 
         // Check if an agenda is already loaded.
         // If so, then the user must have loaded this earlier in the career so no need to select it again.
@@ -444,13 +516,13 @@ class Racing(private val game: Game, private val campaign: Campaign) {
             // Mark as loaded so we don't try again this run and close the popup.
             hasLoadedUserRaceAgenda = true
             ButtonClose.click(game.imageUtils)
-            game.wait(agendaWaitDelay)
+            agendaWait()
             ButtonClose.click(game.imageUtils)
-            game.wait(agendaWaitDelay)
+            agendaWait()
 
             // Now back out of the race selection screen.
             ButtonBack.click(game.imageUtils)
-            game.wait(agendaWaitDelay)
+            agendaWait()
             return
         }
 
@@ -565,7 +637,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                     val swipeY = closeButtonLocation.y.toFloat()
                     MessageLog.i(TAG, "[RACE] Swiping up to reveal more agendas (attempt ${swipeCount + 1}/$maxSwipes)...")
                     game.gestureUtils.swipe(swipeX, swipeY - 300f, swipeX, swipeY - 400f)
-                    game.wait(agendaWaitDelay)
+                    agendaWait()
                 } else {
                     // If we can't find the close button for reference, try using the first Load List button.
                     if (loadListButtonLocations.isNotEmpty()) {
@@ -573,7 +645,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                         val swipeY = loadListButtonLocations[0].y.toFloat()
                         MessageLog.i(TAG, "[RACE] Swiping up using Load List button reference (attempt ${swipeCount + 1}/$maxSwipes)...")
                         game.gestureUtils.swipe(swipeX, swipeY - 300f, swipeX, swipeY - 400f)
-                        game.wait(agendaWaitDelay)
+                        agendaWait()
                     }
                 }
                 swipeCount++
@@ -899,17 +971,35 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         when {
             enablePerDistanceStrategy -> {
                 refreshLastRaceDistanceForPerDistanceStrategy()
+                val distanceKey = lastRaceDistance?.toSettingsKey()
+                if (distanceKey != null && distanceKey != activePerDistanceStrategyKey) {
+                    activePerDistanceStrategyKey = distanceKey
+                    perDistanceStrategyAppliesRemaining = 2
+                    MessageLog.i(
+                        TAG,
+                        "[RACE] Per-distance bucket changed to $distanceKey. Applying strategy for this race and the next race.",
+                    )
+                } else if (
+                    perDistanceStrategyAppliesRemaining <= 0 &&
+                        campaign.trainee.bHasSetRunningStyle &&
+                        distanceKey != null
+                ) {
+                    MessageLog.i(
+                        TAG,
+                        "[RACE] Per-distance strategy for $distanceKey already applied. Skipping until bucket changes.",
+                    )
+                    return true
+                } else if (distanceKey == null && perDistanceStrategyAppliesRemaining <= 0 && campaign.trainee.bHasSetRunningStyle) {
+                    MessageLog.i(TAG, "[RACE] Per-distance distance unknown and no pending apply. Skipping strategy dialog.")
+                    return true
+                }
                 val resolvedStrategy = resolveStrategyForCurrentRace(isJuniorYear)
                 val currentContext =
                     PerDistanceStrategyContext(
-                        distanceKey = lastRaceDistance?.toSettingsKey(),
+                        distanceKey = distanceKey,
                         isJuniorYear = isJuniorYear,
                         strategy = resolvedStrategy,
                     )
-                if (lastPerDistanceStrategyContext == currentContext && campaign.trainee.bHasSetRunningStyle) {
-                    MessageLog.i(TAG, "[RACE] Per-distance strategy already applied for $currentContext. Skipping.")
-                    return true
-                }
                 MessageLog.i(TAG, "[RACE] Per-distance strategy enabled. Setting strategy for current race (context=$currentContext).")
             }
 
@@ -925,7 +1015,9 @@ class Racing(private val game: Game, private val campaign: Campaign) {
             MessageLog.d(TAG, "[DEBUG] selectRaceStrategy:: Changing race strategy. Attempt #${numTries + 1}")
             if (ButtonChangeRunningStyle.click(game.imageUtils)) {
                 val strategyWaitDelay = if (enablePerDistanceStrategy) raceStrategyWaitDelay else game.dialogWaitDelay
+                DelayCalibration.markDetected("race.prepStrategy")
                 game.wait(strategyWaitDelay, skipWaitingForLoading = true)
+                DelayCalibration.logExecution("race.prepStrategy", strategyWaitDelay, success = true)
             }
 
             campaign.handleDialogs()
@@ -940,6 +1032,10 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         when {
             !bHasSetTemporaryRunningStyle -> {
                 MessageLog.w(TAG, "[WARN] selectRaceStrategy:: Timed out setting the race strategy after $numTries tries.")
+                DelayCalibration.logFailureFromPattern(
+                    "race.prepStrategy",
+                    if (enablePerDistanceStrategy) raceStrategyWaitDelay else game.dialogWaitDelay,
+                )
             }
 
             enablePerDistanceStrategy -> {
@@ -950,6 +1046,9 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                         isJuniorYear = isJuniorYear,
                         strategy = resolvedStrategy,
                     )
+                if (perDistanceStrategyAppliesRemaining > 0) {
+                    perDistanceStrategyAppliesRemaining--
+                }
                 MessageLog.i(TAG, "[RACE] Successfully set per-distance race strategy ($lastPerDistanceStrategyContext).")
             }
 
@@ -1042,6 +1141,15 @@ class Racing(private val game: Game, private val campaign: Campaign) {
      * @return The strategy string (e.g. "Default", "Auto", "Front", "Pace", "Late", "End").
      */
     internal fun resolveStrategyForCurrentRace(isJuniorYear: Boolean): String {
+        if (SettingsHelper.getBooleanSetting("racing", "enableUniqueRaceStrategyOverrides", false)) {
+            val override = resolveUniqueRaceOverrideForContext()
+            val strategy = override?.strategy
+            if (!strategy.isNullOrBlank()) {
+                MessageLog.i(TAG, "[RACE] Unique race strategy override for \"${lastRaceName ?: "unknown"}\": $strategy")
+                return strategy
+            }
+        }
+
         if (!enablePerDistanceStrategy) {
             return if (isJuniorYear) juniorYearRaceStrategy else userSelectedOriginalStrategy
         }
@@ -1057,6 +1165,132 @@ class Racing(private val game: Game, private val campaign: Campaign) {
             MessageLog.w(TAG, "[RACE] Per-distance strategy enabled but race distance unknown. Falling back to blanket strategy.")
             if (isJuniorYear) juniorYearRaceStrategy else userSelectedOriginalStrategy
         }
+    }
+
+    /** Resolves the best-matching unique-race override for [lastRaceName] and the current turn. */
+    internal fun resolveUniqueRaceOverrideForContext(): UniqueRaceOverrideConfig? {
+        val raceName = lastRaceName?.trim().orEmpty()
+        if (raceName.isNotEmpty()) {
+            loadUniqueRaceOverride(raceName)?.let { return it }
+            for (key in getRaceKeysAtTurn(campaign.date.day)) {
+                if (key == raceName || key.startsWith("$raceName (")) {
+                    loadUniqueRaceOverride(key)?.let { return it }
+                }
+            }
+        }
+        val keysAtTurn = getRaceKeysAtTurn(campaign.date.day)
+        if (keysAtTurn.size == 1) {
+            return loadUniqueRaceOverride(keysAtTurn[0])
+        }
+        return null
+    }
+
+    /** Loads a per-race running-style override from unique-race settings (JSON map of race name → strategy). */
+    private fun loadUniqueRaceStrategyOverride(raceName: String): String? {
+        return loadUniqueRaceOverride(raceName)?.strategy
+    }
+
+    /** Per-race override entry (strategy, irregular training, and/or retry limit). */
+    data class UniqueRaceOverrideConfig(
+        val strategy: String? = null,
+        val enableIrregularTraining: Boolean = false,
+        val enableRetryOverride: Boolean = false,
+        val maxRetries: Int? = null,
+    )
+
+    /** Parses a unique-race override for the given race key (legacy string or object JSON). */
+    internal fun loadUniqueRaceOverride(raceKey: String): UniqueRaceOverrideConfig? {
+        return try {
+            val jsonStr = SettingsHelper.getStringSetting("racing", "uniqueRaceStrategyOverrides")
+            if (jsonStr.isBlank() || !JSONObject(jsonStr).has(raceKey)) {
+                return null
+            }
+            when (val raw = JSONObject(jsonStr).get(raceKey)) {
+                is String ->
+                    UniqueRaceOverrideConfig(
+                        strategy = raw.takeIf { it.isNotBlank() && it != "Default" },
+                        enableIrregularTraining = false,
+                    )
+                is JSONObject -> {
+                    val strategy =
+                        raw.optString("strategy", "")
+                            .takeIf { it.isNotBlank() && it != "Default" }
+                    UniqueRaceOverrideConfig(
+                        strategy = strategy,
+                        enableIrregularTraining = raw.optBoolean("enableIrregularTraining", false),
+                        enableRetryOverride = raw.optBoolean("enableRetryOverride", false),
+                        maxRetries = raw.optInt("maxRetries", -1).takeIf { it >= 0 },
+                    )
+                }
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Whether irregular training may be evaluated today because a configured unique race at this turn has it enabled.
+     * Requires [enableUniqueRaceStrategyOverrides] and global Trackblazer irregular training.
+     */
+    internal fun hasUniqueRaceIrregularTrainingForTurn(turnNumber: Int): Boolean {
+        if (!SettingsHelper.getBooleanSetting("racing", "enableUniqueRaceStrategyOverrides", false)) {
+            return false
+        }
+        val raceKeysAtTurn = getRaceKeysAtTurn(turnNumber)
+        return raceKeysAtTurn.any { key ->
+            loadUniqueRaceOverride(key)?.enableIrregularTraining == true
+        }
+    }
+
+    /** Returns races.json keys for all races scheduled on the given turn. */
+    private fun getRaceKeysAtTurn(turnNumber: Int): List<String> {
+        val settingsManager = SQLiteSettingsManager(game.myContext)
+        if (!settingsManager.isAvailable()) {
+            settingsManager.close()
+            return emptyList()
+        }
+
+        return try {
+            val database = settingsManager.readableDatabase ?: return emptyList()
+            val cursor =
+                database.query(
+                    TABLE_RACES,
+                    arrayOf(RACES_COLUMN_KEY),
+                    "$RACES_COLUMN_TURN_NUMBER = ?",
+                    arrayOf(turnNumber.toString()),
+                    null,
+                    null,
+                    null,
+                )
+            val keys = mutableListOf<String>()
+            if (cursor.moveToFirst()) {
+                do {
+                    val key = cursor.getString(0)
+                    if (!key.isNullOrBlank()) {
+                        keys.add(key)
+                    }
+                } while (cursor.moveToNext())
+            }
+            cursor.close()
+            keys
+        } catch (e: Exception) {
+            MessageLog.e(TAG, "[ERROR] getRaceKeysAtTurn:: ${e.message}")
+            emptyList()
+        } finally {
+            settingsManager.close()
+        }
+    }
+
+    /** Max retries for the current race; uses the unique-race override when enabled, otherwise the campaign default. */
+    internal fun getEffectiveMaxRetriesPerRace(): Int {
+        val override = resolveUniqueRaceOverrideForContext()
+        if (override?.enableRetryOverride == true) {
+            val configured = override.maxRetries ?: maxRetriesPerRace
+            MessageLog.i(TAG, "[RACE] Unique race retry override active: max $configured retries for \"${lastRaceName ?: "unknown"}\".")
+            return configured.coerceAtLeast(0)
+        }
+        return maxRetriesPerRace
     }
 
     /**
@@ -1079,7 +1313,8 @@ class Racing(private val game: Game, private val campaign: Campaign) {
 
         // Flag used to prevent us from attempting to select a running style after we've already successfully selected a running style once.
         var bDidSelectRaceStrategy = false
-        var retriesThisRace = 0
+        retriesThisRace = 0
+        val effectiveMaxRetriesPerRace = getEffectiveMaxRetriesPerRace()
 
         // Safety counter to prevent infinite loop.
         var loopCount = 0
@@ -1174,7 +1409,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                         lastRaceGrade != null &&
                         retryEligibleGrades.contains(lastRaceGrade) &&
                         raceRetries > 0 &&
-                        retriesThisRace < maxRetriesPerRace &&
+                        retriesThisRace < effectiveMaxRetriesPerRace &&
                         ButtonTryAgainAlt.checkDisabled(game.imageUtils) == false
                     ) {
                         MessageLog.i(TAG, "[RACE] $lastRaceGrade race detected and retry button is available. Retrying...")
@@ -1189,7 +1424,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                         retryEligibleGrades.contains(lastRaceGrade) &&
                         !bRetriedCurrentRace &&
                         raceRetries > 0 &&
-                        retriesThisRace < maxRetriesPerRace &&
+                        retriesThisRace < effectiveMaxRetriesPerRace &&
                         ButtonTryAgainAlt.checkDisabled(game.imageUtils) == false
                     ) {
                         MessageLog.i(TAG, "[RACE] Rival Race retry button is available. Retrying once...")
@@ -1208,7 +1443,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                     lastRaceGrade != null &&
                     retryEligibleGrades.contains(lastRaceGrade) &&
                     raceRetries > 0 &&
-                    retriesThisRace < maxRetriesPerRace &&
+                    retriesThisRace < effectiveMaxRetriesPerRace &&
                     ButtonTryAgainAlt.checkDisabled(
                         game.imageUtils,
                         sourceBitmap = bitmap,
@@ -1227,7 +1462,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                     retryEligibleGrades.contains(lastRaceGrade) &&
                     !bRetriedCurrentRace &&
                     raceRetries > 0 &&
-                    retriesThisRace < maxRetriesPerRace &&
+                    retriesThisRace < effectiveMaxRetriesPerRace &&
                     ButtonTryAgainAlt.checkDisabled(
                         game.imageUtils,
                         sourceBitmap = bitmap,

@@ -262,6 +262,16 @@ const Settings = () => {
         )
     }
 
+    const renderAdvancedLink = () => {
+        return (
+            <NavigationLink
+                title="Go to Advanced Settings"
+                description="Per-action delay calibration, fine-tuning, and other advanced tuning options."
+                onPress={() => navigation.navigate("AdvancedSettings" as never)}
+            />
+        )
+    }
+
     const renderDebugLink = () => {
         return (
             <NavigationLink
@@ -608,6 +618,7 @@ const Settings = () => {
                         {renderEventLogVisualizerLink()}
                         {renderDiscordLink()}
                         {renderScenarioOverridesLink()}
+                        {renderAdvancedLink()}
                         {renderDebugLink()}
                         {renderLLMSettingsLink()}
                         {showHeavySections && renderMiscSettings()}

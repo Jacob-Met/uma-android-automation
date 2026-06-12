@@ -72,6 +72,8 @@ export interface Settings {
         enablePerDistanceStrategy: boolean
         juniorYearPerDistanceStrategies: Record<string, string>
         originalPerDistanceStrategies: Record<string, string>
+        enableUniqueRaceStrategyOverrides: boolean
+        uniqueRaceStrategyOverrides: string
         // Smart Race Solver — beam-search-based race scheduler driven by epithet completions.
         // The static bundled assets (`racesData`, `epithetsData`, `characterPresetsData`) are
         // intentionally NOT in this interface: they're written once at bootstrap by
@@ -152,6 +154,13 @@ export interface Settings {
         enableYoloStatDetection: boolean
         classicMilestonePercent: number
         seniorMilestonePercent: number
+        summerTrainingBlacklist: string[]
+        finaleTrainingBlacklist: string[]
+        fullScanRiskyOvershootPercent: number
+        enableHardcoreFriendshipOptimization: boolean
+        hardcoreFriendshipOptimizationUntilTurn: number
+        ignorePalCardFriendshipBarsInTraining: boolean
+        enableNeverClickEmptyTop3PriorityTraining: boolean
     }
 
     // Training Stat Target settings
@@ -257,6 +266,8 @@ export interface Settings {
         trackblazerRetryRacesBeforeFinalGrades: string[]
         trackblazerEnableIrregularTraining: boolean
         trackblazerIrregularTrainingMinStatGain: number
+        trackblazerEnableIrregularTrainingWithAgenda: boolean
+        trackblazerIrregularTrainingAgendaGrades: string[]
         trackblazerExcludedItems: string[]
         trackblazerShopCheckFrequency: number
         trackblazerPreferredDistances: string[]
@@ -268,6 +279,28 @@ export interface Settings {
         trackblazerArtisanHammerMinStockForG2: number
         trackblazerGlowStickFinalReserve: number
         trackblazerGlowStickMinFans: number
+    }
+
+    /** Advanced tuning — per-action delays and delay calibration telemetry. */
+    advanced: {
+        enableDelayCalibration: boolean
+        /** Step size for +/- delay buttons (seconds). */
+        delayCalibrationIncrement: number
+        /** Hardcoded per-action delay overrides (seconds), JSON map of action key → seconds. */
+        perActionDelayOverrides: string
+        /** Aggregated stats from the last home-button calibration session. */
+        delayCalibrationStats: Record<string, import("../lib/delayCalibration/types").DelayCalibrationActionStats>
+        lastCalibrationSessionAt: string | null
+        /** On overlay resume: immediately run skill-point check (default off). */
+        overlayResumeRecheckSkills: boolean
+        /** On overlay resume: immediately reload in-game race agenda (default off). */
+        overlayResumeReloadAgenda: boolean
+        /** On overlay resume: immediately run Trackblazer shop check (default off). */
+        overlayResumeRecheckShop: boolean
+        /** After overlay resume: recheck shop when the turn advances past the paused turn (default off). */
+        overlayRecheckShopOnTurnChange: boolean
+        /** After overlay resume: recheck skills when skill points are at/above threshold (default off). */
+        overlayRecheckSkillsWhenOverThreshold: boolean
     }
 }
 
@@ -307,6 +340,8 @@ export const defaultSettings: Settings = {
         enablePerDistanceStrategy: false,
         juniorYearPerDistanceStrategies: { Short: "Default", Mile: "Default", Medium: "Default", Long: "Default" },
         originalPerDistanceStrategies: { Short: "Default", Mile: "Default", Medium: "Default", Long: "Default" },
+        enableUniqueRaceStrategyOverrides: false,
+        uniqueRaceStrategyOverrides: "{}",
         enableSmartRaceSolver: false,
         smartRaceSolverCharacterPreset: "Special Week",
         smartRaceSolverAptitudes: JSON.stringify({
@@ -459,6 +494,13 @@ export const defaultSettings: Settings = {
         enableYoloStatDetection: false,
         classicMilestonePercent: 33,
         seniorMilestonePercent: 66,
+        summerTrainingBlacklist: [],
+        finaleTrainingBlacklist: [],
+        fullScanRiskyOvershootPercent: 5,
+        enableHardcoreFriendshipOptimization: false,
+        hardcoreFriendshipOptimizationUntilTurn: 30,
+        ignorePalCardFriendshipBarsInTraining: false,
+        enableNeverClickEmptyTop3PriorityTraining: false,
     },
     trainingStatTarget: {
         trainingSprintStatTarget_speedStatTarget: 1200,
@@ -547,6 +589,8 @@ export const defaultSettings: Settings = {
         trackblazerRetryRacesBeforeFinalGrades: ["G1", "G2", "G3"],
         trackblazerEnableIrregularTraining: false,
         trackblazerIrregularTrainingMinStatGain: 30,
+        trackblazerEnableIrregularTrainingWithAgenda: false,
+        trackblazerIrregularTrainingAgendaGrades: ["G1", "G2", "G3"],
         trackblazerExcludedItems: [],
         trackblazerShopCheckFrequency: 3,
         trackblazerPreferredDistances: [] as string[],
@@ -558,6 +602,18 @@ export const defaultSettings: Settings = {
         trackblazerArtisanHammerMinStockForG2: 2,
         trackblazerGlowStickFinalReserve: 1,
         trackblazerGlowStickMinFans: 20000,
+    },
+    advanced: {
+        enableDelayCalibration: false,
+        delayCalibrationIncrement: 0.05,
+        perActionDelayOverrides: "{}",
+        delayCalibrationStats: {},
+        lastCalibrationSessionAt: null,
+        overlayResumeRecheckSkills: false,
+        overlayResumeReloadAgenda: false,
+        overlayResumeRecheckShop: false,
+        overlayRecheckShopOnTurnChange: false,
+        overlayRecheckSkillsWhenOverThreshold: false,
     },
 }
 
@@ -634,6 +690,11 @@ export interface ScenarioOverridesContextValue {
     updateScenarioOverrides: SliceUpdater<Settings["scenarioOverrides"]>
 }
 
+export interface AdvancedContextValue {
+    advanced: Settings["advanced"]
+    updateAdvanced: SliceUpdater<Settings["advanced"]>
+}
+
 export const BotMetaContext = createContext<BotMetaContextValue>({} as BotMetaContextValue)
 export const RacingContext = createContext<RacingContextValue>({} as RacingContextValue)
 export const SkillsContext = createContext<SkillsContextValue>({} as SkillsContextValue)
@@ -644,6 +705,7 @@ export const DebugContext = createContext<DebugContextValue>({} as DebugContextV
 export const DiscordContext = createContext<DiscordContextValue>({} as DiscordContextValue)
 export const ChatContext = createContext<ChatContextValue>({} as ChatContextValue)
 export const ScenarioOverridesContext = createContext<ScenarioOverridesContextValue>({} as ScenarioOverridesContextValue)
+export const AdvancedContext = createContext<AdvancedContextValue>({} as AdvancedContextValue)
 
 /**
  * Provider component for the BotState context.
@@ -711,6 +773,7 @@ export const BotStateProvider = ({ children }: any): React.ReactElement => {
     const updateDiscord = useMemo(() => makeSliceUpdater("discord"), [makeSliceUpdater])
     const updateChat = useMemo(() => makeSliceUpdater("chat"), [makeSliceUpdater])
     const updateScenarioOverrides = useMemo(() => makeSliceUpdater("scenarioOverrides"), [makeSliceUpdater])
+    const updateAdvanced = useMemo(() => makeSliceUpdater("advanced"), [makeSliceUpdater])
 
     // Per-slice values memoized on their own slice reference. An untouched slice keeps a
     // stable identity across renders, so consumers of that slice's context skip re-rendering
@@ -737,6 +800,7 @@ export const BotStateProvider = ({ children }: any): React.ReactElement => {
         () => ({ scenarioOverrides: settings.scenarioOverrides, updateScenarioOverrides }),
         [settings.scenarioOverrides, updateScenarioOverrides]
     )
+    const advancedValue = useMemo<AdvancedContextValue>(() => ({ advanced: settings.advanced, updateAdvanced }), [settings.advanced, updateAdvanced])
 
     return (
         <BotMetaContext.Provider value={metaValue}>
@@ -749,8 +813,10 @@ export const BotStateProvider = ({ children }: any): React.ReactElement => {
                                     <DiscordContext.Provider value={discordValue}>
                                         <ChatContext.Provider value={chatValue}>
                                             <ScenarioOverridesContext.Provider value={scenarioOverridesValue}>
-                                                <SettingsSnapshotPublisher />
-                                                {children}
+                                                <AdvancedContext.Provider value={advancedValue}>
+                                                    <SettingsSnapshotPublisher />
+                                                    {children}
+                                                </AdvancedContext.Provider>
                                             </ScenarioOverridesContext.Provider>
                                         </ChatContext.Provider>
                                     </DiscordContext.Provider>
@@ -783,9 +849,10 @@ export const useSettingsSnapshot = (): Settings => {
     const { discord } = useContext(DiscordContext)
     const { chat } = useContext(ChatContext)
     const { scenarioOverrides } = useContext(ScenarioOverridesContext)
+    const { advanced } = useContext(AdvancedContext)
     return useMemo(
-        () => ({ general, racing, skills, trainingEvent, misc, training, trainingStatTarget, debug, discord, chat, scenarioOverrides }),
-        [general, racing, skills, trainingEvent, misc, training, trainingStatTarget, debug, discord, chat, scenarioOverrides]
+        () => ({ general, racing, skills, trainingEvent, misc, training, trainingStatTarget, debug, discord, chat, scenarioOverrides, advanced }),
+        [general, racing, skills, trainingEvent, misc, training, trainingStatTarget, debug, discord, chat, scenarioOverrides, advanced]
     )
 }
 

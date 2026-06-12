@@ -1,0 +1,15 @@
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Spacing scale
+//
+// 4/8 grid. Used for padding, margin, and gap throughout the app.
+// Row vertical padding defaults to `md` (12) in airy mode; group bottom margin defaults to `lg` (16).
+
+export const SPACING = {
+    xs: 4,
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 24,
+    xxl: 32,
+} as const

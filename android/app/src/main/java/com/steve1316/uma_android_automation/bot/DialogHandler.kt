@@ -12,6 +12,8 @@ import com.steve1316.uma_android_automation.components.IconHorseshoe
 import com.steve1316.uma_android_automation.components.RadioCareerQuickShortenAllEvents
 import com.steve1316.uma_android_automation.components.RadioPortrait
 import com.steve1316.uma_android_automation.types.BoundingBox
+import com.steve1316.uma_android_automation.utils.ActionDelays
+import com.steve1316.uma_android_automation.utils.DelayCalibration
 import org.opencv.core.Point
 
 /** Represents the result of a dialog handling operation. */
@@ -76,7 +78,9 @@ open class DialogHandler(val game: Game) {
                 TAG,
                 "[DEBUG] handleDialogs:: Waiting before handling dialog due to passed args: dialogWaitDelay=${game.dialogWaitDelay}, bShouldWait=$bShouldWait, bShouldWaitForLoading=$bShouldWaitForLoading",
             )
+            DelayCalibration.markDetected("general.dialog")
             game.wait(game.dialogWaitDelay, skipWaitingForLoading = !bShouldWaitForLoading)
+            DelayCalibration.logExecution("general.dialog", game.dialogWaitDelay, success = true)
         }
 
         val dialog: DialogInterface? = dialog ?: DialogUtils.getDialog(game.imageUtils)
@@ -370,7 +374,10 @@ open class DialogHandler(val game: Game) {
             }
         }
 
-        game.wait(0.5)
+        val postCloseDelay = ActionDelays.get("dialog.postClose", 0.5)
+        DelayCalibration.markDetected("dialog.postClose")
+        game.wait(postCloseDelay)
+        DelayCalibration.logExecution("dialog.postClose", postCloseDelay, success = true)
         return DialogHandlerResult.Handled(dialog)
     }
 }

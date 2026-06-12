@@ -50,6 +50,8 @@ import com.steve1316.uma_android_automation.types.TrackblazerShopList
 import com.steve1316.uma_android_automation.types.Trainee
 import com.steve1316.uma_android_automation.utils.ScrollList
 import com.steve1316.uma_android_automation.utils.ScrollListEntry
+import com.steve1316.uma_android_automation.utils.ActionDelays
+import com.steve1316.uma_android_automation.utils.DelayCalibration
 import org.json.JSONArray
 import org.opencv.core.Point
 
@@ -220,6 +222,19 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Flag to track if the first-time Shop check for the session has been performed. */
     private var bInitialShopCheckPerformed: Boolean = false
 
+    /** Marks the initial shop check as done so overlay resume does not repeat it. */
+    fun markInitialShopCheckPerformedForOverlayResume() {
+        bInitialShopCheckPerformed = true
+    }
+
+    /** Whether the first-time shop check has already run this session. */
+    fun hasInitialShopCheckPerformedForOverlayResume(): Boolean = bInitialShopCheckPerformed
+
+    /** Re-opens the shop check after overlay resume when the turn has advanced. */
+    fun markInitialShopCheckPendingForOverlayTurnChange() {
+        bInitialShopCheckPerformed = false
+    }
+
     /** Flag indicating if the bot has checked for Irregular Training during the current turn. */
     private var bHasCheckedIrregularTrainingThisTurn: Boolean = false
 
@@ -306,6 +321,14 @@ class Trackblazer(game: Game) : Campaign(game) {
 
     /** Whether to enable Irregular Training in between races during Trackblazer. */
     private val enableIrregularTraining: Boolean = SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableIrregularTraining", false)
+
+    /** When user agenda is enabled, still evaluate irregular training on scheduled/mandatory G1/G2/G3 days. */
+    private val enableIrregularTrainingWithAgenda: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableIrregularTrainingWithAgenda", false)
+
+    /** Race grades allowed for irregular training when agenda mode is active. */
+    private val irregularTrainingAgendaGrades: Set<String> =
+        SettingsHelper.getStringArraySetting("scenarioOverrides", "trackblazerIrregularTrainingAgendaGrades").toSet()
 
     /**
      * When enabled during Climax (turns 73–75), forces charm-backed training on highest non-maxed stat instead of rest/recovery.
@@ -1109,6 +1132,15 @@ class Trackblazer(game: Game) : Campaign(game) {
             return FailureMitigationChoice.NONE
         }
 
+        // Climax force-charm: always prefer Good-Luck Charm over energy items when both qualify.
+        if (isClimaxCharmTrainingActive() && charmMitigationQualifies) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Failure mitigation: Good-Luck Charm over energy (Climax phase, failure $failureChance%).",
+            )
+            return FailureMitigationChoice.CHARM
+        }
+
         if (charmMitigationQualifies && highTierQualifies) {
             MessageLog.i(
                 TAG,
@@ -1288,8 +1320,25 @@ class Trackblazer(game: Game) : Campaign(game) {
                     preItemFailure,
                     bUsedCharmToday,
                     energyMitigationUsed,
+                    climaxForceCharm = climaxCharmTraining,
                 )
         ) {
+            if (
+                climaxCharmTraining &&
+                    isClimaxCharmTrainingActive() &&
+                    selected != null &&
+                    !bUsedCharmToday &&
+                    failureMitigationChoiceForPass != FailureMitigationChoice.CHARM
+            ) {
+                failureMitigationChoiceForPass = FailureMitigationChoice.CHARM
+                failureMitigationEnergyPlanForPass = null
+                failureMitigationEnergyQueuedCounts.clear()
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Post-item recheck switching to Good-Luck Charm for Climax on $selected after energy-only pass was insufficient.",
+                )
+                return selected
+            }
             MessageLog.i(TAG, "[TRACKBLAZER] Post-item recheck rejected $selected.")
             selected = null
         } else if (selected != null && selected != trainingSelected) {
@@ -1335,6 +1384,30 @@ class Trackblazer(game: Game) : Campaign(game) {
         }
 
         return selected
+    }
+
+    /**
+     * Reset Whistle may be used when no training was found only during Climax with enough failure-mitigation
+     * items (Charm / Vita 65 / Kale pool) to cover every remaining Finale turn.
+     */
+    private fun shouldAllowResetWhistleWithoutViableTraining(): Boolean {
+        if (!isClimaxPhase()) {
+            return false
+        }
+        val remainingFinaleTurns = (75 - date.day + 1).coerceAtLeast(1)
+        val poolTotal = failureMitigationPoolTotal(currentInventory)
+        if (poolTotal < remainingFinaleTurns) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Skipping Reset Whistle: Climax mitigation pool ($poolTotal) below remaining Finale turns ($remainingFinaleTurns).",
+            )
+            return false
+        }
+        MessageLog.i(
+            TAG,
+            "[TRACKBLAZER] Allowing Reset Whistle despite no training: Climax with mitigation pool ($poolTotal) >= remaining turns ($remainingFinaleTurns).",
+        )
+        return true
     }
 
     /** Returns true when the Reset Whistle may be considered this turn. */
@@ -1444,6 +1517,14 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         if (!hasWhistle) {
             MessageLog.i(TAG, "[TRACKBLAZER] No suitable training found and no Reset Whistles in cached inventory or all are disabled.")
+            return selected
+        }
+
+        if (!shouldAllowResetWhistleWithoutViableTraining()) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Skipping Reset Whistle: no viable training on current board and Climax mitigation reserve does not allow a reshuffle.",
+            )
             return selected
         }
 
@@ -2121,6 +2202,11 @@ class Trackblazer(game: Game) : Campaign(game) {
     }
 
     override fun shouldRetryRace(dialog: DialogInterface, args: Map<String, Any>): Boolean {
+        val effectiveMaxRetries = racing.getEffectiveMaxRetriesPerRace()
+        if (racing.retriesThisRace >= effectiveMaxRetries) {
+            MessageLog.w(TAG, "[WARN] shouldRetryRace:: Per-race retry limit reached ($effectiveMaxRetries).")
+            return false
+        }
         if (racing.lastRaceGrade != null && racing.retryEligibleGrades.contains(racing.lastRaceGrade) && racing.raceRetries >= 0) {
             if (racing.lastRaceIsRival && !racing.bRetriedCurrentRace) {
                 MessageLog.i(TAG, "[TRACKBLAZER] ${racing.lastRaceGrade} Rival Race retry button is available. Retrying once.")
@@ -2130,6 +2216,7 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
 
             racing.raceRetries--
+            racing.retriesThisRace++
             if (dialog.ok(game.imageUtils)) {
                 game.wait(1.0)
             }
@@ -2407,8 +2494,12 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (enableIrregularTraining && date.year > DateYear.JUNIOR && !bHasCheckedIrregularTrainingThisTurn) {
             val isScheduledRace = LabelScheduledRace.check(game.imageUtils)
             val isMandatoryRace = IconRaceDayRibbon.check(game.imageUtils) || IconGoalRibbon.check(game.imageUtils)
+            val mayEvaluateIrregular =
+                (!isScheduledRace && !isMandatoryRace) ||
+                    shouldEvaluateIrregularTrainingWithAgenda(isScheduledRace, isMandatoryRace) ||
+                    racing.hasUniqueRaceIrregularTrainingForTurn(date.day)
 
-            if (!isScheduledRace && !isMandatoryRace) {
+            if (mayEvaluateIrregular) {
                 // Skip irregular training evaluation when energy is depleted and no charm can offset the failure chance.
                 if (trainee.energy <= 0 && !hasCharmAvailable) {
                     MessageLog.i(TAG, "[TRACKBLAZER] Skipping Irregular Training evaluation as energy is ${trainee.energy}% with no Good-Luck Charm available.")
@@ -2452,6 +2543,21 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         // Otherwise, use base class decision logic.
         return super.decideNextAction()
+    }
+
+    /** Whether irregular training may run on a scheduled/mandatory race day when user agenda is active. */
+    private fun shouldEvaluateIrregularTrainingWithAgenda(isScheduledRace: Boolean, isMandatoryRace: Boolean): Boolean {
+        if (!enableIrregularTrainingWithAgenda || !racing.enableUserInGameRaceAgenda) {
+            return false
+        }
+        if (!isScheduledRace && !isMandatoryRace) {
+            return false
+        }
+        if (irregularTrainingAgendaGrades.isEmpty()) {
+            return false
+        }
+        val gradeName = racing.lastRaceGrade?.name ?: return isMandatoryRace
+        return gradeName in irregularTrainingAgendaGrades
     }
 
     override fun executeAction(action: MainScreenAction, bIsScheduledRaceDay: Boolean): Boolean {
@@ -2537,12 +2643,16 @@ class Trackblazer(game: Game) : Campaign(game) {
      */
     fun updateShopCoins(): Boolean {
         MessageLog.i(TAG, "[TRACKBLAZER] Updating current amount of Shop Coins...")
-        game.wait(3.0)
+        val shopEnterDelay = ActionDelays.get("trackblazer.shopEnter", 0.5)
+        DelayCalibration.markDetected("trackblazer.shopEnter")
+        game.wait(shopEnterDelay)
         val (trainingItemsButtonLocation, sourceBitmap) = ButtonTrainingItems.find(game.imageUtils, tries = 30)
         if (trainingItemsButtonLocation == null) {
             MessageLog.e(TAG, "[ERROR] updateShopCoins:: Failed to find Training Items button.")
+            DelayCalibration.logExecution("trackblazer.shopEnter", shopEnterDelay, success = false, failKind = "too_fast")
             return false
         }
+        DelayCalibration.logExecution("trackblazer.shopEnter", shopEnterDelay, success = true)
         val coinText =
             game.imageUtils.performOCROnRegion(
                 sourceBitmap,
@@ -2791,10 +2901,12 @@ class Trackblazer(game: Game) : Campaign(game) {
         ButtonUseTrainingItems.click(game.imageUtils)
 
         // Lengthy delay here for the animation to finish.
-        // We increase the delay by a second for each additional item to be used after 3 items.
-        val animationDelay = if (itemsUsedCount > 3) 4.0 + (itemsUsedCount - 3) else 4.0
+        val baseAnimation = ActionDelays.get("trackblazer.itemAnimation", 4.0)
+        val animationDelay = if (itemsUsedCount > 3) baseAnimation + (itemsUsedCount - 3) else baseAnimation
+        DelayCalibration.markDetected("trackblazer.itemAnimation")
         MessageLog.i(TAG, "[TRACKBLAZER] Waiting for animation to finish (Delay: $animationDelay seconds).")
         game.wait(animationDelay)
+        DelayCalibration.logExecution("trackblazer.itemAnimation", animationDelay, success = true)
 
         // Finalize by closing the dialog.
         MessageLog.i(TAG, "[TRACKBLAZER] Closing training items dialog.")
@@ -2942,10 +3054,13 @@ class Trackblazer(game: Game) : Campaign(game) {
             val option = training.trainingMap[selected] ?: training.skippedTrainingMap[selected]
             if (option != null) {
                 val mainGain = option.statGains[selected] ?: 0
-                if (training.exceedsFailureThreshold(option.failureChance, mainGain)) {
+                if (
+                    training.exceedsFailureThreshold(option.failureChance, mainGain) &&
+                        !passesGoodLuckCharmTrainingChecks(selected, trainee, option.failureChance, mainGain)
+                ) {
                     MessageLog.w(
                         TAG,
-                        "[TRACKBLAZER] Refusing Climax training on $selected (${option.failureChance}% failure): Good-Luck Charm was not applied this turn.",
+                        "[TRACKBLAZER] Refusing Climax training on $selected (${option.failureChance}% failure): Good-Luck Charm cannot be applied this turn.",
                     )
                     return true
                 }
@@ -3004,9 +3119,12 @@ class Trackblazer(game: Game) : Campaign(game) {
         // Enter the Training screen.
         if (!ButtonTraining.click(game.imageUtils)) {
             MessageLog.e(TAG, "[ERROR] handleTrackblazerTraining:: Failed to enter Training screen.")
+            DelayCalibration.logFailureFromPattern("training.enter", game.trainingWaitDelay)
             return
         }
-        game.wait(0.5)
+        DelayCalibration.markDetected("training.enter")
+        game.wait(game.trainingWaitDelay)
+        DelayCalibration.logExecution("training.enter", game.trainingWaitDelay, success = true)
 
         if (shouldTryEnergyRecoveryItems()) {
             MessageLog.i(

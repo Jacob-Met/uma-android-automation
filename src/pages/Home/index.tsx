@@ -1,12 +1,13 @@
 import * as Application from "expo-application"
 import MessageLog from "../../components/MessageLog"
 import { useContext, useEffect, useRef, useState, useMemo } from "react"
-import { BotMetaContext, GeneralMiscContext } from "../../context/BotStateContext"
+import { AdvancedContext, BotMetaContext, GeneralMiscContext } from "../../context/BotStateContext"
 import { useSettings } from "../../context/SettingsContext"
 import { logWithTimestamp, logErrorWithTimestamp } from "../../lib/logger"
 import { Animated, DeviceEventEmitter, StyleSheet, View, NativeModules } from "react-native"
 import { Snackbar } from "react-native-paper"
-import { MessageLogDispatchContext } from "../../context/MessageLogContext"
+import { MessageLogDataContext, MessageLogDispatchContext } from "../../context/MessageLogContext"
+import { parseDelayCalibrationLogs } from "../../lib/delayCalibration/parseDelayCalibrationLogs"
 import { useTheme } from "../../context/ThemeContext"
 import { Text } from "../../components/ui/text"
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../../components/ui/alert-dialog"
@@ -77,10 +78,14 @@ const Home = () => {
 
     const { readyStatus, setReadyStatus, setAppName, setAppVersion } = useContext(BotMetaContext)
     const { general, updateGeneral } = useContext(GeneralMiscContext)
+    const { advanced, updateAdvanced } = useContext(AdvancedContext)
+    const { messageLog } = useContext(MessageLogDataContext)
     const mlc = useContext(MessageLogDispatchContext)
     const { saveSettings } = useSettings()
 
     const pulseAnim = useRef(new Animated.Value(1)).current
+    /** True when the current run was started from Home (not overlay). Cleared on overlay stop. */
+    const homeCalibrationSessionRef = useRef(false)
 
     useEffect(() => {
         let animation: Animated.CompositeAnimation | null = null
@@ -113,7 +118,11 @@ const Home = () => {
 
     useEffect(() => {
         const mediaProjectionSubscription = DeviceEventEmitter.addListener("MediaProjectionService", (data) => {
-            setIsRunning(data["message"] === "Running")
+            const running = data["message"] === "Running"
+            setIsRunning(running)
+            if (!running) {
+                homeCalibrationSessionRef.current = false
+            }
         })
 
         const botServiceSubscription = DeviceEventEmitter.addListener("BotService", (data) => {
@@ -197,6 +206,7 @@ const Home = () => {
             setSnackbarOpen(true)
         }
         StartModule.start()
+        homeCalibrationSessionRef.current = true
     }
 
     /**
@@ -204,7 +214,18 @@ const Home = () => {
      */
     const handleButtonPress = async () => {
         if (isRunning) {
+            const shouldAnalyzeCalibration = homeCalibrationSessionRef.current && advanced.enableDelayCalibration
+            const sessionLogs = shouldAnalyzeCalibration ? [...messageLog] : null
+            homeCalibrationSessionRef.current = false
             StartModule.stop()
+            if (sessionLogs) {
+                const stats = parseDelayCalibrationLogs(sessionLogs)
+                updateAdvanced({
+                    delayCalibrationStats: stats,
+                    lastCalibrationSessionAt: new Date().toISOString(),
+                })
+                logWithTimestamp("[Home] Delay calibration stats updated from home-button session.")
+            }
             return
         }
         if (!readyStatus) {

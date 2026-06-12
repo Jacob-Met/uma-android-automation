@@ -253,6 +253,36 @@ export const applyMigrations = (settings: any, rawSettings?: any): { settings: a
         }
     }
 
+    const rawAdvanced = rawSettings?.advanced as Record<string, unknown> | undefined
+    let advanced = migratedSettings.advanced as Record<string, unknown> | undefined
+    if (!advanced) {
+        advanced = {}
+        migratedSettings.advanced = advanced
+        anyMigrated = true
+        logWithTimestamp("[SettingsManager] Initialized advanced settings namespace.")
+    }
+    if (rawAdvanced?.perActionDelayOverrides === undefined && advanced.perActionDelayOverrides === undefined) {
+        advanced.perActionDelayOverrides = "{}"
+        anyMigrated = true
+    }
+    if (rawAdvanced?.delayCalibrationStats === undefined && advanced.delayCalibrationStats === undefined) {
+        advanced.delayCalibrationStats = {}
+        anyMigrated = true
+    }
+    const overlayResumeDefaults: Record<string, boolean> = {
+        overlayResumeRecheckSkills: false,
+        overlayResumeReloadAgenda: false,
+        overlayResumeRecheckShop: false,
+        overlayRecheckShopOnTurnChange: false,
+        overlayRecheckSkillsWhenOverThreshold: false,
+    }
+    for (const [key, defaultValue] of Object.entries(overlayResumeDefaults)) {
+        if (advanced[key] === undefined) {
+            advanced[key] = defaultValue
+            anyMigrated = true
+        }
+    }
+
     return { settings: migratedSettings, anyMigrated }
 }
 

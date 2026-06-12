@@ -80,6 +80,9 @@ abstract class Task(game: Game) : DialogHandler(game) {
      */
     abstract fun process(): TaskResult?
 
+    /** Re-reads persisted settings into live bot state. Override in campaign tasks to reload sub-modules. */
+    open fun reloadRuntimeSettings() {}
+
     /**
      * Attempt to handle all active dialog boxes.
      *

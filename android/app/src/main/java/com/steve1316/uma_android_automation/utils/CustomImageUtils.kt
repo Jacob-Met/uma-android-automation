@@ -61,7 +61,7 @@ import kotlin.text.replace
 /** Utility functions for image processing via CV like OpenCV. */
 class CustomImageUtils(context: Context, private val game: Game) : ImageUtils(context) {
     /** OCR threshold for text recognition. */
-    private val threshold: Int = SettingsHelper.getIntSetting("debug", "ocrThreshold")
+    private var threshold: Int = SettingsHelper.getIntSetting("debug", "ocrThreshold")
 
     /** Whether debug mode is enabled for additional logging and saving debugging images to storage. */
     override var debugMode: Boolean = SettingsHelper.getBooleanSetting("debug", "enableDebugMode")
@@ -77,6 +77,14 @@ class CustomImageUtils(context: Context, private val game: Game) : ImageUtils(co
 
     /** Whether to use YOLOv8 for stat detection. */
     private val useYolo: Boolean get() = SettingsHelper.getBooleanSetting("training", "enableYoloStatDetection")
+
+    fun reloadRuntimeSettings() {
+        threshold = SettingsHelper.getIntSetting("debug", "ocrThreshold")
+        debugMode = SettingsHelper.getBooleanSetting("debug", "enableDebugMode")
+        confidence = SettingsHelper.getStringSetting("debug", "templateMatchConfidence").toDouble()
+        customScale = SettingsHelper.getStringSetting("debug", "templateMatchCustomScale").toDouble()
+        game.debugMode = debugMode
+    }
 
     /**
      * Defines the details of a race.

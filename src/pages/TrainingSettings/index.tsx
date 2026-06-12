@@ -37,6 +37,8 @@ const TrainingSettings = () => {
     const { saveSettingsImmediate } = useSettings()
     const { currentProfileName } = useProfileManager()
     const [blacklistModalVisible, setBlacklistModalVisible] = useState(false)
+    const [summerBlacklistModalVisible, setSummerBlacklistModalVisible] = useState(false)
+    const [finaleBlacklistModalVisible, setFinaleBlacklistModalVisible] = useState(false)
     const [prioritizationModalVisible, setPrioritizationModalVisible] = useState(false)
     const [eventChoicePrioritizationModalVisible, setEventChoicePrioritizationModalVisible] = useState(false)
     const [summerTrainingPrioritizationModalVisible, setSummerTrainingPrioritizationModalVisible] = useState(false)
@@ -55,6 +57,12 @@ const TrainingSettings = () => {
         training?.summerTrainingStatPriority !== undefined ? training.summerTrainingStatPriority : defaultSettings.training.summerTrainingStatPriority
     )
     const [blacklistItems, setBlacklistItems] = useState<string[]>(() => (training?.trainingBlacklist !== undefined ? training.trainingBlacklist : defaultSettings.training.trainingBlacklist))
+    const [summerBlacklistItems, setSummerBlacklistItems] = useState<string[]>(() =>
+        training?.summerTrainingBlacklist !== undefined ? training.summerTrainingBlacklist : defaultSettings.training.summerTrainingBlacklist
+    )
+    const [finaleBlacklistItems, setFinaleBlacklistItems] = useState<string[]>(() =>
+        training?.finaleTrainingBlacklist !== undefined ? training.finaleTrainingBlacklist : defaultSettings.training.finaleTrainingBlacklist
+    )
     const [sparkStatTargetItems, setSparkStatTargetItems] = useState<string[]>(() => {
         const value = training?.focusOnSparkStatTarget
         // Ensure we always have an array (migration should handle this, but be safe).
@@ -88,12 +96,14 @@ const TrainingSettings = () => {
             ...defaultSettings.training,
             ...training,
             trainingBlacklist: blacklistItems,
+            summerTrainingBlacklist: summerBlacklistItems,
+            finaleTrainingBlacklist: finaleBlacklistItems,
             statPrioritization: statPrioritizationItems,
             eventChoiceStatPriority: eventChoiceStatPriorityItems,
             summerTrainingStatPriority: summerTrainingStatPriorityItems,
             focusOnSparkStatTarget: sparkStatTargetItems,
         }),
-        [training, blacklistItems, statPrioritizationItems, eventChoiceStatPriorityItems, summerTrainingStatPriorityItems, sparkStatTargetItems]
+        [training, blacklistItems, summerBlacklistItems, finaleBlacklistItems, statPrioritizationItems, eventChoiceStatPriorityItems, summerTrainingStatPriorityItems, sparkStatTargetItems]
     )
 
     const trainingStatTargetSettings = useMemo(() => ({ ...defaultSettings.trainingStatTarget, ...trainingStatTarget }), [trainingStatTarget])
@@ -121,6 +131,13 @@ const TrainingSettings = () => {
         enablePrioritizeSkillHints,
         enableTrainingAnalysisValidation,
         enableYoloStatDetection,
+        fullScanRiskyOvershootPercent,
+        enableHardcoreFriendshipOptimization,
+        hardcoreFriendshipOptimizationUntilTurn,
+        ignorePalCardFriendshipBarsInTraining,
+        enableNeverClickEmptyTop3PriorityTraining,
+        summerTrainingBlacklist,
+        finaleTrainingBlacklist,
     } = trainingSettings
 
     // Update global settings when local state changes, but skip the initial mount check.
@@ -159,6 +176,22 @@ const TrainingSettings = () => {
 
     useEffect(() => {
         if (isMounted.current) {
+            if (!shallowArrayEqual(training?.summerTrainingBlacklist, summerBlacklistItems)) {
+                updateTrainingSetting("summerTrainingBlacklist", summerBlacklistItems)
+            }
+        }
+    }, [summerBlacklistItems])
+
+    useEffect(() => {
+        if (isMounted.current) {
+            if (!shallowArrayEqual(training?.finaleTrainingBlacklist, finaleBlacklistItems)) {
+                updateTrainingSetting("finaleTrainingBlacklist", finaleBlacklistItems)
+            }
+        }
+    }, [finaleBlacklistItems])
+
+    useEffect(() => {
+        if (isMounted.current) {
             if (!shallowArrayEqual(training?.focusOnSparkStatTarget, sparkStatTargetItems)) {
                 updateTrainingSetting("focusOnSparkStatTarget", sparkStatTargetItems)
             }
@@ -177,6 +210,20 @@ const TrainingSettings = () => {
             setBlacklistItems(newVal)
         }
     }, [training?.trainingBlacklist])
+
+    useEffect(() => {
+        const newVal = training?.summerTrainingBlacklist
+        if (newVal !== undefined && !shallowArrayEqual(newVal, summerBlacklistItems)) {
+            setSummerBlacklistItems(newVal)
+        }
+    }, [training?.summerTrainingBlacklist])
+
+    useEffect(() => {
+        const newVal = training?.finaleTrainingBlacklist
+        if (newVal !== undefined && !shallowArrayEqual(newVal, finaleBlacklistItems)) {
+            setFinaleBlacklistItems(newVal)
+        }
+    }, [training?.finaleTrainingBlacklist])
 
     useEffect(() => {
         const newVal = training?.statPrioritization
@@ -533,6 +580,28 @@ const TrainingSettings = () => {
                                 )}
 
                                 {renderStatSelector(
+                                    "Summer Blacklist",
+                                    summerBlacklistItems,
+                                    (value) => setSummerBlacklistItems(value),
+                                    summerBlacklistModalVisible,
+                                    setSummerBlacklistModalVisible,
+                                    "Stats blacklisted during Summer training only. Independent of the main training blacklist.",
+                                    "checkbox",
+                                    "summer-training-blacklist"
+                                )}
+
+                                {renderStatSelector(
+                                    "Finale Blacklist",
+                                    finaleBlacklistItems,
+                                    (value) => setFinaleBlacklistItems(value),
+                                    finaleBlacklistModalVisible,
+                                    setFinaleBlacklistModalVisible,
+                                    "Stats blacklisted during the Finale season only. Independent of the main training blacklist.",
+                                    "checkbox",
+                                    "finale-training-blacklist"
+                                )}
+
+                                {renderStatSelector(
                                     "Prioritization",
                                     statPrioritizationItems,
                                     (value) => setStatPrioritizationItems(value),
@@ -834,6 +903,75 @@ const TrainingSettings = () => {
                                         showValue={true}
                                         showLabels={true}
                                         description="Scales how much Yayoi Akikawa and Etsuko Otonashi friendship bars affect training selection. 100% is current behavior; 0% ignores their bars in friendship scoring."
+                                    />
+                                </View>
+
+                                <View style={styles.section}>
+                                    <CustomCheckbox
+                                        checked={ignorePalCardFriendshipBarsInTraining}
+                                        onCheckedChange={(checked) => updateTrainingSetting("ignorePalCardFriendshipBarsInTraining", checked)}
+                                        label="Ignore Pal-Card Friendship Bars in Training"
+                                        description="When enabled, trainer pal-card bars (Riko Kashimoto, Tazuna Hayakawa, etc.) are excluded from friendship scoring and bar counts during training selection. Does not affect recreation."
+                                        className="my-2"
+                                        searchId="ignore-pal-card-friendship-bars-in-training"
+                                    />
+                                </View>
+
+                                <View style={styles.section}>
+                                    <CustomCheckbox
+                                        checked={enableNeverClickEmptyTop3PriorityTraining}
+                                        onCheckedChange={(checked) => updateTrainingSetting("enableNeverClickEmptyTop3PriorityTraining", checked)}
+                                        label="Never Click Empty Top-3 Priority Training"
+                                        description="When enabled, never pick a top-3 priority stat with zero qualifying below-orange bars if another top-3 priority stat has at least the Top-3 Friendship Bar Minimum below-orange bars."
+                                        className="my-2"
+                                        searchId="enable-never-click-empty-top3-priority-training"
+                                    />
+                                </View>
+
+                                <View style={styles.section}>
+                                    <CustomCheckbox
+                                        checked={enableHardcoreFriendshipOptimization}
+                                        onCheckedChange={(checked) => updateTrainingSetting("enableHardcoreFriendshipOptimization", checked)}
+                                        label="Hardcore Friendship Optimization Until Turn"
+                                        description="Extends Junior/pre-debut friendship bar rules (top-3 vs Wit comparisons) through the configured turn, not just Junior year."
+                                        className="my-2"
+                                        searchId="enable-hardcore-friendship-optimization"
+                                    />
+                                </View>
+
+                                {enableHardcoreFriendshipOptimization && (
+                                    <View style={styles.section}>
+                                        <CustomSlider
+                                            searchId="hardcore-friendship-optimization-until-turn"
+                                            value={hardcoreFriendshipOptimizationUntilTurn}
+                                            placeholder={defaultSettings.training.hardcoreFriendshipOptimizationUntilTurn}
+                                            onValueChange={(value) => updateTrainingSetting("hardcoreFriendshipOptimizationUntilTurn", value)}
+                                            onSlidingComplete={(value) => updateTrainingSetting("hardcoreFriendshipOptimizationUntilTurn", value)}
+                                            min={1}
+                                            max={78}
+                                            step={1}
+                                            label="Hardcore Friendship Until Turn"
+                                            showValue={true}
+                                            showLabels={true}
+                                            description="Last career turn (inclusive) that uses hardcore friendship optimization when enabled."
+                                        />
+                                    </View>
+                                )}
+
+                                <View style={styles.section}>
+                                    <CustomSlider
+                                        searchId="full-scan-risky-overshoot-percent"
+                                        value={fullScanRiskyOvershootPercent}
+                                        placeholder={defaultSettings.training.fullScanRiskyOvershootPercent}
+                                        onValueChange={(value) => updateTrainingSetting("fullScanRiskyOvershootPercent", value)}
+                                        onSlidingComplete={(value) => updateTrainingSetting("fullScanRiskyOvershootPercent", value)}
+                                        min={0}
+                                        max={15}
+                                        step={1}
+                                        label="Full Scan Risky Overshoot Margin (%)"
+                                        showValue={true}
+                                        showLabels={true}
+                                        description="When the first training tab exceeds the risky failure cap by at most this many points, still scan all stat tabs. Also enables Wit friendship pick when Wit is under the failure threshold with enough below-orange bars."
                                     />
                                 </View>
 
