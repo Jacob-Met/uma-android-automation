@@ -32,6 +32,7 @@ const pageNameMapping: Record<string, string> = {
     SmartRaceSolverSettings: "Smart Race Solver",
     SkillSettings: "Skills",
     DebugSettings: "Debug",
+    AdvancedSettings: "Advanced Settings",
     EventLogVisualizer: "Event Log Visualizer",
     ImportSettingsPreview: "Import Settings Preview",
     SkillPlanSettingsSkillPointCheck: "Skill Plan: Skill Point Check",
@@ -194,6 +195,7 @@ const PageHeader = ({ title, showHomeButton = true, titleComponent, leftComponen
             "EventLogVisualizer",
             "ImportSettingsPreview",
             "DebugSettings",
+            "AdvancedSettings",
         ]
 
         // Check if the target page is a regular Settings page or a dynamic Skill Plan Settings page.

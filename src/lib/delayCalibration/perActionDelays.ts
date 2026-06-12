@@ -1,6 +1,19 @@
-/** Parses the advanced.perActionDelayOverrides JSON string. */
-export const parsePerActionDelayOverrides = (json: string | undefined): Record<string, number> => {
-    if (!json || json.trim() === "") return {}
+/** Parses the advanced.perActionDelayOverrides JSON string (or legacy object form from SQLite). */
+export const parsePerActionDelayOverrides = (json: string | Record<string, unknown> | undefined | null): Record<string, number> => {
+    if (json == null) return {}
+
+    if (typeof json === "object" && !Array.isArray(json)) {
+        const out: Record<string, number> = {}
+        for (const [key, val] of Object.entries(json)) {
+            if (typeof val === "number" && Number.isFinite(val)) {
+                out[key] = val
+            }
+        }
+        return out
+    }
+
+    if (typeof json !== "string" || json.trim() === "") return {}
+
     try {
         const parsed = JSON.parse(json) as unknown
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}

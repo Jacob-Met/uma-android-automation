@@ -264,6 +264,10 @@ export const applyMigrations = (settings: any, rawSettings?: any): { settings: a
     if (rawAdvanced?.perActionDelayOverrides === undefined && advanced.perActionDelayOverrides === undefined) {
         advanced.perActionDelayOverrides = "{}"
         anyMigrated = true
+    } else if (advanced.perActionDelayOverrides != null && typeof advanced.perActionDelayOverrides !== "string") {
+        advanced.perActionDelayOverrides = JSON.stringify(advanced.perActionDelayOverrides)
+        anyMigrated = true
+        logWithTimestamp("[SettingsManager] Normalized perActionDelayOverrides object to JSON string.")
     }
     if (rawAdvanced?.delayCalibrationStats === undefined && advanced.delayCalibrationStats === undefined) {
         advanced.delayCalibrationStats = {}

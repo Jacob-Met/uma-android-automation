@@ -122,6 +122,7 @@ export class DatabaseManager {
         "smartRaceSolverForcedEpithets",
         "smartRaceSolverManualLocks",
         "smartRaceSolverWeights",
+        "perActionDelayOverrides",
     ]
     private TABLE_SETTINGS = "settings"
     private TABLE_RACES = "races"

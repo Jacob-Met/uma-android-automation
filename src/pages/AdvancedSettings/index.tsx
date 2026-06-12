@@ -31,10 +31,24 @@ const formatStatsSummary = (stats: DelayCalibrationActionStats | undefined): str
 
 const formatSuggested = (stats: DelayCalibrationActionStats | undefined): string | null => {
     if (stats?.suggestedDelaySec == null) return null
-    const avg =
-        stats.avgSuccessDelayMs != null ? ` (avg ${(stats.avgSuccessDelayMs / 1000).toFixed(2)}s)` : ""
-    return `${stats.suggestedDelaySec.toFixed(2)}s${avg}`
+    const suggested = Number(stats.suggestedDelaySec)
+    if (!Number.isFinite(suggested)) return null
+    const avgMs = stats.avgSuccessDelayMs != null ? Number(stats.avgSuccessDelayMs) : null
+    const avg = avgMs != null && Number.isFinite(avgMs) ? ` (avg ${(avgMs / 1000).toFixed(2)}s)` : ""
+    return `${suggested.toFixed(2)}s${avg}`
 }
+
+const mergeAdvancedSettings = (
+    defaults: Settings["advanced"],
+    slice: Settings["advanced"] | null | undefined
+): Settings["advanced"] => ({
+    ...defaults,
+    ...(slice ?? {}),
+    delayCalibrationStats: {
+        ...defaults.delayCalibrationStats,
+        ...(slice?.delayCalibrationStats ?? {}),
+    },
+})
 
 /**
  * Advanced settings — per-action delay calibration and tuning.
@@ -43,10 +57,11 @@ const AdvancedSettings = () => {
     usePerformanceLogging("AdvancedSettings")
     const { colors } = useTheme()
     const scrollViewRef = useRef<ScrollView>(null)
-    const { advanced, updateAdvanced } = useContext(AdvancedContext)
+    const { advanced: advancedSlice, updateAdvanced } = useContext(AdvancedContext)
     const { defaultSettings, setSettings } = useContext(BotMetaContext)
     const { general } = useContext(GeneralMiscContext)
     const { racing } = useContext(RacingContext)
+    const advanced = useMemo(() => mergeAdvancedSettings(defaultSettings.advanced, advancedSlice), [defaultSettings.advanced, advancedSlice])
 
     const settingsSnapshot = useMemo<Settings>(
         () => ({
@@ -133,7 +148,7 @@ const AdvancedSettings = () => {
     return (
         <SearchPageProvider page="AdvancedSettings" scrollViewRef={scrollViewRef}>
             <View style={styles.root}>
-                <PageHeader title="Advanced Settings" scrollViewRef={scrollViewRef} />
+                <PageHeader title="Advanced Settings" />
                 <ScrollView ref={scrollViewRef} style={{ flex: 1 }} contentContainerStyle={styles.content}>
                     <CustomTitle title="Delay calibration" description="Tune per-action waits using log timing from home-button runs." />
 
@@ -223,7 +238,7 @@ const AdvancedSettings = () => {
                                             <Ionicons name="remove" size={20} color={colors.foreground} />
                                         </TouchableOpacity>
                                         <Text style={{ minWidth: 64, textAlign: "center", color: colors.foreground, fontWeight: "600" }}>
-                                            {currentDelay.toFixed(2)}s
+                                            {Number.isFinite(currentDelay) ? currentDelay.toFixed(2) : "0.00"}s
                                         </Text>
                                         <TouchableOpacity
                                             style={styles.stepButton}
