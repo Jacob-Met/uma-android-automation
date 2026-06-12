@@ -27,6 +27,7 @@ Other
 - Unique race strategy overrides UI.
 - Runtime settings notifier wired after every settings save.
 - Maiden race detection — any completed non-maiden race marks the debut step done (fixes stale fan-tier OCR re-checking maiden every turn).
+- Advanced Settings crash fix — corrected CustomSlider min/max props on the delay calibration page.
 
     </releaseNotes>
   </update>

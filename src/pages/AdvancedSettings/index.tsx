@@ -2,7 +2,7 @@ import { useCallback, useContext, useMemo, useRef } from "react"
 import { View, ScrollView, StyleSheet, TouchableOpacity } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { useTheme } from "../../context/ThemeContext"
-import { AdvancedContext, BotMetaContext, GeneralMiscContext, RacingContext, Settings, defaultSettings } from "../../context/BotStateContext"
+import { AdvancedContext, BotMetaContext, GeneralMiscContext, RacingContext, Settings } from "../../context/BotStateContext"
 import { SearchPageProvider } from "../../context/SearchPageContext"
 import CustomCheckbox from "../../components/CustomCheckbox"
 import CustomSlider from "../../components/CustomSlider"
@@ -58,14 +58,16 @@ const AdvancedSettings = () => {
         [general, racing, advanced]
     )
 
+    const delayCalibrationStats = advanced.delayCalibrationStats ?? {}
+
     const hasSessionStats = useMemo(
-        () => DELAY_CALIBRATION_ACTIONS.some((a) => (advanced.delayCalibrationStats[a.id]?.totalExecutions ?? 0) > 0),
-        [advanced.delayCalibrationStats]
+        () => DELAY_CALIBRATION_ACTIONS.some((a) => (delayCalibrationStats[a.id]?.totalExecutions ?? 0) > 0),
+        [delayCalibrationStats]
     )
 
     const hasAnySuggestion = useMemo(
-        () => DELAY_CALIBRATION_ACTIONS.some((a) => advanced.delayCalibrationStats[a.id]?.suggestedDelaySec != null),
-        [advanced.delayCalibrationStats]
+        () => DELAY_CALIBRATION_ACTIONS.some((a) => delayCalibrationStats[a.id]?.suggestedDelaySec != null),
+        [delayCalibrationStats]
     )
 
     const adjustDelay = useCallback(
@@ -88,14 +90,14 @@ const AdvancedSettings = () => {
 
     const approveSuggested = useCallback(
         (actionId: string) => {
-            setSettings((prev) => applySuggestedDelayForAction(prev, actionId, advanced.delayCalibrationStats))
+            setSettings((prev) => applySuggestedDelayForAction(prev, actionId, delayCalibrationStats))
         },
-        [advanced.delayCalibrationStats, setSettings]
+        [delayCalibrationStats, setSettings]
     )
 
     const approveAllSuggested = useCallback(() => {
-        setSettings((prev) => applyAllSuggestedDelays(prev, advanced.delayCalibrationStats))
-    }, [advanced.delayCalibrationStats, setSettings])
+        setSettings((prev) => applyAllSuggestedDelays(prev, delayCalibrationStats))
+    }, [delayCalibrationStats, setSettings])
 
     const styles = useMemo(
         () =>
@@ -129,7 +131,7 @@ const AdvancedSettings = () => {
     )
 
     return (
-        <SearchPageProvider scrollViewRef={scrollViewRef}>
+        <SearchPageProvider page="AdvancedSettings" scrollViewRef={scrollViewRef}>
             <View style={styles.root}>
                 <PageHeader title="Advanced Settings" scrollViewRef={scrollViewRef} />
                 <ScrollView ref={scrollViewRef} style={{ flex: 1 }} contentContainerStyle={styles.content}>
@@ -158,12 +160,12 @@ const AdvancedSettings = () => {
                     >
                         <CustomSlider
                             label="Adjustment step (seconds)"
-                            value={advanced.delayCalibrationIncrement}
+                            value={advanced.delayCalibrationIncrement ?? defaultSettings.advanced.delayCalibrationIncrement}
                             placeholder={defaultSettings.advanced.delayCalibrationIncrement}
                             onValueChange={(value) => updateAdvanced({ delayCalibrationIncrement: value })}
                             onSlidingComplete={(value) => updateAdvanced({ delayCalibrationIncrement: value })}
-                            minimumValue={0.01}
-                            maximumValue={0.5}
+                            min={0.01}
+                            max={0.5}
                             step={0.01}
                             description="Step size for the +/- buttons next to each action delay."
                         />
@@ -191,7 +193,7 @@ const AdvancedSettings = () => {
                     )}
 
                     {DELAY_CALIBRATION_ACTIONS.map((action) => {
-                        const stats = advanced.delayCalibrationStats[action.id]
+                        const stats = delayCalibrationStats[action.id]
                         const currentDelay = getCurrentDelayForAction(action, settingsSnapshot)
                         const suggested = formatSuggested(stats)
 
