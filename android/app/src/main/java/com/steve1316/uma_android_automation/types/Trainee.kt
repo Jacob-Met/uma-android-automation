@@ -218,6 +218,12 @@ class Trainee {
     /** The trainee's ranking category ([FanCountClass]) based on their current fan total. */
     var fanCountClass: FanCountClass = FanCountClass.DEBUT
 
+    /**
+     * True once the bot has completed a race above maiden/debut tier this career.
+     * Non-maiden races are only available after the maiden requirement is cleared in-game.
+     */
+    var bHasRunNonMaidenRace: Boolean = false
+
     /** Tracks consecutive mismatches for each stat to recover from OCR misreads. */
     private val mismatchCounts: MutableMap<StatName, Int> = mutableMapOf()
 
@@ -230,7 +236,16 @@ class Trainee {
 
     /** True if the trainee has progressed past the maiden race debut. */
     val bHasCompletedMaidenRace: Boolean
-        get() = fanCountClass.ordinal > FanCountClass.MAIDEN.ordinal
+        get() = bHasRunNonMaidenRace || fanCountClass.ordinal > FanCountClass.MAIDEN.ordinal
+
+    /**
+     * Records a completed race grade. Any non-maiden, non-debut race implies the maiden step is done.
+     */
+    fun noteCompletedRaceGrade(grade: RaceGrade?) {
+        if (grade != null && grade != RaceGrade.MAIDEN && grade != RaceGrade.DEBUT) {
+            bHasRunNonMaidenRace = true
+        }
+    }
 
     /** The trainee's calculated or overridden preferred [TrackSurface]. */
     val trackSurface: TrackSurface

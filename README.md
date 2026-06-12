@@ -113,6 +113,7 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 - **Game data** — Taiki Shuttle / Sweep Tosho training events (Camping 2026-06-10)
 - **Unique race strategy overrides** UI
 - Automation library **2.5.7** (storage bridge)
+- **Maiden race detection** — treat any completed non-maiden race as maiden done; no longer relies on fan-tier OCR alone
 
 ## Prior fixes (1.0.1)
 

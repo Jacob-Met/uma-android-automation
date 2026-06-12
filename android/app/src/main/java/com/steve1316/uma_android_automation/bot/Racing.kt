@@ -1510,6 +1510,8 @@ class Racing(private val game: Game, private val campaign: Campaign) {
             return false
         }
 
+        campaign.trainee.noteCompletedRaceGrade(lastRaceGrade)
+
         // Use the Congratulations banner to confirm 1st place — only real wins should land
         // in the solver's history. Losses drop the pending entry so the next plan sees the
         // unchanged history.
