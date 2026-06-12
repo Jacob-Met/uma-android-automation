@@ -1,28 +1,31 @@
 <AppUpdater>
   <update>
-    <latestVersion>1.0.1</latestVersion>
+    <latestVersion>1.0.2</latestVersion>
     <url>https://github.com/Jacob-Met/uma-android-automation/releases</url>
     <releaseNotes>
-v1.0.1 - Changelog
+v1.0.2 - Changelog
 
 > [!NOTE]
 > Jacob-Met custom fork (Trackblazer). Based on upstream v5.6.1.
 
-Fixes — training / charm logic
+Advanced settings &amp; overlay resume
 ---
-- Fix rest at high energy when stats were wrongly skipped for low-gain charm at 0% failure.
-- Fix charm assumed in analysis when charm would never queue (per-stat pool, min-gain, mood, Wit checks).
-- Fix misleading energy-recovery bail when first training tab exceeded failure threshold.
-- Skip full stat scan only when failure exceeds threshold AND no charm/energy mitigation items remain.
-- Honor failure-mitigation pool reserve override when deciding if charms warrant a full scan.
-- Prefer safe executable training fallback and mitigation retry before backing out to rest.
-- Skip training analysis at 0% energy only when no charm or energy-restoring items remain.
-- Remove zero-energy low-gain charm bypass; risky charm always requires min stat gain (Climax excepted).
+- New **Advanced Settings** page — per-action delay tuning and delay calibration from Home-button sessions.
+- **Overlay pause/resume controls** — optional recheck of skills, agenda reload, and shop when restarting from the floating overlay button (all off by default).
+- Conditional overlay options — recheck shop when turn changes; recheck skills when over skill-point threshold.
+- Mid-flow resume — if paused inside skill list, shop, or agenda UI, bot continues that flow on restart.
+- **Live settings reload** — SQLite changes apply to a running bot without Home restart.
 
-Import / updates
+First-run &amp; data
 ---
-- Import upstream master 5.7.x settings JSON with automatic key remapping.
-- Update checker reads this fork's release feed (no false prompt for upstream 5.7.x on launch).
+- **First-run wizard** — storage folder picker, legacy log/recording migration, permission checks on first launch.
+- **Taiki Shuttle / Sweep Tosho** training event data (Camping 2026-06-10).
+- Automation library bumped to 2.5.7 for storage bridge support.
+
+Other
+---
+- Unique race strategy overrides UI.
+- Runtime settings notifier wired after every settings save.
 
     </releaseNotes>
   </update>

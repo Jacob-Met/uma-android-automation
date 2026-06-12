@@ -1,8 +1,8 @@
-# Uma Android Automation — Custom Trackblazer Fork (v1.0.1)
+# Uma Android Automation — Custom Trackblazer Fork (v1.0.2)
 
 ![GitHub last commit](https://img.shields.io/github/last-commit/Jacob-Met/uma-android-automation/custom?logo=GitHub) ![GitHub release](https://img.shields.io/github/v/release/Jacob-Met/uma-android-automation?include_prereleases&label=release&logo=GitHub)
 
-Jacob-Met’s **custom Trackblazer fork**, branched from upstream **v5.6.1** and released as **1.0.1** (`custom-v1.0.1`).
+Jacob-Met’s **custom Trackblazer fork**, branched from upstream **v5.6.1** and released as **1.0.2** (`custom-v1.0.2`).
 
 This is **not** upstream [steve1316/uma-android-automation](https://github.com/steve1316/uma-android-automation) **v5.7.3**. It installs as a **separate app** (`com.steve1316.uma_android_automation.custom`) so you can run it alongside the official build.
 
@@ -12,12 +12,12 @@ This is **not** upstream [steve1316/uma-android-automation](https://github.com/s
 
 ## Download
 
-Get APKs from **[Releases → custom-v1.0.1](https://github.com/Jacob-Met/uma-android-automation/releases/tag/custom-v1.0.1)**:
+Get APKs from **[Releases → custom-v1.0.2](https://github.com/Jacob-Met/uma-android-automation/releases/tag/custom-v1.0.2)**:
 
 | APK | Use for |
 |-----|---------|
-| `v1.0.1-UmaAndroidAutomation-Custom-arm64-v8a-release.apk` | Physical phones / most emulators |
-| `v1.0.1-UmaAndroidAutomation-Custom-x86_64-release.apk` | x86 emulators (e.g. LDPlayer) |
+| `v1.0.2-UmaAndroidAutomation-Custom-arm64-v8a-release.apk` | Physical phones / most emulators |
+| `v1.0.2-UmaAndroidAutomation-Custom-x86_64-release.apk` | x86 emulators (e.g. LDPlayer) |
 
 **Package ID:** `com.steve1316.uma_android_automation.custom`  
 **Logcat filter:** `package:com.steve1316.uma_android_automation.custom [UAA]`
@@ -30,7 +30,7 @@ This fork targets **Trackblazer tuning and reliability**, not parity with the la
 
 ### You get (custom only)
 
-Everything in the sections below — deep Trackblazer item/training logic, Wit rules, failure mitigation, run summary export, custom defaults, and side-by-side packaging.
+Everything in the sections below — deep Trackblazer item/training logic, Wit rules, failure mitigation, run summary export, advanced tuning, overlay resume handling, custom defaults, and side-by-side packaging.
 
 ### Upstream v5.7.3 has (not in this fork)
 
@@ -44,6 +44,15 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 ---
 
 ## Custom features (not in upstream 5.7.3)
+
+### Advanced settings & overlay resume
+
+- **Advanced Settings page** — per-action delay overrides, delay calibration telemetry, and +/- tuning controls
+- **Delay calibration** — collect timing stats from Home-button start/stop sessions; approve suggested delays per action
+- **Overlay pause/resume toggles** (all off by default) — control whether overlay stop/start forces skill checks, agenda reload, or shop visits
+- **Conditional overlay rechecks** — shop when turn changes; skills when over skill-point threshold
+- **Mid-flow resume** — continues skill list, shop, or agenda UI if paused mid-flow
+- **Live settings reload** — SQLite saves push into a running bot session without Home restart
 
 ### Trackblazer training & items
 
@@ -73,6 +82,7 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 - **SRS off-screen fallback** — Smart Race Solver when preferred race UI is off-screen
 - **Retry / grade gates** — configurable race retries and pre-final grade checks
 - **Expanded shop overrides** — item reserves (cupcakes, hammers, glow sticks), excluded items, shop check frequency/grades
+- **Unique race strategy overrides** — per-race strategy overrides UI
 
 ### Skills & presets
 
@@ -84,6 +94,7 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 
 - **Run summary CSV export** — training click counts + stat gains + race rows at career end (optional)
 - **Purchased label detection** — shop sync improvements
+- **First-run wizard** — storage folder setup, legacy file migration, permission gate on first launch
 - **Custom default settings** — see [docs/fork-custom-defaults-comparison.csv](docs/fork-custom-defaults-comparison.csv) for fork vs vanilla defaults
 
 ### Packaging
@@ -93,7 +104,17 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 
 ---
 
-## Recent fixes (1.0.1)
+## Recent changes (1.0.2)
+
+- **Advanced Settings** — delay calibration, per-action delay tuning, overlay pause/resume toggles
+- **Overlay resume handling** — no forced skill/agenda/shop on overlay restart unless toggled on; mid-flow resume for skill/shop/agenda screens
+- **Live settings reload** — bot picks up SQLite changes while running
+- **First-run wizard** — storage folder picker and legacy log/recording migration
+- **Game data** — Taiki Shuttle / Sweep Tosho training events (Camping 2026-06-10)
+- **Unique race strategy overrides** UI
+- Automation library **2.5.7** (storage bridge)
+
+## Prior fixes (1.0.1)
 
 - Charm no longer assumed globally when in inventory; per-stat queue rules (min gain, pool, mood, Wit)
 - No rest at high energy when a safe stat exists; safe fallback + pre-item mitigation retry
@@ -116,9 +137,10 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 ## Quick start
 
 1. Install a Custom APK from [Releases](https://github.com/Jacob-Met/uma-android-automation/releases).
-2. Open the app → set scenario to **Trackblazer** → configure Training + Scenario Overrides.
-3. Grant Overlay, Accessibility, and MediaProjection when prompted.
-4. Place the overlay button away from HUD edges; start from the Uma main training screen.
+2. On first launch, complete the **first-run wizard** (storage folder + permissions).
+3. Open the app → set scenario to **Trackblazer** → configure Training + Scenario Overrides.
+4. Grant Overlay, Accessibility, and MediaProjection when prompted.
+5. Place the overlay button away from HUD edges; start from the Uma main training screen.
 
 ### Import settings from upstream 5.7.x
 
@@ -145,7 +167,7 @@ yarn install --ignore-scripts   # if tree-sitter native build fails on Node 26+
 cd android && ./gradlew assembleRelease
 ```
 
-APKs export to `../apk/` as `v1.0.1-UmaAndroidAutomation-Custom-<arch>-release.apk`.
+APKs export to `../apk/` as `v1.0.2-UmaAndroidAutomation-Custom-<arch>-release.apk`.
 
 ---
 
@@ -154,6 +176,7 @@ APKs export to `../apk/` as `v1.0.1-UmaAndroidAutomation-Custom-<arch>-release.a
 | Ref | Meaning |
 |-----|---------|
 | `custom` | Active development branch |
+| `custom-v1.0.2` | Release tag for 1.0.2 APKs |
 | `custom-v1.0.1` | Release tag for 1.0.1 APKs |
 | `custom-v1.0.0` | Release tag for 1.0.0 APKs |
 
