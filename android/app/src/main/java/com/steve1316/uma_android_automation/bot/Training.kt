@@ -422,7 +422,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             effectiveFailureChance: Int,
             climaxForceCharmTraining: Boolean,
             minStatGainForCharm: Int,
-            allowLowGainCharmAtZeroEnergy: Boolean,
         ): Boolean {
             if (climaxForceCharmTraining) {
                 return true
@@ -430,23 +429,18 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             if (failureChance <= effectiveFailureChance) {
                 return false
             }
-            if (mainStatGain >= minStatGainForCharm) {
-                return true
-            }
-            return allowLowGainCharmAtZeroEnergy
+            return mainStatGain >= minStatGainForCharm
         }
 
         /** Whether charm-backed training should be skipped for low main-stat gain when failure still exceeds threshold. */
         fun wouldSkipForLowGainCharm(
             allowCharmForStat: Boolean,
             climaxForceCharmTraining: Boolean,
-            allowLowGainCharmAtZeroEnergy: Boolean,
             failureChanceExceedsThreshold: Boolean,
             mainStatGainBelowMin: Boolean,
         ): Boolean =
             allowCharmForStat &&
                 !climaxForceCharmTraining &&
-                !allowLowGainCharmAtZeroEnergy &&
                 failureChanceExceedsThreshold &&
                 mainStatGainBelowMin
 
@@ -1320,7 +1314,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val ignoreFailureChance = args["ignoreFailureChance"] as? Boolean ?: false
         val minStatGainForCharm = args["minStatGainForCharm"] as? Int ?: 30
         val climaxForceCharmTraining = args["climaxForceCharmTraining"] as? Boolean ?: false
-        val allowLowGainCharmAtZeroEnergy = args["allowLowGainCharmAtZeroEnergy"] as? Boolean ?: false
         val charmUsedThisTurn = args["charmUsedThisTurn"] as? Boolean ?: false
 
         // Skip training analysis only at 0% energy when no charm or energy items can help.
@@ -1840,7 +1833,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                             effectiveFailureChance = effectiveFailureChance,
                             ignoreFailureChance = ignoreFailureChance,
                             climaxForceCharmTraining = climaxForceCharmTraining,
-                            allowLowGainCharmAtZeroEnergy = allowLowGainCharmAtZeroEnergy,
                             minStatGainForCharm = minStatGainForCharm,
                             charmUsedThisTurn = charmUsedThisTurn,
                         )
@@ -1858,7 +1850,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                             wouldSkipForLowGainCharm(
                                 allowCharmForStat = allowCharmForStat,
                                 climaxForceCharmTraining = climaxForceCharmTraining,
-                                allowLowGainCharmAtZeroEnergy = allowLowGainCharmAtZeroEnergy,
                                 failureChanceExceedsThreshold = result.failureChance > effectiveFailureChance,
                                 mainStatGainBelowMin = mainStatGain < minStatGainForCharm,
                             )
@@ -1967,7 +1958,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         effectiveFailureChance: Int,
         ignoreFailureChance: Boolean,
         climaxForceCharmTraining: Boolean,
-        allowLowGainCharmAtZeroEnergy: Boolean,
         minStatGainForCharm: Int,
         charmUsedThisTurn: Boolean,
     ): Boolean {
@@ -1986,14 +1976,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         if (campaign.assumesGoodLuckCharmMitigation(statName, failureChance, mainStatGain)) {
             return true
         }
-        return Companion.wouldAllowCharmBypassForStat(
-            failureChance,
-            mainStatGain,
-            effectiveFailureChance,
-            climaxForceCharmTraining = false,
-            minStatGainForCharm,
-            allowLowGainCharmAtZeroEnergy,
-        )
+        return false
     }
 
     /**
@@ -2009,7 +1992,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         val minStatGainForCharm = args["minStatGainForCharm"] as? Int ?: 30
         val irregularTrainingMinStatGain = args["irregularTrainingMinStatGain"] as? Int ?: 30
         val climaxForceCharmTraining = args["climaxForceCharmTraining"] as? Boolean ?: false
-        val allowLowGainCharmAtZeroEnergy = args["allowLowGainCharmAtZeroEnergy"] as? Boolean ?: false
         val isFinals = campaign.checkFinals()
         val postTrainingItemsRecheck = args["postTrainingItemsRecheck"] as? Boolean ?: false
         @Suppress("UNCHECKED_CAST")
@@ -2060,7 +2042,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     effectiveFailureChance = effectiveFailureChance,
                     ignoreFailureChance = ignoreFailureChance,
                     climaxForceCharmTraining = climaxForceCharmTraining,
-                    allowLowGainCharmAtZeroEnergy = allowLowGainCharmAtZeroEnergy,
                     minStatGainForCharm = minStatGainForCharm,
                     charmUsedThisTurn = charmUsedThisTurn,
                 )
@@ -2101,7 +2082,6 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                     wouldSkipForLowGainCharm(
                         allowCharmForStat = allowCharmForStat,
                         climaxForceCharmTraining = climaxForceCharmTraining,
-                        allowLowGainCharmAtZeroEnergy = allowLowGainCharmAtZeroEnergy,
                         failureChanceExceedsThreshold = failureChanceForFiltering > effectiveFailureChance,
                         mainStatGainBelowMin = mainStatGainForCharmThreshold < minStatGainForCharm,
                     )

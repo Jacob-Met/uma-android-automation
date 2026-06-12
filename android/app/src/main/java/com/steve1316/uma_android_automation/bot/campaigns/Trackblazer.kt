@@ -571,13 +571,11 @@ class Trackblazer(game: Game) : Campaign(game) {
 
     /** Builds training analysis arguments, applying aggressive charm bypass rules during Climax. */
     private fun buildTrainingAnalysisArgs(): Map<String, Any?> {
-        val hasCharm = hasRemainingGoodLuckCharm()
         val climaxCharmTraining = isClimaxCharmTrainingActive()
         return mapOf(
             "ignoreFailureChance" to charmAssumedForAnalysis(),
             "minStatGainForCharm" to if (climaxCharmTraining) 0 else minCharmGain,
             "climaxForceCharmTraining" to climaxCharmTraining,
-            "allowLowGainCharmAtZeroEnergy" to (hasCharm && trainee.energy <= 0 && !climaxCharmTraining),
         )
     }
 
@@ -1256,9 +1254,6 @@ class Trackblazer(game: Game) : Campaign(game) {
         recheckArgs["charmUsedThisTurn"] = bUsedCharmToday
         if (bUsedCharmToday) {
             recheckArgs["ignoreFailureChance"] = true
-            recheckArgs["allowLowGainCharmAtZeroEnergy"] = true
-        } else if (trainee.energy <= 0) {
-            recheckArgs["allowLowGainCharmAtZeroEnergy"] = true
         }
         training.analyzeTrainings(recheckArgs)
 

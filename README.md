@@ -96,10 +96,10 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 ## Recent fixes (1.0.1)
 
 - Charm no longer assumed globally when in inventory; per-stat queue rules (min gain, pool, mood, Wit)
-- No rest at high energy when a 0%-failure stat exists; safe fallback + pre-item mitigation retry
+- No rest at high energy when a safe stat exists; safe fallback + pre-item mitigation retry
 - Full stat scan skipped only when failure exceeds threshold and no charm/energy mitigation items available
 - Pool-reserve override (min gain ≥ override) still triggers full scan when charms are at reserve floor
-- `allowLowGainCharmAtZeroEnergy` only at 0% energy (was ≤50%)
+- Removed zero-energy low-gain charm bypass; min stat gain for charm always applies outside Climax
 - Accurate logs for depleted energy vs high failure on first tab
 
 ## Prior fixes (1.0.0)

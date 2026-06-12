@@ -4,22 +4,8 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 
-@DisplayName("Training charm min-gain bypass at zero energy")
+@DisplayName("Training charm min-gain rules")
 class TrainingCharmBypassTest {
-    @Test
-    @DisplayName("Low-gain charm skip bypassed when allowLowGainCharmAtZeroEnergy is true")
-    fun testAllowLowGainCharmAtZeroEnergyBypassesSkip() {
-        assertFalse(
-            Training.wouldSkipForLowGainCharm(
-                allowCharmForStat = true,
-                climaxForceCharmTraining = false,
-                allowLowGainCharmAtZeroEnergy = true,
-                failureChanceExceedsThreshold = true,
-                mainStatGainBelowMin = true,
-            ),
-        )
-    }
-
     @Test
     @DisplayName("Low-gain charm skip does not apply when failure is within threshold (e.g. 0% without charm)")
     fun testLowGainCharmSkipDoesNotApplyBelowFailureThreshold() {
@@ -27,7 +13,6 @@ class TrainingCharmBypassTest {
             Training.wouldSkipForLowGainCharm(
                 allowCharmForStat = true,
                 climaxForceCharmTraining = false,
-                allowLowGainCharmAtZeroEnergy = false,
                 failureChanceExceedsThreshold = false,
                 mainStatGainBelowMin = true,
             ),
@@ -35,13 +20,12 @@ class TrainingCharmBypassTest {
     }
 
     @Test
-    @DisplayName("Low-gain charm skip still applies without zero-energy bypass")
-    fun testLowGainCharmSkipWithoutBypass() {
+    @DisplayName("Low-gain charm skip applies when failure exceeds threshold and gain is below min")
+    fun testLowGainCharmSkipWhenRiskyAndLowGain() {
         assertTrue(
             Training.wouldSkipForLowGainCharm(
                 allowCharmForStat = true,
                 climaxForceCharmTraining = false,
-                allowLowGainCharmAtZeroEnergy = false,
                 failureChanceExceedsThreshold = true,
                 mainStatGainBelowMin = true,
             ),
@@ -55,7 +39,6 @@ class TrainingCharmBypassTest {
             Training.wouldSkipForLowGainCharm(
                 allowCharmForStat = true,
                 climaxForceCharmTraining = true,
-                allowLowGainCharmAtZeroEnergy = false,
                 failureChanceExceedsThreshold = true,
                 mainStatGainBelowMin = true,
             ),
@@ -108,7 +91,7 @@ class TrainingCharmBypassTest {
     }
 
     @Test
-    @DisplayName("Charm bypass requires failure above threshold unless zero-energy emergency")
+    @DisplayName("Charm bypass requires failure above threshold and min stat gain")
     fun testWouldAllowCharmBypassForStat() {
         assertFalse(
             Training.wouldAllowCharmBypassForStat(
@@ -117,7 +100,6 @@ class TrainingCharmBypassTest {
                 effectiveFailureChance = 25,
                 climaxForceCharmTraining = false,
                 minStatGainForCharm = 25,
-                allowLowGainCharmAtZeroEnergy = false,
             ),
         )
         assertTrue(
@@ -127,17 +109,15 @@ class TrainingCharmBypassTest {
                 effectiveFailureChance = 25,
                 climaxForceCharmTraining = false,
                 minStatGainForCharm = 25,
-                allowLowGainCharmAtZeroEnergy = false,
             ),
         )
-        assertTrue(
+        assertFalse(
             Training.wouldAllowCharmBypassForStat(
                 failureChance = 40,
                 mainStatGain = 10,
                 effectiveFailureChance = 25,
                 climaxForceCharmTraining = false,
                 minStatGainForCharm = 25,
-                allowLowGainCharmAtZeroEnergy = true,
             ),
         )
     }
