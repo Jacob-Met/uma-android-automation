@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ActivityIndicator, BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
-import Ionicons from "@react-native-vector-icons/ionicons"
+import { Ionicons } from "@expo/vector-icons"
 import CustomButton from "../../components/CustomButton"
 import SystemChecksWizard, { SystemCheckResults } from "../../components/SystemChecksWizard"
 import { useTheme } from "../../context/ThemeContext"

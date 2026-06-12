@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ActivityIndicator, AppState, AppStateStatus, NativeModules, Pressable, StyleSheet, Text, View } from "react-native"
-import Ionicons from "@react-native-vector-icons/ionicons"
+import { Ionicons } from "@expo/vector-icons"
 import { useTheme } from "../../context/ThemeContext"
 import { TYPE } from "../../lib/type"
 import { SPACING } from "../../lib/spacing"
