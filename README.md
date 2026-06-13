@@ -112,6 +112,7 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 - **Stale training cache** cleared on turn change and training back-out
 - **Overlay resume fixes** — persisted flags restored, prefs cleared on stop
 - **Delay calibration** — counter reset to 0/0 when applying suggested delays
+- **Training loop fix** — no infinite re-train on failed execute; Finale execute matches analysis; one train per Finale/Summer turn before race
 
 ## Prior changes (1.0.2)
 

@@ -14,6 +14,7 @@ Training &amp; energy reliability
 - **No rest at full energy after failed training pick** — back out without mood/energy recovery when mood is good and energy is already high.
 - **Pre-item failure snapshot** — safe fallback and execute blocking use failure % before charm/energy items; low-priority Wit stays excluded.
 - **Stale training analysis cache** — cache tied to turn day; cleared on turn advance and when backing out of training.
+- **Training loop fix** — failed execute no longer re-trains forever on the same turn; Finale picks execute without charm; one train per Finale/Summer turn before racing; energy recovery at threshold (≤20%).
 
 Overlay resume &amp; delay calibration
 ---

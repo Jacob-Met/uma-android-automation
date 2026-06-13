@@ -172,6 +172,12 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Prevents double megaphone decrement when a race completes via both handleRaceEvents and executeAction. */
     private var megaphoneDecrementedThisTurn: Boolean = false
 
+    /** True after a training execute succeeded this turn; prevents repeat Finale/Summer train before racing. */
+    private var bCompletedTrainingThisTurn: Boolean = false
+
+    /** True after training analysis/execute failed this turn; prevents infinite re-entry to training. */
+    private var bTrainingBlockedThisTurn: Boolean = false
+
     /** Stat that megaphone/ankle weights were queued for this training-item pass (null = none or global-only items). */
     private var statSpecificTrainingItemsQueuedFor: StatName? = null
 
@@ -539,6 +545,9 @@ class Trackblazer(game: Game) : Campaign(game) {
     ): StatName? {
         if (trainingSelected == null) {
             return training.findBestSafeFallbackTraining()
+        }
+        if (checkFinals()) {
+            return trainingSelected
         }
         if (climaxCharmTraining && isClimaxCharmTrainingActive()) {
             return trainingSelected
@@ -2372,6 +2381,8 @@ class Trackblazer(game: Game) : Campaign(game) {
         bIsIrregularTraining = false
         bHasCheckedIrregularTrainingThisTurn = false
         megaphoneDecrementedThisTurn = false
+        bCompletedTrainingThisTurn = false
+        bTrainingBlockedThisTurn = false
         statSpecificTrainingItemsQueuedFor = null
         training.clearAnalysisCache()
     }
@@ -2427,14 +2438,38 @@ class Trackblazer(game: Game) : Campaign(game) {
     }
 
     override fun decideNextAction(): MainScreenAction {
+        if (bTrainingBlockedThisTurn) {
+            val fallback = super.decideNextAction()
+            if (fallback != MainScreenAction.TRAIN) {
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Training already failed this turn; continuing with $fallback instead of re-entering training.",
+                )
+                return fallback
+            }
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Training already failed this turn with no race available. Resting to advance instead of looping.",
+            )
+            return MainScreenAction.REST
+        }
+
         // Summer Training: Train during July and August in Classic/Senior.
         if (date.isSummer() && !(racing.skipSummerTrainingForAgenda && racing.enableUserInGameRaceAgenda)) {
+            if (bCompletedTrainingThisTurn) {
+                MessageLog.i(TAG, "[TRACKBLAZER] Summer training already completed this turn. Deferring to race/rest flow.")
+                return super.decideNextAction()
+            }
             MessageLog.i(TAG, "[TRACKBLAZER] It is Summer. Prioritizing training.")
             return MainScreenAction.TRAIN
         }
 
         // Finale: Train during the final 3 turns (Qualifier, Semifinal, Finals).
         if (date.bIsFinaleSeason && date.day >= 73) {
+            if (bCompletedTrainingThisTurn) {
+                MessageLog.i(TAG, "[TRACKBLAZER] Finale training already completed this turn. Deferring to race/rest flow.")
+                return super.decideNextAction()
+            }
             MessageLog.i(TAG, "[TRACKBLAZER] It is the Finale. Prioritizing training.")
             return MainScreenAction.TRAIN
         }
@@ -3023,9 +3058,9 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Backs out of the Training screen and attempts mood or energy recovery only when needed. */
     private fun backOutFromTrainingForRecovery(reason: String) {
         MessageLog.i(TAG, "[TRACKBLAZER] $reason Backing out for recovery.")
+        bTrainingBlockedThisTurn = true
         training.firstTrainingCheck = false
         training.clearAnalysisCache()
-        bHasCheckedDateThisTurn = false
         ButtonBack.click(game.imageUtils)
         game.wait(1.0)
 
@@ -3047,10 +3082,10 @@ class Trackblazer(game: Game) : Campaign(game) {
                 recoverMood()
             }
 
-            trainee.energy < energyThresholdToUseEnergyItems -> {
+            trainee.energy <= energyThresholdToUseEnergyItems -> {
                 MessageLog.i(
                     TAG,
-                    "[TRACKBLAZER] Energy is ${trainee.energy}% (< $energyThresholdToUseEnergyItems%). Attempting to recover energy.",
+                    "[TRACKBLAZER] Energy is ${trainee.energy}% (<= $energyThresholdToUseEnergyItems%). Attempting to recover energy.",
                 )
                 recoverEnergy()
             }
@@ -3145,9 +3180,12 @@ class Trackblazer(game: Game) : Campaign(game) {
                     backOutFromTrainingForRecovery("Irregular training execute blocked.")
                 } else {
                     trainingSelected = executed
+                    bCompletedTrainingThisTurn = true
+                    bTrainingBlockedThisTurn = false
                 }
             } else {
                 MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Irregular training unexpectedly became null. Backing out.")
+                bTrainingBlockedThisTurn = true
                 ButtonBack.click(game.imageUtils)
                 game.wait(game.dialogWaitDelay)
             }
@@ -3252,6 +3290,11 @@ class Trackblazer(game: Game) : Campaign(game) {
             if (trainingSelected == null) {
                 backOutFromTrainingForRecovery("No suitable training found after analysis and item pass.")
             }
+        }
+
+        if (trainingSelected != null) {
+            bCompletedTrainingThisTurn = true
+            bTrainingBlockedThisTurn = false
         }
 
         bIsIrregularTraining = false
