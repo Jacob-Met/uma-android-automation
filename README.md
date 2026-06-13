@@ -1,8 +1,8 @@
-# Uma Android Automation — Custom Trackblazer Fork (v1.0.3)
+# Uma Android Automation — Custom Trackblazer Fork (v1.0.4)
 
 ![GitHub last commit](https://img.shields.io/github/last-commit/Jacob-Met/uma-android-automation/custom?logo=GitHub) ![GitHub release](https://img.shields.io/github/v/release/Jacob-Met/uma-android-automation?include_prereleases&label=release&logo=GitHub)
 
-Jacob-Met’s **custom Trackblazer fork**, branched from upstream **v5.6.1** and released as **1.0.3** (`custom-v1.0.3`).
+Jacob-Met’s **custom Trackblazer fork**, branched from upstream **v5.6.1** and released as **1.0.4** (`custom-v1.0.4`).
 
 This is **not** upstream [steve1316/uma-android-automation](https://github.com/steve1316/uma-android-automation) **v5.7.3**. It installs as a **separate app** (`com.steve1316.uma_android_automation.custom`) so you can run it alongside the official build.
 
@@ -12,12 +12,12 @@ This is **not** upstream [steve1316/uma-android-automation](https://github.com/s
 
 ## Download
 
-Get APKs from **[Releases → custom-v1.0.3](https://github.com/Jacob-Met/uma-android-automation/releases/tag/custom-v1.0.3)**:
+Get APKs from **[Releases → custom-v1.0.4](https://github.com/Jacob-Met/uma-android-automation/releases/tag/custom-v1.0.4)**:
 
 | APK | Use for |
 |-----|---------|
-| `v1.0.3-UmaAndroidAutomation-Custom-arm64-v8a-release.apk` | Physical phones / most emulators |
-| `v1.0.3-UmaAndroidAutomation-Custom-x86_64-release.apk` | x86 emulators (e.g. LDPlayer) |
+| `v1.0.4-UmaAndroidAutomation-Custom-arm64-v8a-release.apk` | Physical phones / most emulators |
+| `v1.0.4-UmaAndroidAutomation-Custom-x86_64-release.apk` | x86 emulators (e.g. LDPlayer) |
 
 **Package ID:** `com.steve1316.uma_android_automation.custom`  
 **Logcat filter:** `package:com.steve1316.uma_android_automation.custom [UAA]`
@@ -110,14 +110,16 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 
 ---
 
-## Recent changes (custom branch — post 1.0.3)
+## Recent changes (1.0.4)
 
-- **Agenda race calendar** moved to Racing Settings; autofill records whenever user agenda is enabled
-- **Race-forecast megaphones** with per-type thresholds and irregular-aware full-window simulation
-- **Irregular energy** split into execution vs forecast toggles
-- **G1 hammer conservation** for last spare Artisan/Master before upcoming G1 races
-- **Revalidate training after items** (default off; Reset Whistle always rechecks)
-- **Megaphone tier overwrite** on base gain (does not bypass summer 60/40 rule)
+- **Agenda race calendar** in Racing Settings — autofill works with user agenda alone (not tied to irregular training)
+- **Agenda-linked irregular training** — schedule autofill, per-grade min gain, Wit charm path, agenda skip-to-race fixes
+- **Megaphone-aware irregular training** — optional active-megaphone gain; megaphones/anklets on irregular turns; no Reset Whistles on irregular
+- **Race-forecast megaphones** — per-type force when effective race count in buff window ≤ threshold; full-window item-aware irregular simulation (off by default)
+- **Irregular energy toggles** — separate execution vs forecast simulation
+- **G1 hammer conservation** — spare last Artisan/Master when G1 upcoming on agenda (off by default)
+- **Tier overwrite** — upgrade megaphone tier on base gain, respects summer 60/40 rule (off by default)
+- **Revalidate after items** — optional always recheck after item pass; whistle always rechecks (off by default)
 
 ## Recent changes (1.0.3)
 
@@ -194,7 +196,7 @@ yarn install --ignore-scripts   # if tree-sitter native build fails on Node 26+
 cd android && ./gradlew assembleRelease
 ```
 
-APKs export to `../apk/` as `v1.0.3-UmaAndroidAutomation-Custom-<arch>-release.apk`.
+APKs export to `../apk/` as `v1.0.4-UmaAndroidAutomation-Custom-<arch>-release.apk`.
 
 ---
 
@@ -203,6 +205,7 @@ APKs export to `../apk/` as `v1.0.3-UmaAndroidAutomation-Custom-<arch>-release.a
 | Ref | Meaning |
 |-----|---------|
 | `custom` | Active development branch |
+| `custom-v1.0.4` | Release tag for 1.0.4 APKs |
 | `custom-v1.0.3` | Release tag for 1.0.3 APKs |
 | `custom-v1.0.2` | Release tag for 1.0.2 APKs |
 | `custom-v1.0.1` | Release tag for 1.0.1 APKs |

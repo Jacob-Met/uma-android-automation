@@ -1,25 +1,27 @@
 <AppUpdater>
   <update>
-    <latestVersion>1.0.3</latestVersion>
+    <latestVersion>1.0.4</latestVersion>
     <url>https://github.com/Jacob-Met/uma-android-automation/releases</url>
     <releaseNotes>
-v1.0.3 - Changelog
+v1.0.4 - Changelog
 
 > [!NOTE]
 > Jacob-Met custom fork (Trackblazer). Based on upstream v5.6.1.
 
-Training &amp; energy reliability
+Agenda &amp; irregular training
 ---
-- **Energy OCR reconciliation** — when Speed failure % implies much lower energy than stored (e.g. 32% failure ≈ 34% energy vs stale 100%), re-read the energy bar or infer energy from failure readings; training failure % is trusted when all tabs agree.
-- **No rest at full energy after failed training pick** — back out without mood/energy recovery when mood is good and energy is already high.
-- **Pre-item failure snapshot** — safe fallback and execute blocking use failure % before charm/energy items; low-priority Wit stays excluded.
-- **Stale training analysis cache** — cache tied to turn day; cleared on turn advance and when backing out of training.
-- **Training loop fix** — failed execute no longer re-trains forever on the same turn; Finale picks execute without charm; one train per Finale/Summer turn before racing; energy recovery at threshold (≤20%).
+- **Agenda race calendar** in Racing Settings — autofill with user agenda (independent of irregular training)
+- **Agenda-linked irregular training** — schedule autofill, per-grade min gain, Wit charm path, agenda skip-to-race fixes
+- **Megaphone-aware irregular training** — optional active-megaphone gain; items on irregular turns; no Reset Whistles on irregular
 
-Overlay resume &amp; delay calibration
+Megaphone forecast &amp; conservation (off by default)
 ---
-- **Overlay resume fixes** — persisted session flags restored; home-start guard no longer blocks resume; prefs cleared correctly on stop.
-- **Delay calibration counter reset** — applying suggested delays (+/− or Approve all) resets fail counters to 0/0 while keeping suggestions.
+- **Race-forecast megaphones** — force use when effective race count in buff window ≤ threshold; ignores min-gain floors
+- **Full-window item-aware simulation** — irregular-as-train days, charm/energy reserves, Wit irregular rules
+- **Separate irregular energy toggles** — execution vs forecast simulation
+- **Tier overwrite** on base gain (respects summer 60/40 rule)
+- **G1 hammer conservation** — spare last Artisan/Master before upcoming G1 on agenda
+- **Revalidate after items** — optional; Reset Whistle always rechecks
 
     </releaseNotes>
   </update>
