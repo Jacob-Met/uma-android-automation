@@ -387,10 +387,18 @@ class Trackblazer(game: Game) : Campaign(game) {
 
     /**
      * When enabled, irregular evaluation always scans every training tab even when Speed fails the pre-check.
-     * Wit may qualify only when failure is below threshold (no charm/energy mitigation for risky Wit).
+     * Wit may qualify with safe failure, Good-Luck Charm (when allowed), or energy mitigation.
      */
     private val enableWitIrregularTraining: Boolean =
         SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableWitIrregularTraining", false)
+
+    /**
+     * When enabled, irregular min-gain and failure checks include the active megaphone training bonus.
+     * Megaphone upgrades and ankle weights on irregular turns still require base (pre-item) gain to qualify
+     * as executable irregular training (respecting per-grade, unique-race, and reserve rules).
+     */
+    private val irregularTrainingIncludeActiveMegaphoneBonus: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerIrregularTrainingIncludeActiveMegaphoneBonus", false)
 
     /**
      * When enabled, conserve a pooled stock of Good-Luck Charm + Vita 65 + Royal Kale Juice during Senior pre-Finale (65–72)
@@ -548,6 +556,49 @@ class Trackblazer(game: Game) : Campaign(game) {
     private fun failureWithinTrainingThreshold(failureChance: Int, mainGain: Int): Boolean =
         !training.exceedsFailureThreshold(failureChance, mainGain)
 
+    /** Raw OCR main stat gain for [stat] from cached analysis or the irregular training map. */
+    private fun irregularBaseMainGainFor(stat: StatName): Int =
+        training.cachedAnalysisResults?.firstOrNull { it.name == stat }?.statGains?.get(stat)
+            ?: training.trainingMap[stat]?.statGains?.get(stat)
+            ?: 0
+
+    /**
+     * Main stat gain used for irregular qualification checks. When [irregularTrainingIncludeActiveMegaphoneBonus]
+     * is enabled, includes the in-game bonus from an already-active megaphone.
+     */
+    private fun irregularEvaluationMainGain(stat: StatName, baseGain: Int = irregularBaseMainGainFor(stat)): Int {
+        if (!irregularTrainingIncludeActiveMegaphoneBonus) {
+            return baseGain
+        }
+        return trainee.mainStatGainWithActiveMegaphoneBonus(baseGain)
+    }
+
+    /**
+     * Whether [trainingSelected]'s base (pre-megaphone/anklet) gain qualifies as executable irregular training
+     * for the current turn (per-grade / unique-race min gain, failure mitigation, and reserve logic).
+     */
+    private fun baseGainQualifiesForIrregularItemUsage(trainingSelected: StatName): Boolean {
+        val minGain = resolveIrregularMinGainForTurn()
+        val failureChance =
+            training.trainingMap[trainingSelected]?.failureChance
+                ?: training.cachedAnalysisResults?.firstOrNull { it.name == trainingSelected }?.failureChance
+                ?: 0
+        return canExecuteIrregularTrainingOption(
+            trainingSelected,
+            failureChance,
+            irregularBaseMainGainFor(trainingSelected),
+            minGain,
+        )
+    }
+
+    /** True when a megaphone or ankle weight should be skipped on an irregular turn (base gain does not qualify). */
+    private fun shouldSkipIrregularStatItemForBaseGainGate(trainingSelected: StatName?): Boolean {
+        if (trainingSelected == null || !bIsIrregularTraining || !irregularTrainingIncludeActiveMegaphoneBonus) {
+            return false
+        }
+        return !baseGainQualifiesForIrregularItemUsage(trainingSelected)
+    }
+
     /**
      * Whether a Good-Luck Charm in inventory can execute this irregular pick, including spending from the
      * mitigation pool reserve when [mainGain] satisfies the pool-override threshold.
@@ -690,7 +741,7 @@ class Trackblazer(game: Game) : Campaign(game) {
             return false
         }
         if (stat == StatName.WIT && enableWitIrregularTraining) {
-            return failureWithinTrainingThreshold(failureChance, mainGain)
+            return canExecuteWitIrregularTrainingOption(failureChance, mainGain)
         }
         if (failureWithinTrainingThreshold(failureChance, mainGain)) {
             return true
@@ -699,6 +750,23 @@ class Trackblazer(game: Game) : Campaign(game) {
             return true
         }
         return energyMitigationAvailableForIrregular(stat, failureChance, mainGain)
+    }
+
+    /**
+     * Wit irregular path when [enableWitIrregularTraining] is on: safe failure, Good-Luck Charm when Training
+     * settings allow Wit charms (Wit in top-3 stat priority or Charm on Low-Priority Wit enabled), or energy mitigation.
+     */
+    private fun canExecuteWitIrregularTrainingOption(failureChance: Int, mainGain: Int): Boolean {
+        if (failureWithinTrainingThreshold(failureChance, mainGain)) {
+            return true
+        }
+        if (
+            training.isLuckyCharmAllowedForSelection(StatName.WIT) &&
+            charmAvailableForIrregularExecution(StatName.WIT, failureChance, mainGain)
+        ) {
+            return true
+        }
+        return energyMitigationAvailableForIrregular(StatName.WIT, failureChance, mainGain)
     }
 
     /** Resolves the irregular min-gain floor for the current turn (unique race → grade → global default). */
@@ -744,17 +812,18 @@ class Trackblazer(game: Game) : Campaign(game) {
                 MessageLog.i(TAG, "[TRACKBLAZER] Irregular pre-check: no Speed analysis; skipping full sweep.")
                 return true
             }
-        val mainGain = firstResult.statGains[firstResult.name] ?: 0
-        if (canExecuteIrregularTrainingOption(firstResult.name, firstResult.failureChance, mainGain, minGain)) {
+        val baseGain = firstResult.statGains[firstResult.name] ?: 0
+        val evalGain = irregularEvaluationMainGain(firstResult.name, baseGain)
+        if (canExecuteIrregularTrainingOption(firstResult.name, firstResult.failureChance, evalGain, minGain)) {
             MessageLog.i(
                 TAG,
-                "[TRACKBLAZER] Irregular pre-check: ${firstResult.name} is executable (${firstResult.failureChance}% failure, main gain $mainGain); running full sweep.",
+                "[TRACKBLAZER] Irregular pre-check: ${firstResult.name} is executable (${firstResult.failureChance}% failure, main gain $evalGain${if (evalGain != baseGain) " (base $baseGain + megaphone)" else ""}); running full sweep.",
             )
             return false
         }
         MessageLog.i(
             TAG,
-            "[TRACKBLAZER] Irregular pre-check: ${firstResult.name} not executable (${firstResult.failureChance}% failure, main gain $mainGain, min gain $minGain); skipping without full sweep.",
+            "[TRACKBLAZER] Irregular pre-check: ${firstResult.name} not executable (${firstResult.failureChance}% failure, main gain $evalGain, min gain $minGain); skipping without full sweep.",
         )
         return true
     }
@@ -785,8 +854,9 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         val executable =
             results.mapNotNull { result ->
-                val mainGain = result.statGains[result.name] ?: 0
-                if (!canExecuteIrregularTrainingOption(result.name, result.failureChance, mainGain, minGain)) {
+                val baseGain = result.statGains[result.name] ?: 0
+                val evalGain = irregularEvaluationMainGain(result.name, baseGain)
+                if (!canExecuteIrregularTrainingOption(result.name, result.failureChance, evalGain, minGain)) {
                     return@mapNotNull null
                 }
                 result.name to trainingOptionFromAnalysis(result)
@@ -4158,6 +4228,10 @@ class Trackblazer(game: Game) : Campaign(game) {
             return null
         }
 
+        if (itemName == "Reset Whistle" && bIsIrregularTraining) {
+            return null
+        }
+
         if (bStatSpecificItemsOnlyPass) {
             val megaphoneNames = listOf("Empowering Megaphone", "Motivating Megaphone", "Coaching Megaphone")
             val neededWeight = ankleWeightItemForStat(trainingSelected)
@@ -4582,6 +4656,7 @@ class Trackblazer(game: Game) : Campaign(game) {
      * @return True if Megaphone/Charm should be skipped this turn.
      */
     private fun shouldConserveTrainingEffectItems(trainingSelected: StatName?, trainee: Trainee?): Boolean {
+        if (bIsIrregularTraining) return false
         if (isClimaxCharmTrainingActive()) return false
         if (trainingSelected == null || trainee == null) return false
         if (trainee.mood >= Mood.NORMAL) return false
@@ -4615,6 +4690,14 @@ class Trackblazer(game: Game) : Campaign(game) {
      */
     private fun shouldSkipAnkleWeightForLowGain(itemName: String, trainingSelected: StatName?): Boolean {
         if (trainingSelected == null) return true
+        if (shouldSkipIrregularStatItemForBaseGainGate(trainingSelected)) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Skipping $itemName: base main gain does not qualify for irregular training (min gain ${resolveIrregularMinGainForTurn()}).",
+            )
+            return true
+        }
+        if (bIsIrregularTraining && irregularTrainingIncludeActiveMegaphoneBonus) return false
         if (date.isSummer()) return false
         val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
         if (failureChance <= training.getMaximumFailureChance()) return false
@@ -4692,9 +4775,23 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         val coachingActive =
             trainee.megaphoneTurnCounter > 0 && trainee.activeMegaphoneType == "Coaching Megaphone"
-        val mainGain = if (coachingActive) selectedTrainingMainGain(trainingSelected) else 0
+        val mainGain =
+            if (coachingActive) {
+                if (bIsIrregularTraining && irregularTrainingIncludeActiveMegaphoneBonus) {
+                    irregularBaseMainGainFor(trainingSelected)
+                } else {
+                    selectedTrainingMainGain(trainingSelected)
+                }
+            } else {
+                0
+            }
         val motivatingUpgradeAllowed =
-            motivatingMegaphoneMinStatGain <= 0 || mainGain >= motivatingMegaphoneMinStatGain
+            when {
+                bIsIrregularTraining && irregularTrainingIncludeActiveMegaphoneBonus ->
+                    baseGainQualifiesForIrregularItemUsage(trainingSelected)
+                motivatingMegaphoneMinStatGain <= 0 -> true
+                else -> mainGain >= motivatingMegaphoneMinStatGain
+            }
 
         return Companion.pickSurplusBurnMegaphone(
             inventory = inventory,
@@ -4750,8 +4847,12 @@ class Trackblazer(game: Game) : Campaign(game) {
                     isMegaphoneSurplusBurnMode(inventory) &&
                         trainee.activeMegaphoneType == "Coaching Megaphone" &&
                         trainingSelected != null -> {
-                        val mainGain = selectedTrainingMainGain(trainingSelected)
-                        motivatingMegaphoneMinStatGain <= 0 || mainGain >= motivatingMegaphoneMinStatGain
+                        when {
+                            bIsIrregularTraining && irregularTrainingIncludeActiveMegaphoneBonus ->
+                                baseGainQualifiesForIrregularItemUsage(trainingSelected)
+                            motivatingMegaphoneMinStatGain <= 0 -> true
+                            else -> selectedTrainingMainGain(trainingSelected) >= motivatingMegaphoneMinStatGain
+                        }
                     }
                     else -> false
                 }
@@ -4796,6 +4897,14 @@ class Trackblazer(game: Game) : Campaign(game) {
         trainee: Trainee? = null,
     ): Boolean {
         if (trainingSelected == null) return true
+        if (shouldSkipIrregularStatItemForBaseGainGate(trainingSelected)) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Skipping $itemName: base main gain does not qualify for irregular training (min gain ${resolveIrregularMinGainForTurn()}).",
+            )
+            return true
+        }
+        if (bIsIrregularTraining && irregularTrainingIncludeActiveMegaphoneBonus) return false
         if (date.isSummer()) return false
 
         if (isMegaphoneSurplusBurnMode(inventory)) {

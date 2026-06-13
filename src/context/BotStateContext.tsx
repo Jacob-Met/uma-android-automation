@@ -269,6 +269,7 @@ export interface Settings {
         trackblazerEnableIrregularTraining: boolean
         trackblazerIrregularTrainingMinStatGain: number
         trackblazerEnableWitIrregularTraining: boolean
+        trackblazerIrregularTrainingIncludeActiveMegaphoneBonus: boolean
         trackblazerIrregularTrainingMinStatGainByGrade: string
         trackblazerEnableIrregularTrainingWithAgenda: boolean
         trackblazerEnableIrregularTrainingAgendaPreDebut: boolean
@@ -599,6 +600,7 @@ export const defaultSettings: Settings = {
         trackblazerEnableIrregularTraining: false,
         trackblazerIrregularTrainingMinStatGain: 30,
         trackblazerEnableWitIrregularTraining: false,
+        trackblazerIrregularTrainingIncludeActiveMegaphoneBonus: false,
         trackblazerIrregularTrainingMinStatGainByGrade: '{"G1":30,"G2":30,"G3":30}',
         trackblazerEnableIrregularTrainingWithAgenda: false,
         trackblazerEnableIrregularTrainingAgendaPreDebut: false,

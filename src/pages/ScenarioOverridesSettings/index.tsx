@@ -795,7 +795,16 @@ const ScenarioOverridesSettings = () => {
                                                             checked={scenarioOverrides.trackblazerEnableWitIrregularTraining}
                                                             onCheckedChange={(checked) => updateOverrideSetting("trackblazerEnableWitIrregularTraining", checked)}
                                                             label="Enable Wit Irregular Training"
-                                                            description="When enabled, always scan every training tab even if Speed fails the pre-check. Wit may qualify only when failure is below threshold (no charm/energy mitigation for risky Wit)."
+                                                            description="When enabled, always scan every training tab even if Speed fails the pre-check. Wit may qualify with safe failure, Good-Luck Charm (when Wit is in top-3 stat priority or Charm on Low-Priority Wit is enabled in Training settings), or energy mitigation."
+                                                        />
+                                                    </View>
+                                                    <View style={styles.section}>
+                                                        <CustomCheckbox
+                                                            searchId="trackblazer-irregular-training-include-active-megaphone-bonus"
+                                                            checked={scenarioOverrides.trackblazerIrregularTrainingIncludeActiveMegaphoneBonus}
+                                                            onCheckedChange={(checked) => updateOverrideSetting("trackblazerIrregularTrainingIncludeActiveMegaphoneBonus", checked)}
+                                                            label="Include Active Megaphone in Irregular Gain"
+                                                            description="When enabled, irregular qualification counts the bonus from an already-active megaphone. Megaphone upgrades and ankle weights on irregular turns still require base (pre-item) gain to meet irregular thresholds (per grade, unique race, failure mitigation, and reserves). Reset Whistles are never used on irregular turns."
                                                         />
                                                     </View>
                                                     <View style={styles.section}>

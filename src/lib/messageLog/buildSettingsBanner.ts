@@ -252,6 +252,7 @@ ${longTargetsString}
 ✨ Trackblazer Enable Irregular Training: ${settings.scenarioOverrides?.trackblazerEnableIrregularTraining ? "✅" : "❌"}
 ✨ Trackblazer Irregular Training Min Gain: ${settings.scenarioOverrides?.trackblazerIrregularTrainingMinStatGain}
 🧠 Wit Irregular Training: ${settings.scenarioOverrides?.trackblazerEnableWitIrregularTraining ? "✅" : "❌"}
+📣 Irregular Include Active Megaphone: ${settings.scenarioOverrides?.trackblazerIrregularTrainingIncludeActiveMegaphoneBonus ? "✅" : "❌"}
 ✨ Irregular Min Gain by Grade: ${settings.scenarioOverrides?.trackblazerIrregularTrainingMinStatGainByGrade ?? "{}"}
 📋 Irregular Training With Agenda: ${settings.scenarioOverrides?.trackblazerEnableIrregularTrainingWithAgenda ? `✅ (${settings.scenarioOverrides?.trackblazerIrregularTrainingAgendaGrades?.join(", ")})` : "❌"}
 📋 Agenda Irregular Pre-Debut: ${settings.scenarioOverrides?.trackblazerEnableIrregularTrainingAgendaPreDebut ? "✅" : "❌"}

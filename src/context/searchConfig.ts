@@ -1130,7 +1130,14 @@ const searchConfig: SearchOption[] = [
     {
         id: "trackblazer-enable-wit-irregular-training",
         title: "Enable Wit Irregular Training",
-        description: "Always scan every training tab even if Speed fails the pre-check; Wit must be below failure threshold.",
+        description: "Always scan every training tab even if Speed fails the pre-check; Wit may use charms when in top-3 stat priority or Charm on Low-Priority Wit is enabled.",
+        page: "ScenarioOverridesSettings",
+        parentId: "trackblazer-enable-irregular-training",
+    },
+    {
+        id: "trackblazer-irregular-training-include-active-megaphone-bonus",
+        title: "Include Active Megaphone in Irregular Gain",
+        description: "Count active megaphone bonus when evaluating irregular training; megaphone upgrades and ankle weights still require base gain to qualify.",
         page: "ScenarioOverridesSettings",
         parentId: "trackblazer-enable-irregular-training",
     },
