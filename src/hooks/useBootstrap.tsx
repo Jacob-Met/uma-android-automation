@@ -34,6 +34,14 @@ export const useBootstrap = () => {
             await loadSettings(true)
         })
 
+        const agendaScheduleSubscription = DeviceEventEmitter.addListener(
+            "AgendaIrregularScheduleUpdated",
+            async (data: { agendaName?: string }) => {
+                logWithTimestamp(`[Bootstrap] Agenda irregular schedule updated for ${data?.agendaName ?? "unknown"}. Reloading settings in UI.`)
+                await loadSettings(true)
+            }
+        )
+
         // Start the JS-thread block detector so any sustained > 100 ms blocks surface in logcat
         // as `[BLOCK]` warnings. Cheap when idle; gated by `PerformanceLogger.ENABLED`.
         const stopBlockDetector = startJsThreadBlockDetector(100)
@@ -41,6 +49,7 @@ export const useBootstrap = () => {
         return () => {
             messageLogSubscription.remove()
             umaPresetSubscription.remove()
+            agendaScheduleSubscription.remove()
             stopBlockDetector()
         }
     }, [loadSettings])

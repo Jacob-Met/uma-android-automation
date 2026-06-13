@@ -58,6 +58,16 @@ class StartModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             }
             emitter?.emit("UmaPresetApplied", params)
         }
+
+        /** Notifies React Native that the agenda irregular schedule JSON was updated from the bot (autofill). */
+        fun sendAgendaIrregularScheduleUpdatedEvent(agendaName: String) {
+            val params = Arguments.createMap()
+            params.putString("agendaName", agendaName)
+            if (emitter == null) {
+                emitter = reactContext?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            }
+            emitter?.emit("AgendaIrregularScheduleUpdated", params)
+        }
     }
 
     private val context: Context = reactContext.applicationContext

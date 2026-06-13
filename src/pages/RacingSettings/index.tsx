@@ -2,7 +2,7 @@ import { useMemo, useContext, useRef, useCallback } from "react"
 import { View, Text, TextInput, ScrollView, StyleSheet } from "react-native"
 import { useNavigation } from "@react-navigation/native"
 import { useTheme } from "../../context/ThemeContext"
-import { RacingContext, defaultSettings, Settings } from "../../context/BotStateContext"
+import { RacingContext, ScenarioOverridesContext, defaultSettings, Settings } from "../../context/BotStateContext"
 import { SearchPageProvider } from "../../context/SearchPageContext"
 import CustomCheckbox from "../../components/CustomCheckbox"
 import CustomSlider from "../../components/CustomSlider"
@@ -14,6 +14,11 @@ import PageHeader from "../../components/PageHeader"
 import WarningContainer from "../../components/WarningContainer"
 import SearchableItem from "../../components/SearchableItem"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
+import {
+    buildAgendaSwitchUpdate,
+    getAgendaScheduleKey,
+    parseUserAgendaCustomTitles,
+} from "../../lib/agendaIrregularSchedule"
 
 /** Available race strategy values for blanket and per-distance pickers. */
 const RACE_STRATEGY_OPTIONS = [
@@ -37,6 +42,7 @@ const RacingSettings = () => {
     const { colors } = useTheme()
     const navigation = useNavigation()
     const { racing, updateRacing } = useContext(RacingContext)
+    const { scenarioOverrides, updateScenarioOverrides } = useContext(ScenarioOverridesContext)
     const scrollViewRef = useRef<ScrollView>(null)
 
     // Merge current racing settings with defaults to handle missing properties.
@@ -60,6 +66,7 @@ const RacingSettings = () => {
         limitRacesToInGameAgenda,
         skipSummerTrainingForAgenda,
         customAgendaTitle,
+        userAgendaCustomTitles,
         enableSkipRaceSimulation,
         agendaWaitDelay,
         raceStrategyWaitDelay,
@@ -86,6 +93,54 @@ const RacingSettings = () => {
             }
         },
         [updateRacing]
+    )
+
+    const handleSelectedAgendaChange = useCallback(
+        (nextSlot: string | null) => {
+            if (!nextSlot || nextSlot === racingSettings.selectedUserAgenda) {
+                return
+            }
+
+            const switchUpdate = buildAgendaSwitchUpdate({
+                currentSlot: racingSettings.selectedUserAgenda,
+                nextSlot,
+                currentCustomTitle: customAgendaTitle,
+                customTitlesJson: userAgendaCustomTitles,
+                schedulesJson: scenarioOverrides.trackblazerAgendaIrregularSchedules,
+            })
+
+            updateRacing({
+                selectedUserAgenda: switchUpdate.selectedUserAgenda,
+                customAgendaTitle: switchUpdate.customAgendaTitle,
+                userAgendaCustomTitles: switchUpdate.userAgendaCustomTitles,
+            })
+
+            if (switchUpdate.trackblazerAgendaIrregularSchedules) {
+                updateScenarioOverrides({
+                    trackblazerAgendaIrregularSchedules: switchUpdate.trackblazerAgendaIrregularSchedules,
+                })
+            }
+        },
+        [
+            customAgendaTitle,
+            racingSettings.selectedUserAgenda,
+            scenarioOverrides.trackblazerAgendaIrregularSchedules,
+            updateRacing,
+            updateScenarioOverrides,
+            userAgendaCustomTitles,
+        ]
+    )
+
+    const handleCustomAgendaTitleChange = useCallback(
+        (text: string) => {
+            const slot = getAgendaScheduleKey(racingSettings.selectedUserAgenda)
+            const customTitles = parseUserAgendaCustomTitles(userAgendaCustomTitles)
+            updateRacing({
+                customAgendaTitle: text,
+                userAgendaCustomTitles: JSON.stringify({ ...customTitles, [slot]: text }),
+            })
+        },
+        [racingSettings.selectedUserAgenda, updateRacing, userAgendaCustomTitles]
     )
 
     const styles = useMemo(
@@ -445,7 +500,7 @@ const RacingSettings = () => {
                                 { value: "Agenda 8", label: "Agenda 8" },
                             ]}
                             value={racingSettings.selectedUserAgenda}
-                            onValueChange={(value) => updateRacingSetting("selectedUserAgenda", value)}
+                            onValueChange={handleSelectedAgendaChange}
                             style={{ marginBottom: 16 }}
                         />
 
@@ -462,7 +517,7 @@ const RacingSettings = () => {
                             <TextInput
                                 style={[styles.input, !enableUserInGameRaceAgenda && { opacity: 0.5 }]}
                                 value={customAgendaTitle}
-                                onChangeText={(text) => updateRacingSetting("customAgendaTitle", text)}
+                                onChangeText={handleCustomAgendaTitleChange}
                                 placeholder="Leave blank to use selected agenda name"
                                 placeholderTextColor={"gray"}
                                 editable={enableUserInGameRaceAgenda}

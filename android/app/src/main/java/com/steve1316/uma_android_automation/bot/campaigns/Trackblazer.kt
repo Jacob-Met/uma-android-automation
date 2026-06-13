@@ -10,7 +10,9 @@ import com.steve1316.uma_android_automation.bot.Game
 import com.steve1316.uma_android_automation.bot.MainScreenAction
 import com.steve1316.uma_android_automation.bot.Racing
 import com.steve1316.uma_android_automation.bot.SelectionSource
+import com.steve1316.uma_android_automation.bot.Training as TrainingBot
 import com.steve1316.uma_android_automation.bot.solver.SmartRaceSolverIntegration
+import com.steve1316.uma_android_automation.utils.AgendaIrregularSchedule
 import com.steve1316.uma_android_automation.components.ButtonBack
 import com.steve1316.uma_android_automation.components.ButtonCancel
 import com.steve1316.uma_android_automation.components.ButtonClose
@@ -244,6 +246,12 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** Flag indicating if the bot has checked for Irregular Training during the current turn. */
     private var bHasCheckedIrregularTrainingThisTurn: Boolean = false
 
+    /** True when this turn has a mapped agenda race in the irregular schedule (ready state). */
+    private var bAgendaIrregularRaceTurnThisTurn: Boolean = false
+
+    /** When set, the next decision should race instead of training after agenda irregular did not qualify. */
+    private var bForceRaceAfterAgendaIrregularSkip: Boolean = false
+
     /** Mapping of energy-restoring items to their gain values. */
     private val energyGains =
         mapOf(
@@ -336,6 +344,14 @@ class Trackblazer(game: Game) : Campaign(game) {
     private val irregularTrainingAgendaGrades: Set<String> =
         SettingsHelper.getStringArraySetting("scenarioOverrides", "trackblazerIrregularTrainingAgendaGrades").toSet()
 
+    /** When enabled, agenda irregular training and autofill may include pre-debut turns (1–11). */
+    private val enableIrregularTrainingAgendaPreDebut: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableIrregularTrainingAgendaPreDebut", false)
+
+    /** When enabled, Pre-Op and OP agenda races may evaluate irregular training using G3 min-gain thresholds. */
+    private val enableIrregularTrainingAgendaPreOp: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableIrregularTrainingAgendaPreOp", false)
+
     /**
      * When enabled during Climax (turns 73–75), forces charm-backed training on highest non-maxed stat instead of rest/recovery.
      * When disabled, Climax uses normal charm rules (min gain floor, failure thresholds, mood conservation).
@@ -348,6 +364,33 @@ class Trackblazer(game: Game) : Campaign(game) {
 
     /** The minimum stat gain threshold for irregular training evaluation. */
     private val minIrregularGain: Int = SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerIrregularTrainingMinStatGain", 30)
+
+    /** Per-grade minimum main stat gain for irregular training (JSON map of grade name → threshold). Falls back to [minIrregularGain]. */
+    private val irregularMinGainByGrade: Map<String, Int> =
+        run {
+            try {
+                val raw =
+                    SettingsHelper.getStringSetting(
+                        "scenarioOverrides",
+                        "trackblazerIrregularTrainingMinStatGainByGrade",
+                        "{}",
+                    )
+                if (raw.isBlank() || raw == "{}") {
+                    return@run emptyMap()
+                }
+                val obj = org.json.JSONObject(raw)
+                obj.keys().asSequence().associateWith { key -> obj.optInt(key, minIrregularGain) }.toMap()
+            } catch (_: Exception) {
+                emptyMap()
+            }
+        }
+
+    /**
+     * When enabled, irregular evaluation always scans every training tab even when Speed fails the pre-check.
+     * Wit may qualify only when failure is below threshold (no charm/energy mitigation for risky Wit).
+     */
+    private val enableWitIrregularTraining: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableWitIrregularTraining", false)
 
     /**
      * When enabled, conserve a pooled stock of Good-Luck Charm + Vita 65 + Royal Kale Juice during Senior pre-Finale (65–72)
@@ -499,6 +542,281 @@ class Trackblazer(game: Game) : Campaign(game) {
             return true
         }
         return summerCharmOverrideMinStatGain > 0
+    }
+
+    /** Whether failure is at or below the configured training threshold (including risky-training uplift). */
+    private fun failureWithinTrainingThreshold(failureChance: Int, mainGain: Int): Boolean =
+        !training.exceedsFailureThreshold(failureChance, mainGain)
+
+    /**
+     * Whether a Good-Luck Charm in inventory can execute this irregular pick, including spending from the
+     * mitigation pool reserve when [mainGain] satisfies the pool-override threshold.
+     */
+    private fun charmAvailableForIrregularExecution(
+        stat: StatName,
+        failureChance: Int,
+        mainGain: Int,
+    ): Boolean {
+        if (bUsedCharmToday || (currentInventory["Good-Luck Charm"] ?: 0) <= 0) {
+            return false
+        }
+        if (!passesGoodLuckCharmTrainingChecks(stat, trainee, failureChance, mainGain)) {
+            return false
+        }
+        if (!isFailureMitigationPoolReservationPeriod()) {
+            return true
+        }
+        if (failureMitigationPoolTotal(currentInventory) > failureMitigationPoolReserve) {
+            return true
+        }
+        return isFailureMitigationPoolOverride(stat, trainee, failureChance)
+    }
+
+    /** Whether [itemName] meets high-failure energy rules for irregular evaluation with explicit failure/gain. */
+    private fun qualifiesForIrregularHighFailureEnergyItem(
+        itemName: String,
+        failureChance: Int,
+        mainGain: Int,
+        ignorePoolReserve: Boolean,
+    ): Boolean {
+        if (!enableEnergyItemForHighFailureTraining || bUsedCharmToday || !isFailureMitigationEnergyItem(itemName)) {
+            return false
+        }
+        if (itemName == "Royal Kale Juice" && !kaleJuiceMoodGateMet(currentInventory)) {
+            return false
+        }
+        if (mainGain < energyItemMinMainStatGain) {
+            return false
+        }
+        if (failureChance < 20 && !canBypassClimaxCharmFailureFloor()) {
+            return false
+        }
+        if (!isHighTierFailureMitigationEnergyItem(itemName)) {
+            val margin = energyItemFailureAboveMinimumFor(itemName)
+            if (failureChance <= training.getMaximumFailureChance() + margin) {
+                return false
+            }
+        }
+        return irregularUsableEnergyUnits(itemName, failureChance, mainGain, ignorePoolReserve) > 0
+    }
+
+    /** Inventory units usable for irregular energy mitigation (honours reserve bypass when gain qualifies). */
+    private fun irregularUsableEnergyUnits(
+        itemName: String,
+        failureChance: Int,
+        mainGain: Int,
+        ignorePoolReserve: Boolean,
+    ): Int {
+        val count = currentInventory[itemName] ?: 0
+        if (count <= 0) {
+            return 0
+        }
+        if (
+            isHighTierFailureMitigationEnergyItem(itemName) &&
+                isFailureMitigationPoolReservationPeriod() &&
+                failureMitigationPoolTotal(currentInventory) <= failureMitigationPoolReserve
+        ) {
+            if (ignorePoolReserve && mainGain >= summerCharmOverrideMinStatGain) {
+                return count
+            }
+            return (count - reservedEnergyUnitsFor(itemName, currentInventory)).coerceAtLeast(0)
+        }
+        return (count - reservedEnergyUnitsFor(itemName, currentInventory)).coerceAtLeast(0)
+    }
+
+    private fun failureMitigationEnergyTargetTierForEvaluation(
+        failureChance: Int,
+        mainGain: Int,
+        ignorePoolReserve: Boolean,
+    ): FailureMitigationEnergyTier? {
+        if (!enableEnergyItemForHighFailureTraining || bUsedCharmToday) return null
+        if (qualifiesForIrregularHighFailureEnergyItem("Royal Kale Juice", failureChance, mainGain, ignorePoolReserve)) {
+            return FailureMitigationEnergyTier.KALE_100
+        }
+        if (qualifiesForIrregularHighFailureEnergyItem("Vita 65", failureChance, mainGain, ignorePoolReserve)) {
+            return FailureMitigationEnergyTier.VITA_65
+        }
+        if (qualifiesForIrregularHighFailureEnergyItem("Vita 40", failureChance, mainGain, ignorePoolReserve)) {
+            return FailureMitigationEnergyTier.VITA_40
+        }
+        if (qualifiesForIrregularHighFailureEnergyItem("Vita 20", failureChance, mainGain, ignorePoolReserve)) {
+            return FailureMitigationEnergyTier.VITA_20
+        }
+        return null
+    }
+
+    private fun buildFailureMitigationEnergyPlanForEvaluation(
+        failureChance: Int,
+        mainGain: Int,
+        ignorePoolReserve: Boolean,
+    ): List<String>? {
+        val tier = failureMitigationEnergyTargetTierForEvaluation(failureChance, mainGain, ignorePoolReserve) ?: return null
+        val stock =
+            mutableMapOf(
+                "Royal Kale Juice" to irregularUsableEnergyUnits("Royal Kale Juice", failureChance, mainGain, ignorePoolReserve),
+                "Vita 65" to irregularUsableEnergyUnits("Vita 65", failureChance, mainGain, ignorePoolReserve),
+                "Vita 40" to irregularUsableEnergyUnits("Vita 40", failureChance, mainGain, ignorePoolReserve),
+                "Vita 20" to irregularUsableEnergyUnits("Vita 20", failureChance, mainGain, ignorePoolReserve),
+            )
+        return when (tier) {
+            FailureMitigationEnergyTier.KALE_100, FailureMitigationEnergyTier.VITA_65 ->
+                buildFailureMitigationEnergyPlanForTopTier(stock)
+            FailureMitigationEnergyTier.VITA_40 -> buildFailureMitigationEnergyPlanForVita40(stock)
+            FailureMitigationEnergyTier.VITA_20 ->
+                if (takeEnergyStock(stock, "Vita 20")) listOf("Vita 20") else null
+        }
+    }
+
+    private fun energyMitigationAvailableForIrregular(
+        stat: StatName,
+        failureChance: Int,
+        mainGain: Int,
+    ): Boolean {
+        if (buildFailureMitigationEnergyPlanForEvaluation(failureChance, mainGain, ignorePoolReserve = false) != null) {
+            return true
+        }
+        return isFailureMitigationPoolOverride(stat, trainee, failureChance) &&
+            buildFailureMitigationEnergyPlanForEvaluation(failureChance, mainGain, ignorePoolReserve = true) != null
+    }
+
+    /** Whether [stat] at [failureChance] / [mainGain] can be executed during irregular training (items may cover high failure). */
+    private fun canExecuteIrregularTrainingOption(
+        stat: StatName,
+        failureChance: Int,
+        mainGain: Int,
+        minGain: Int = minIrregularGain,
+    ): Boolean {
+        if (mainGain < minGain) {
+            return false
+        }
+        if (stat == StatName.WIT && enableWitIrregularTraining) {
+            return failureWithinTrainingThreshold(failureChance, mainGain)
+        }
+        if (failureWithinTrainingThreshold(failureChance, mainGain)) {
+            return true
+        }
+        if (charmAvailableForIrregularExecution(stat, failureChance, mainGain)) {
+            return true
+        }
+        return energyMitigationAvailableForIrregular(stat, failureChance, mainGain)
+    }
+
+    /** Resolves the irregular min-gain floor for the current turn (unique race → grade → global default). */
+    private fun resolveIrregularMinGainForTurn(): Int {
+        racing.resolveUniqueRaceIrregularMinStatGainForTurn(date.day)?.let { return it }
+
+        val agendaName = racing.getAgendaScheduleKey()
+        val agendaRaceKey = AgendaIrregularSchedule.getRaceKeyForTurn(agendaName, date.day)
+        val gradeName =
+            when {
+                !agendaRaceKey.isNullOrBlank() ->
+                    AgendaIrregularSchedule.lookupGradeForRaceKey(game.myContext, date.day, agendaRaceKey)?.name
+                else -> racing.getPrimaryRaceGradeAtTurn(date.day)?.name
+            }
+        gradeName?.let { irregularMinGainByGrade[resolveIrregularMinGainGradeKey(it)] }?.let { return it }
+
+        return minIrregularGain
+    }
+
+    /** Maps Pre-Op/OP grades to the G3 min-gain bucket when that agenda support toggle is enabled. */
+    private fun resolveIrregularMinGainGradeKey(gradeName: String): String =
+        if (enableIrregularTrainingAgendaPreOp && (gradeName == "PRE_OP" || gradeName == "OP")) {
+            "G3"
+        } else {
+            gradeName
+        }
+
+    /** Speed tab result from the latest training analysis (first tab in scan order). */
+    private fun firstTrainingTabAnalysisResult(): TrainingBot.TrainingAnalysisResult? =
+        training.cachedAnalysisResults?.firstOrNull { it.name == StatName.SPEED }
+            ?: training.cachedAnalysisResults?.firstOrNull()
+
+    /**
+     * When Wit irregular training is disabled, skip the full stat sweep if Speed (first tab) cannot be executed:
+     * failure exceeds threshold and available items cannot mitigate.
+     */
+    private fun shouldSkipIrregularAfterFirstTabCheck(minGain: Int): Boolean {
+        if (enableWitIrregularTraining) {
+            return false
+        }
+        val firstResult =
+            firstTrainingTabAnalysisResult() ?: run {
+                MessageLog.i(TAG, "[TRACKBLAZER] Irregular pre-check: no Speed analysis; skipping full sweep.")
+                return true
+            }
+        val mainGain = firstResult.statGains[firstResult.name] ?: 0
+        if (canExecuteIrregularTrainingOption(firstResult.name, firstResult.failureChance, mainGain, minGain)) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Irregular pre-check: ${firstResult.name} is executable (${firstResult.failureChance}% failure, main gain $mainGain); running full sweep.",
+            )
+            return false
+        }
+        MessageLog.i(
+            TAG,
+            "[TRACKBLAZER] Irregular pre-check: ${firstResult.name} not executable (${firstResult.failureChance}% failure, main gain $mainGain, min gain $minGain); skipping without full sweep.",
+        )
+        return true
+    }
+
+    private fun trainingOptionFromAnalysis(result: TrainingBot.TrainingAnalysisResult): TrainingBot.TrainingOption =
+        TrainingBot.TrainingOption(
+            name = result.name,
+            statGains = result.statGains,
+            correctedStats = result.correctedStats,
+            failureChance = result.failureChance,
+            relationshipBars = result.relationshipBars,
+            numRainbow = result.numRainbow,
+            extras = result.extras,
+            numSkillHints = result.numSkillHints,
+        )
+
+    /**
+     * Scans every training location from the latest analysis and returns the best irregular pick that
+     * meets the irregular gain floor and can actually be executed (safe failure or mitigation items).
+     */
+    private fun findBestExecutableIrregularTraining(): StatName? {
+        val minGain = resolveIrregularMinGainForTurn()
+        val results = training.cachedAnalysisResults
+        if (results.isNullOrEmpty()) {
+            MessageLog.i(TAG, "[TRACKBLAZER] Irregular evaluation: no cached training analysis to scan.")
+            return null
+        }
+
+        val executable =
+            results.mapNotNull { result ->
+                val mainGain = result.statGains[result.name] ?: 0
+                if (!canExecuteIrregularTrainingOption(result.name, result.failureChance, mainGain, minGain)) {
+                    return@mapNotNull null
+                }
+                result.name to trainingOptionFromAnalysis(result)
+            }
+
+        if (executable.isEmpty()) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Irregular evaluation: no training qualifies after checking all stats (gain + failure/items, min gain $minGain).",
+            )
+            return null
+        }
+
+        training.trainingMap.clear()
+        training.skippedTrainingMap.clear()
+        executable.forEach { (stat, option) ->
+            training.trainingMap[stat] = option
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Irregular candidate: $stat (${option.failureChance}% failure, main gain ${option.statGains[stat]}).",
+            )
+        }
+
+        return training.recommendTraining(
+            args =
+                mapOf(
+                    "isIrregularEvaluation" to true,
+                    "irregularTrainingMinStatGain" to minGain,
+                ),
+        )
     }
 
     /** Failure chance and main gain for [stat] from training maps or cached OCR. */
@@ -1811,6 +2129,13 @@ class Trackblazer(game: Game) : Campaign(game) {
                 result.dialog.close(game.imageUtils)
             }
 
+            "career_complete" -> {
+                if (enableIrregularTrainingWithAgenda && racing.enableUserInGameRaceAgenda && AgendaIrregularSchedule.isAutofillEnabled()) {
+                    AgendaIrregularSchedule.markScheduleReady(game.myContext, racing.getAgendaScheduleKey())
+                }
+                result.dialog.close(game.imageUtils)
+            }
+
             else -> {
                 Log.w(TAG, "[WARN] handleDialogs:: Unknown dialog \"${result.dialog.name}\" detected so it will not be handled.")
                 return DialogHandlerResult.Unhandled(result.dialog)
@@ -2380,6 +2705,8 @@ class Trackblazer(game: Game) : Campaign(game) {
         bUsedHammerToday = false
         bIsIrregularTraining = false
         bHasCheckedIrregularTrainingThisTurn = false
+        bAgendaIrregularRaceTurnThisTurn = false
+        bForceRaceAfterAgendaIrregularSkip = false
         megaphoneDecrementedThisTurn = false
         bCompletedTrainingThisTurn = false
         bTrainingBlockedThisTurn = false
@@ -2438,6 +2765,12 @@ class Trackblazer(game: Game) : Campaign(game) {
     }
 
     override fun decideNextAction(): MainScreenAction {
+        if (bForceRaceAfterAgendaIrregularSkip) {
+            bForceRaceAfterAgendaIrregularSkip = false
+            MessageLog.i(TAG, "[TRACKBLAZER] Agenda race turn: irregular training did not qualify. Proceeding to race.")
+            return MainScreenAction.RACE
+        }
+
         if (bTrainingBlockedThisTurn) {
             val fallback = super.decideNextAction()
             if (fallback != MainScreenAction.TRAIN) {
@@ -2536,48 +2869,85 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (enableIrregularTraining && date.year > DateYear.JUNIOR && !bHasCheckedIrregularTrainingThisTurn) {
             val isScheduledRace = LabelScheduledRace.check(game.imageUtils)
             val isMandatoryRace = IconRaceDayRibbon.check(game.imageUtils) || IconGoalRibbon.check(game.imageUtils)
+            val agendaName = racing.getAgendaScheduleKey()
+            val onAgendaRaceDay =
+                (isScheduledRace || isMandatoryRace) &&
+                    racing.enableUserInGameRaceAgenda &&
+                    enableIrregularTrainingWithAgenda
+            val mappedAgendaTurn =
+                onAgendaRaceDay &&
+                    AgendaIrregularSchedule.isAgendaMappedRaceTurn(agendaName, date.day)
+            val agendaIrregularAllowedThisTurn =
+                wouldAllowAgendaIrregularEvaluation(isScheduledRace, isMandatoryRace)
+
+            if (mappedAgendaTurn && !agendaIrregularAllowedThisTurn) {
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Mapped agenda race day but irregular not allowed (grade, schedule, or pre-debut). Proceeding directly to race.",
+                )
+                bHasCheckedIrregularTrainingThisTurn = true
+                return MainScreenAction.RACE
+            }
+
+            bAgendaIrregularRaceTurnThisTurn = agendaIrregularAllowedThisTurn
+
+            val uniqueRaceIrregularAllowed =
+                racing.hasUniqueRaceIrregularTrainingForTurn(date.day) &&
+                    !(mappedAgendaTurn && !agendaIrregularAllowedThisTurn)
+
             val mayEvaluateIrregular =
                 (!isScheduledRace && !isMandatoryRace) ||
-                    shouldEvaluateIrregularTrainingWithAgenda(isScheduledRace, isMandatoryRace) ||
-                    racing.hasUniqueRaceIrregularTrainingForTurn(date.day)
+                    agendaIrregularAllowedThisTurn ||
+                    uniqueRaceIrregularAllowed
 
             if (mayEvaluateIrregular) {
-                // Skip irregular training evaluation when energy is depleted and no charm can offset the failure chance.
-                if (trainee.energy <= 0 && !hasCharmAvailable) {
-                    MessageLog.i(TAG, "[TRACKBLAZER] Skipping Irregular Training evaluation as energy is ${trainee.energy}% with no Good-Luck Charm available.")
-                    bHasCheckedIrregularTrainingThisTurn = true
-                } else if (ButtonTraining.click(game.imageUtils)) {
+                if (ButtonTraining.click(game.imageUtils)) {
                     game.wait(game.dialogWaitDelay)
 
-                    val isIrregularEvaluation = true
-                    val hasCharm = !bUsedCharmToday && (currentInventory["Good-Luck Charm"] ?: 0) > 0
+                    val resolvedMinGain = resolveIrregularMinGainForTurn()
                     training.analyzeTrainings(
                         mapOf(
-                            "ignoreFailureChance" to hasCharm,
-                            "isIrregularEvaluation" to isIrregularEvaluation,
+                            "ignoreFailureChance" to false,
+                            "isIrregularEvaluation" to false,
                             "minStatGainForCharm" to minCharmGain,
-                            "irregularTrainingMinStatGain" to minIrregularGain,
+                            "irregularTrainingMinStatGain" to resolvedMinGain,
                         ),
                     )
 
-                    val bestTraining = training.recommendTraining(args = mapOf("isIrregularEvaluation" to true, "irregularTrainingMinStatGain" to minIrregularGain))
-                    if (bestTraining != null && training.lastSelectionSource != SelectionSource.ANALYSIS) {
-                        MessageLog.i(TAG, "[TRACKBLAZER] Pre-screen evaluation used fallback (${training.lastSelectionSource}): $bestTraining.")
-                    }
-
-                    if (bestTraining != null) {
-                        // Stay on the training screen in order to perform the training.
-                        MessageLog.i(TAG, "[TRACKBLAZER] Valid Irregular Training found ($bestTraining). Hijacking turn.")
-
-                        bIsIrregularTraining = true
-                        return MainScreenAction.TRAIN
-                    } else {
-                        MessageLog.i(TAG, "[TRACKBLAZER] No valid Irregular Training found. Backing out to resume racing logic.")
+                    if (shouldSkipIrregularAfterFirstTabCheck(resolvedMinGain)) {
+                        MessageLog.i(
+                            TAG,
+                            "[TRACKBLAZER] Skipping Irregular Training after first-tab pre-check. Backing out to resume racing logic.",
+                        )
                         ButtonBack.click(game.imageUtils)
                         game.wait(game.dialogWaitDelay)
-
-                        // Mark that we've checked for Irregular Training this turn to avoid looping.
                         bHasCheckedIrregularTrainingThisTurn = true
+                        if (bAgendaIrregularRaceTurnThisTurn) {
+                            bForceRaceAfterAgendaIrregularSkip = true
+                        }
+                    } else {
+                        val bestTraining = findBestExecutableIrregularTraining()
+                        if (bestTraining != null && training.lastSelectionSource != SelectionSource.ANALYSIS) {
+                            MessageLog.i(TAG, "[TRACKBLAZER] Pre-screen evaluation used fallback (${training.lastSelectionSource}): $bestTraining.")
+                        }
+
+                        if (bestTraining != null) {
+                            // Stay on the training screen in order to perform the training.
+                            MessageLog.i(TAG, "[TRACKBLAZER] Valid Irregular Training found ($bestTraining). Hijacking turn.")
+
+                            bIsIrregularTraining = true
+                            return MainScreenAction.TRAIN
+                        } else {
+                            MessageLog.i(TAG, "[TRACKBLAZER] No valid Irregular Training found. Backing out to resume racing logic.")
+                            ButtonBack.click(game.imageUtils)
+                            game.wait(game.dialogWaitDelay)
+
+                            // Mark that we've checked for Irregular Training this turn to avoid looping.
+                            bHasCheckedIrregularTrainingThisTurn = true
+                            if (bAgendaIrregularRaceTurnThisTurn) {
+                                bForceRaceAfterAgendaIrregularSkip = true
+                            }
+                        }
                     }
                 }
             }
@@ -2598,8 +2968,23 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (irregularTrainingAgendaGrades.isEmpty()) {
             return false
         }
-        val gradeName = racing.lastRaceGrade?.name ?: return isMandatoryRace
-        return gradeName in irregularTrainingAgendaGrades
+
+        val agendaName = racing.getAgendaScheduleKey()
+        return AgendaIrregularSchedule.shouldEvaluateIrregularForAgendaTurn(
+            context = game.myContext,
+            agendaName = agendaName,
+            turnNumber = date.day,
+            allowedGrades = irregularTrainingAgendaGrades,
+            allowPreOpOp = enableIrregularTrainingAgendaPreOp,
+        )
+    }
+
+    /** Whether agenda-linked irregular training is allowed today (grade, schedule ready, pre-debut toggle). */
+    private fun wouldAllowAgendaIrregularEvaluation(isScheduledRace: Boolean, isMandatoryRace: Boolean): Boolean {
+        if (date.bIsPreDebut && !enableIrregularTrainingAgendaPreDebut) {
+            return false
+        }
+        return shouldEvaluateIrregularTrainingWithAgenda(isScheduledRace, isMandatoryRace)
     }
 
     override fun executeAction(action: MainScreenAction, bIsScheduledRaceDay: Boolean): Boolean {
@@ -3166,7 +3551,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         // Fast path: Already on the training screen from irregular training evaluation.
         if (bIsIrregularTraining) {
             MessageLog.i(TAG, "[TRACKBLAZER] Using existing irregular training analysis (already on Training screen).")
-            var trainingSelected: StatName? = training.recommendTraining(args = mapOf("isIrregularEvaluation" to true, "irregularTrainingMinStatGain" to minIrregularGain))
+            var trainingSelected: StatName? = findBestExecutableIrregularTraining()
             if (trainingSelected != null && training.lastSelectionSource != SelectionSource.ANALYSIS) {
                 MessageLog.i(TAG, "[TRACKBLAZER] On-screen evaluation used fallback (${training.lastSelectionSource}): $trainingSelected.")
             }
@@ -3177,6 +3562,10 @@ class Trackblazer(game: Game) : Campaign(game) {
                     trainingSelected?.let { executeTrainingWithItems(it, climaxCharmTraining = false) }
                 if (executed == null) {
                     MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Irregular training execute blocked. Backing out.")
+                    bHasCheckedIrregularTrainingThisTurn = true
+                    if (bAgendaIrregularRaceTurnThisTurn) {
+                        bForceRaceAfterAgendaIrregularSkip = true
+                    }
                     backOutFromTrainingForRecovery("Irregular training execute blocked.")
                 } else {
                     trainingSelected = executed
@@ -3185,7 +3574,11 @@ class Trackblazer(game: Game) : Campaign(game) {
                 }
             } else {
                 MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Irregular training unexpectedly became null. Backing out.")
+                bHasCheckedIrregularTrainingThisTurn = true
                 bTrainingBlockedThisTurn = true
+                if (bAgendaIrregularRaceTurnThisTurn) {
+                    bForceRaceAfterAgendaIrregularSkip = true
+                }
                 ButtonBack.click(game.imageUtils)
                 game.wait(game.dialogWaitDelay)
             }

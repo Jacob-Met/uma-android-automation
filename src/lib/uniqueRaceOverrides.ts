@@ -1,6 +1,7 @@
 export type UniqueRaceOverrideConfig = {
     strategy?: string
     enableIrregularTraining?: boolean
+    irregularTrainingMinStatGain?: number
     enableRetryOverride?: boolean
     maxRetries?: number
 }
@@ -39,6 +40,8 @@ export const parseUniqueRaceOverrides = (json: string | undefined): UniqueRaceOv
                 out[key] = {
                     strategy: typeof obj.strategy === "string" ? obj.strategy : "Default",
                     enableIrregularTraining: obj.enableIrregularTraining === true,
+                    irregularTrainingMinStatGain:
+                        typeof obj.irregularTrainingMinStatGain === "number" ? obj.irregularTrainingMinStatGain : undefined,
                     enableRetryOverride: obj.enableRetryOverride === true,
                     maxRetries: typeof obj.maxRetries === "number" ? obj.maxRetries : undefined,
                 }
@@ -65,6 +68,9 @@ export const serializeUniqueRaceOverrides = (overrides: UniqueRaceOverridesMap):
         out[key] = {
             ...(config.strategy && config.strategy !== "Default" ? { strategy: config.strategy } : {}),
             ...(config.enableIrregularTraining ? { enableIrregularTraining: true } : {}),
+            ...(config.enableIrregularTraining && config.irregularTrainingMinStatGain !== undefined
+                ? { irregularTrainingMinStatGain: config.irregularTrainingMinStatGain }
+                : {}),
             ...(config.enableRetryOverride ? { enableRetryOverride: true, ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}) } : {}),
         }
     }

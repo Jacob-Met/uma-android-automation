@@ -9,6 +9,7 @@ import com.steve1316.uma_android_automation.MainActivity
 import com.steve1316.uma_android_automation.bot.Campaign
 import com.steve1316.uma_android_automation.bot.DialogHandlerResult
 import com.steve1316.uma_android_automation.bot.solver.SmartRaceSolverIntegration
+import com.steve1316.uma_android_automation.utils.AgendaIrregularSchedule
 import com.steve1316.uma_android_automation.components.ButtonAgenda
 import com.steve1316.uma_android_automation.components.ButtonBack
 import com.steve1316.uma_android_automation.components.ButtonChangeRunningStyle
@@ -107,6 +108,15 @@ class Racing(private val game: Game, private val campaign: Campaign) {
 
     /** The effective agenda name used for OCR matching — custom title if provided, otherwise the selected agenda. */
     private var effectiveAgendaName = if (customAgendaTitle.isNotBlank()) customAgendaTitle else selectedUserAgenda
+
+    /** Returns [effectiveAgendaName] for in-game agenda OCR matching — custom title if provided, otherwise the selected agenda. */
+    internal fun getEffectiveAgendaName(): String = effectiveAgendaName
+
+    /** Returns the stable key for irregular-training agenda schedules (always the selected agenda slot). */
+    internal fun getAgendaScheduleKey(): String = selectedUserAgenda.takeIf { it.isNotBlank() } ?: "Agenda 1"
+
+    /** Whether the race just completed was entered via the scheduled-race flow (agenda day). */
+    var lastCompletedRaceWasScheduled: Boolean = false
 
     /** Whether to skip Summer training to do races from the in-game agenda. */
     var skipSummerTrainingForAgenda = SettingsHelper.getBooleanSetting("racing", "skipSummerTrainingForAgenda")
@@ -1194,6 +1204,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
     data class UniqueRaceOverrideConfig(
         val strategy: String? = null,
         val enableIrregularTraining: Boolean = false,
+        val irregularTrainingMinStatGain: Int? = null,
         val enableRetryOverride: Boolean = false,
         val maxRetries: Int? = null,
     )
@@ -1218,6 +1229,8 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                     UniqueRaceOverrideConfig(
                         strategy = strategy,
                         enableIrregularTraining = raw.optBoolean("enableIrregularTraining", false),
+                        irregularTrainingMinStatGain =
+                            raw.optInt("irregularTrainingMinStatGain", -1).takeIf { it >= 0 },
                         enableRetryOverride = raw.optBoolean("enableRetryOverride", false),
                         maxRetries = raw.optInt("maxRetries", -1).takeIf { it >= 0 },
                     )
@@ -1241,6 +1254,29 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         return raceKeysAtTurn.any { key ->
             loadUniqueRaceOverride(key)?.enableIrregularTraining == true
         }
+    }
+
+    /** Minimum irregular stat-gain threshold from a unique-race override when irregular training is enabled for that race today. */
+    internal fun resolveUniqueRaceIrregularMinStatGainForTurn(turnNumber: Int): Int? {
+        if (!SettingsHelper.getBooleanSetting("racing", "enableUniqueRaceStrategyOverrides", false)) {
+            return null
+        }
+        for (key in getRaceKeysAtTurn(turnNumber)) {
+            val override = loadUniqueRaceOverride(key) ?: continue
+            if (override.enableIrregularTraining && override.irregularTrainingMinStatGain != null) {
+                return override.irregularTrainingMinStatGain
+            }
+        }
+        return null
+    }
+
+    /** Grade of the sole race on [turnNumber], when exactly one race is scheduled that day. */
+    internal fun getPrimaryRaceGradeAtTurn(turnNumber: Int): RaceGrade? {
+        val keys = getRaceKeysAtTurn(turnNumber)
+        if (keys.size != 1) {
+            return null
+        }
+        return AgendaIrregularSchedule.lookupGradeForRaceKey(game.myContext, turnNumber, keys[0])
     }
 
     /** Returns races.json keys for all races scheduled on the given turn. */
@@ -1490,6 +1526,49 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         } while (true)
     }
 
+    /** Records a completed scheduled race into the agenda irregular autofill schedule when enabled. */
+    private fun maybeRecordAgendaIrregularRace() {
+        if (!lastCompletedRaceWasScheduled) {
+            return
+        }
+        lastCompletedRaceWasScheduled = false
+
+        if (!enableUserInGameRaceAgenda) {
+            return
+        }
+        if (!SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableIrregularTrainingWithAgenda", false)) {
+            return
+        }
+        if (!AgendaIrregularSchedule.isAutofillEnabled()) {
+            return
+        }
+        if (!AgendaIrregularSchedule.isAgendaAutofillRecordableTurn(campaign.date.day)) {
+            return
+        }
+
+        val agendaName = getAgendaScheduleKey()
+        val raceKey =
+            AgendaIrregularSchedule.lookupRaceKeyForCompletedRace(
+                game.myContext,
+                campaign.date.day,
+                lastRaceName,
+            )
+        if (raceKey.isNullOrBlank()) {
+            MessageLog.w(
+                TAG,
+                "[RACE] Could not resolve race key for agenda autofill at turn ${campaign.date.day} (name=${lastRaceName ?: "unknown"}).",
+            )
+            return
+        }
+
+        AgendaIrregularSchedule.recordScheduledRace(
+            context = game.myContext,
+            agendaName = agendaName,
+            turnNumber = campaign.date.day,
+            raceKey = raceKey,
+        )
+    }
+
     /**
      * Finishes up and confirms the results of the race and its success.
      *
@@ -1519,6 +1598,8 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         MessageLog.i(TAG, "[RACE] Race result detected — 1st place: $firstPlace.")
         RunSummaryTracker.completeRaceAttribution(won = firstPlace)
         SmartRaceSolverIntegration.commitPendingRace(won = firstPlace)
+
+        maybeRecordAgendaIrregularRace()
 
         // Max time limit for the while loop to attempt to finalize race results.
         // It really shouldn't ever take this long.
@@ -2278,6 +2359,7 @@ class Racing(private val game: Game, private val campaign: Campaign) {
                 return false
             }
         } else if (isScheduledRace) {
+            lastCompletedRaceWasScheduled = true
             // Attempt to update the date if the current day is 1. This handles cases where the bot starts at the race
             // prep screen and enters the race list directly via a scheduled race dialog, bypassing the home
             // screen's date detection.

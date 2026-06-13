@@ -251,7 +251,12 @@ ${longTargetsString}
 🔄 Trackblazer Retry Grades: ${settings.scenarioOverrides?.trackblazerRetryRacesBeforeFinalGrades?.join(", ")}
 ✨ Trackblazer Enable Irregular Training: ${settings.scenarioOverrides?.trackblazerEnableIrregularTraining ? "✅" : "❌"}
 ✨ Trackblazer Irregular Training Min Gain: ${settings.scenarioOverrides?.trackblazerIrregularTrainingMinStatGain}
+🧠 Wit Irregular Training: ${settings.scenarioOverrides?.trackblazerEnableWitIrregularTraining ? "✅" : "❌"}
+✨ Irregular Min Gain by Grade: ${settings.scenarioOverrides?.trackblazerIrregularTrainingMinStatGainByGrade ?? "{}"}
 📋 Irregular Training With Agenda: ${settings.scenarioOverrides?.trackblazerEnableIrregularTrainingWithAgenda ? `✅ (${settings.scenarioOverrides?.trackblazerIrregularTrainingAgendaGrades?.join(", ")})` : "❌"}
+📋 Agenda Irregular Pre-Debut: ${settings.scenarioOverrides?.trackblazerEnableIrregularTrainingAgendaPreDebut ? "✅" : "❌"}
+📋 Agenda Irregular Pre-Op/OP: ${settings.scenarioOverrides?.trackblazerEnableIrregularTrainingAgendaPreOp ? "✅ (G3 thresholds)" : "❌"}
+📋 Agenda Irregular Autofill: ${settings.scenarioOverrides?.trackblazerAgendaIrregularAutofill ? "✅" : "❌ (manual schedule)"}
 🏇 Trackblazer Preferred Distances: ${settings.scenarioOverrides?.trackblazerPreferredDistances?.length === 0 ? "None" : settings.scenarioOverrides?.trackblazerPreferredDistances?.join(", ")}
 🏇 Trackblazer Preferred Surfaces: ${settings.scenarioOverrides?.trackblazerPreferredSurfaces?.length === 0 ? "None" : settings.scenarioOverrides?.trackblazerPreferredSurfaces?.join(", ")}
 

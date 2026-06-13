@@ -90,6 +90,10 @@ object RunSummaryTracker {
         if (!isExportEnabled()) {
             return
         }
+        // Climax/finale races (73+) are mandatory with no training alternative — exclude from career race totals.
+        if (turn > 72) {
+            return
+        }
 
         pendingDiffAttribution =
             PendingDiffAttribution(

@@ -231,6 +231,37 @@ export const applyMigrations = (settings: any, rawSettings?: any): { settings: a
             anyMigrated = true
             logWithTimestamp("[SettingsManager] Dropped removed setting trackblazerForceTrainEnergyFloor.")
         }
+        if (Array.isArray(scenarioOverrides.trackblazerIrregularTrainingAgendaGrades)) {
+            const grades = scenarioOverrides.trackblazerIrregularTrainingAgendaGrades as string[]
+            if (grades.includes("PRE_OP")) {
+                scenarioOverrides.trackblazerIrregularTrainingAgendaGrades = grades.filter((g) => g !== "PRE_OP")
+                if (scenarioOverrides.trackblazerEnableIrregularTrainingAgendaPreOp === undefined) {
+                    scenarioOverrides.trackblazerEnableIrregularTrainingAgendaPreOp = true
+                }
+                anyMigrated = true
+                logWithTimestamp("[SettingsManager] Migrated PRE_OP agenda grade to trackblazerEnableIrregularTrainingAgendaPreOp toggle.")
+            }
+        }
+    }
+
+    // Migration: seed per-slot custom agenda titles from legacy single customAgendaTitle field.
+    const racing = migratedSettings.racing as Record<string, unknown> | undefined
+    const rawRacing = rawSettings?.racing as Record<string, unknown> | undefined
+    if (racing && rawRacing) {
+        if (racing.userAgendaCustomTitles === undefined) {
+            racing.userAgendaCustomTitles = "{}"
+            anyMigrated = true
+        }
+        const legacyCustomTitle = typeof rawRacing.customAgendaTitle === "string" ? rawRacing.customAgendaTitle.trim() : ""
+        const selectedSlot =
+            typeof rawRacing.selectedUserAgenda === "string" && rawRacing.selectedUserAgenda.trim() !== ""
+                ? rawRacing.selectedUserAgenda.trim()
+                : "Agenda 1"
+        if (legacyCustomTitle && (!racing.userAgendaCustomTitles || racing.userAgendaCustomTitles === "{}")) {
+            racing.userAgendaCustomTitles = JSON.stringify({ [selectedSlot]: legacyCustomTitle })
+            anyMigrated = true
+            logWithTimestamp("[SettingsManager] Seeded userAgendaCustomTitles from legacy customAgendaTitle.")
+        }
     }
 
     // Migration: Upstream training settings removed or replaced in the custom fork.

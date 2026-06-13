@@ -67,6 +67,8 @@ export interface Settings {
         raceStrategyWaitDelay: number
         selectedUserAgenda: string
         customAgendaTitle: string
+        /** JSON map of agenda slot → in-game custom title for OCR matching. */
+        userAgendaCustomTitles: string
         juniorYearRaceStrategy: string
         originalRaceStrategy: string
         enablePerDistanceStrategy: boolean
@@ -266,8 +268,14 @@ export interface Settings {
         trackblazerRetryRacesBeforeFinalGrades: string[]
         trackblazerEnableIrregularTraining: boolean
         trackblazerIrregularTrainingMinStatGain: number
+        trackblazerEnableWitIrregularTraining: boolean
+        trackblazerIrregularTrainingMinStatGainByGrade: string
         trackblazerEnableIrregularTrainingWithAgenda: boolean
+        trackblazerEnableIrregularTrainingAgendaPreDebut: boolean
+        trackblazerEnableIrregularTrainingAgendaPreOp: boolean
         trackblazerIrregularTrainingAgendaGrades: string[]
+        trackblazerAgendaIrregularAutofill: boolean
+        trackblazerAgendaIrregularSchedules: string
         trackblazerExcludedItems: string[]
         trackblazerShopCheckFrequency: number
         trackblazerPreferredDistances: string[]
@@ -335,6 +343,7 @@ export const defaultSettings: Settings = {
         raceStrategyWaitDelay: 0.5,
         selectedUserAgenda: "Agenda 1",
         customAgendaTitle: "",
+        userAgendaCustomTitles: "{}",
         juniorYearRaceStrategy: "Default",
         originalRaceStrategy: "Default",
         enablePerDistanceStrategy: false,
@@ -589,8 +598,14 @@ export const defaultSettings: Settings = {
         trackblazerRetryRacesBeforeFinalGrades: ["G1", "G2", "G3"],
         trackblazerEnableIrregularTraining: false,
         trackblazerIrregularTrainingMinStatGain: 30,
+        trackblazerEnableWitIrregularTraining: false,
+        trackblazerIrregularTrainingMinStatGainByGrade: '{"G1":30,"G2":30,"G3":30}',
         trackblazerEnableIrregularTrainingWithAgenda: false,
+        trackblazerEnableIrregularTrainingAgendaPreDebut: false,
+        trackblazerEnableIrregularTrainingAgendaPreOp: false,
         trackblazerIrregularTrainingAgendaGrades: ["G1", "G2", "G3"],
+        trackblazerAgendaIrregularAutofill: true,
+        trackblazerAgendaIrregularSchedules: "{}",
         trackblazerExcludedItems: [],
         trackblazerShopCheckFrequency: 3,
         trackblazerPreferredDistances: [] as string[],

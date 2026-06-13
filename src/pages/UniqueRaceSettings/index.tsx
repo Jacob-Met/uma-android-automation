@@ -218,6 +218,9 @@ const UniqueRaceSettings = () => {
         }
         if (config.enableIrregularTraining) {
             badges.push("Irregular")
+            if (config.irregularTrainingMinStatGain !== undefined) {
+                badges.push(`Irreg gain: ${config.irregularTrainingMinStatGain}`)
+            }
         }
         if (config.enableRetryOverride) {
             badges.push(`Retries: ${config.maxRetries ?? globalMaxRetries}`)
@@ -326,6 +329,31 @@ const UniqueRaceSettings = () => {
                                                     description="When this race is scheduled or mandatory, still evaluate irregular training before racing (requires Trackblazer irregular training enabled)."
                                                 />
                                             </View>
+
+                                            {selectedConfig.enableIrregularTraining && (
+                                                <View style={{ marginTop: 8 }}>
+                                                    <CustomSlider
+                                                        searchId="unique-race-irregular-training-min-stat-gain"
+                                                        parentId="unique-race-enable-irregular-training"
+                                                        searchCondition={selectedConfig.enableIrregularTraining}
+                                                        value={
+                                                            selectedConfig.irregularTrainingMinStatGain ??
+                                                            scenarioOverrides?.trackblazerIrregularTrainingMinStatGain ??
+                                                            30
+                                                        }
+                                                        placeholder={scenarioOverrides?.trackblazerIrregularTrainingMinStatGain ?? 30}
+                                                        onValueChange={(value) => updateRaceConfig(selectedRaceName, { irregularTrainingMinStatGain: value })}
+                                                        onSlidingComplete={(value) => updateRaceConfig(selectedRaceName, { irregularTrainingMinStatGain: value })}
+                                                        min={20}
+                                                        max={100}
+                                                        step={5}
+                                                        label="Minimum Main Stat Gain for Irregular Training"
+                                                        showValue={true}
+                                                        showLabels={true}
+                                                        description="Overrides the global and grade thresholds for this race only."
+                                                    />
+                                                </View>
+                                            )}
 
                                             <View style={{ marginTop: 16 }}>
                                                 <CustomCheckbox

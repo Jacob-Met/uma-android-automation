@@ -9,7 +9,7 @@ import CustomSlider from "../../components/CustomSlider"
 import CustomCheckbox from "../../components/CustomCheckbox"
 import CustomAccordion from "../../components/CustomAccordion"
 import CustomButton from "../../components/CustomButton"
-import PageHeader from "../../components/PageHeader"
+import AgendaIrregularScheduleEditor from "./components/AgendaIrregularScheduleEditor"
 import { Input } from "../../components/ui/input"
 import { CircleCheckBig, Trash2 } from "lucide-react-native"
 import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
@@ -26,6 +26,30 @@ const SECTION_BY_SEARCH_PREFIX: ReadonlyArray<readonly [string, string]> = [["tr
  */
 const SECTION_BY_SCENARIO: Readonly<Record<string, string>> = {
     Trackblazer: "trackblazer",
+}
+
+const DEFAULT_IRREGULAR_GRADE_GAINS: Record<string, number> = { G1: 30, G2: 30, G3: 30 }
+
+const parseIrregularMinGainByGrade = (json: string | undefined): Record<string, number> => {
+    try {
+        if (!json || json.trim() === "") {
+            return { ...DEFAULT_IRREGULAR_GRADE_GAINS }
+        }
+        const parsed = JSON.parse(json) as unknown
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            return { ...DEFAULT_IRREGULAR_GRADE_GAINS }
+        }
+        const out = { ...DEFAULT_IRREGULAR_GRADE_GAINS }
+        for (const grade of ["G1", "G2", "G3"] as const) {
+            const value = (parsed as Record<string, unknown>)[grade]
+            if (typeof value === "number") {
+                out[grade] = value
+            }
+        }
+        return out
+    } catch {
+        return { ...DEFAULT_IRREGULAR_GRADE_GAINS }
+    }
 }
 
 /**
@@ -87,6 +111,21 @@ const ScenarioOverridesSettings = () => {
             updateScenarioOverrides({ [key]: value } as Partial<Settings["scenarioOverrides"]>)
         },
         [updateScenarioOverrides]
+    )
+
+    const irregularMinGainByGrade = useMemo(
+        () => parseIrregularMinGainByGrade(scenarioOverrides.trackblazerIrregularTrainingMinStatGainByGrade),
+        [scenarioOverrides.trackblazerIrregularTrainingMinStatGainByGrade]
+    )
+
+    const updateIrregularMinGainForGrade = useCallback(
+        (grade: string, value: number) => {
+            updateOverrideSetting(
+                "trackblazerIrregularTrainingMinStatGainByGrade",
+                JSON.stringify({ ...irregularMinGainByGrade, [grade]: value })
+            )
+        },
+        [irregularMinGainByGrade, updateOverrideSetting]
     )
 
     /**
@@ -719,11 +758,44 @@ const ScenarioOverridesSettings = () => {
                                                             min={20}
                                                             max={100}
                                                             step={5}
-                                                            label="Minimum Main Stat Gain for Irregular Training"
+                                                            label="Minimum Main Stat Gain for Irregular Training (Default)"
                                                             labelUnit=""
                                                             showValue={true}
                                                             showLabels={true}
-                                                            description="Sets the minimum main stat gain required to skip racing and perform Irregular Training instead."
+                                                            description="Default minimum main stat gain when no race-grade or unique-race override applies."
+                                                        />
+                                                    </View>
+                                                    <View style={styles.section}>
+                                                        <Text style={{ fontSize: 16, color: colors.foreground, marginBottom: 8 }}>Minimum Stat Gain by Race Grade</Text>
+                                                        <Text style={{ fontSize: 13, color: colors.mutedForeground, marginBottom: 12 }}>
+                                                            Overrides the default threshold on days with a mapped G1/G2/G3 race. Unique race overrides take priority.
+                                                        </Text>
+                                                        {(["G1", "G2", "G3"] as const).map((grade) => (
+                                                            <View key={grade} style={{ marginBottom: 12 }}>
+                                                                <CustomSlider
+                                                                    searchId={`trackblazer-irregular-training-min-stat-gain-${grade.toLowerCase()}`}
+                                                                    value={irregularMinGainByGrade[grade] ?? scenarioOverrides.trackblazerIrregularTrainingMinStatGain}
+                                                                    placeholder={scenarioOverrides.trackblazerIrregularTrainingMinStatGain}
+                                                                    onValueChange={(value) => updateIrregularMinGainForGrade(grade, value)}
+                                                                    onSlidingComplete={(value) => updateIrregularMinGainForGrade(grade, value)}
+                                                                    min={20}
+                                                                    max={100}
+                                                                    step={5}
+                                                                    label={`${grade} Minimum Main Stat Gain`}
+                                                                    labelUnit=""
+                                                                    showValue={true}
+                                                                    showLabels={true}
+                                                                />
+                                                            </View>
+                                                        ))}
+                                                    </View>
+                                                    <View style={styles.section}>
+                                                        <CustomCheckbox
+                                                            searchId="trackblazer-enable-wit-irregular-training"
+                                                            checked={scenarioOverrides.trackblazerEnableWitIrregularTraining}
+                                                            onCheckedChange={(checked) => updateOverrideSetting("trackblazerEnableWitIrregularTraining", checked)}
+                                                            label="Enable Wit Irregular Training"
+                                                            description="When enabled, always scan every training tab even if Speed fails the pre-check. Wit may qualify only when failure is below threshold (no charm/energy mitigation for risky Wit)."
                                                         />
                                                     </View>
                                                     <View style={styles.section}>
@@ -732,10 +804,29 @@ const ScenarioOverridesSettings = () => {
                                                             checked={scenarioOverrides.trackblazerEnableIrregularTrainingWithAgenda}
                                                             onCheckedChange={(checked) => updateOverrideSetting("trackblazerEnableIrregularTrainingWithAgenda", checked)}
                                                             label="Allow Irregular Training With User Agenda"
-                                                            description="When user in-game agenda is enabled, still evaluate irregular training on scheduled/mandatory race days for selected grades."
+                                                            description="When user in-game agenda is enabled, evaluate irregular training on agenda race days using the mapped schedule and selected grades."
                                                         />
                                                     </View>
                                                     {scenarioOverrides.trackblazerEnableIrregularTrainingWithAgenda && (
+                                                        <>
+                                                        <View style={styles.section}>
+                                                            <CustomCheckbox
+                                                                searchId="trackblazer-enable-irregular-training-agenda-pre-debut"
+                                                                checked={scenarioOverrides.trackblazerEnableIrregularTrainingAgendaPreDebut}
+                                                                onCheckedChange={(checked) => updateOverrideSetting("trackblazerEnableIrregularTrainingAgendaPreDebut", checked)}
+                                                                label="Allow Agenda Irregular During Pre-Debut"
+                                                                description="When enabled, pre-debut turns (1–11) may be included in agenda irregular evaluation and autofill. Off by default — agenda is usually loaded after debut."
+                                                            />
+                                                        </View>
+                                                        <View style={styles.section}>
+                                                            <CustomCheckbox
+                                                                searchId="trackblazer-enable-irregular-training-agenda-pre-op"
+                                                                checked={scenarioOverrides.trackblazerEnableIrregularTrainingAgendaPreOp}
+                                                                onCheckedChange={(checked) => updateOverrideSetting("trackblazerEnableIrregularTrainingAgendaPreOp", checked)}
+                                                                label="Allow Pre-Op / OP Agenda Irregular Training"
+                                                                description="When enabled, Pre-Op and OP agenda race days may evaluate irregular training using the same minimum stat gain threshold as G3."
+                                                            />
+                                                        </View>
                                                         <View style={styles.section}>
                                                             <Text style={{ fontSize: 16, color: colors.foreground, marginBottom: 8 }}>Irregular Training Agenda Grades</Text>
                                                             <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
@@ -763,6 +854,8 @@ const ScenarioOverridesSettings = () => {
                                                                 ))}
                                                             </View>
                                                         </View>
+                                                        <AgendaIrregularScheduleEditor updateOverrideSetting={updateOverrideSetting} />
+                                                        </>
                                                     )}
                                                     </>
                                                 )}
