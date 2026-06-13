@@ -48,6 +48,12 @@ import com.steve1316.uma_android_automation.components.IconRecreationDate
 import com.steve1316.uma_android_automation.components.IconRecreationDateOpen
 import com.steve1316.uma_android_automation.components.IconTazuna
 import com.steve1316.uma_android_automation.components.IconTrainingEventHorseshoe
+import com.steve1316.uma_android_automation.components.IconTrainingHeaderGuts
+import com.steve1316.uma_android_automation.components.IconTrainingHeaderPower
+import com.steve1316.uma_android_automation.components.IconTrainingHeaderSpeed
+import com.steve1316.uma_android_automation.components.IconTrainingHeaderStamina
+import com.steve1316.uma_android_automation.components.IconTrainingHeaderWit
+import com.steve1316.uma_android_automation.components.LabelTrainingFailureChance
 import com.steve1316.uma_android_automation.components.LabelEnergy
 import com.steve1316.uma_android_automation.components.LabelEventProgress
 import com.steve1316.uma_android_automation.components.LabelOrdinaryCuties
@@ -957,6 +963,21 @@ abstract class Campaign(game: Game) : Task(game) {
         }
 
         return ButtonHomeFullStats.check(game.imageUtils) && IconTazuna.check(game.imageUtils) && ButtonTraining.check(game.imageUtils)
+    }
+
+    /**
+     * True when the bot is on the training selection screen (stat tabs / failure chance visible).
+     */
+    open fun checkTrainingScreen(): Boolean {
+        if (IconTrainingHeaderSpeed.check(game.imageUtils) ||
+            IconTrainingHeaderStamina.check(game.imageUtils) ||
+            IconTrainingHeaderPower.check(game.imageUtils) ||
+            IconTrainingHeaderGuts.check(game.imageUtils) ||
+            IconTrainingHeaderWit.check(game.imageUtils)
+        ) {
+            return true
+        }
+        return LabelTrainingFailureChance.find(game.imageUtils).first != null
     }
 
     /**

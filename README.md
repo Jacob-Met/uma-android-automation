@@ -120,6 +120,7 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 - **G1 hammer conservation** — spare last Artisan/Master when G1 upcoming on agenda (off by default)
 - **Tier overwrite** — upgrade megaphone tier on base gain, respects summer 60/40 rule (off by default)
 - **Revalidate after items** — optional always recheck after item pass; whistle always rechecks (off by default)
+- **Training navigation fixes** — Speed baseline on reopen; single-tap train execute; guard against train/race loops on incomplete scans
 
 ## Recent changes (1.0.3)
 

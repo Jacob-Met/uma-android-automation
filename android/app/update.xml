@@ -23,6 +23,12 @@ Megaphone forecast &amp; conservation (off by default)
 - **G1 hammer conservation** — spare last Artisan/Master before upcoming G1 on agenda
 - **Revalidate after items** — optional; Reset Whistle always rechecks
 
+Training navigation fixes
+---
+- **Speed baseline** — reopening training always returns to Speed before a full stat scan
+- **Single-tap train** — one confirm tap per stat; no triple-tap loop on Stamina
+- **Train/race loop guard** — incomplete scans back out instead of re-entering training
+
     </releaseNotes>
   </update>
 </AppUpdater>

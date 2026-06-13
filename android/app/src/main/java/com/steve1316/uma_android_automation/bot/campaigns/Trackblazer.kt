@@ -1746,9 +1746,10 @@ class Trackblazer(game: Game) : Campaign(game) {
         climaxCharmTraining: Boolean,
         preItemFailure: Map<StatName, Int>,
     ): StatName? {
-        MessageLog.i(TAG, "[TRACKBLAZER] Re-evaluating training selection after item pass (reusing cached board analysis; no stat tab navigation).")
+        MessageLog.i(TAG, "[TRACKBLAZER] Re-evaluating training after item pass (return to Speed, then rescan all tabs).")
         val recheckArgs = buildTrainingAnalysisArgs().toMutableMap()
         recheckArgs["postTrainingItemsRecheck"] = true
+        recheckArgs["forceFullStatNavigation"] = true
         recheckArgs["preItemFailureSnapshot"] = preItemFailure
         recheckArgs["charmUsedThisTurn"] = bUsedCharmToday
         if (bUsedCharmToday) {
@@ -2729,6 +2730,29 @@ class Trackblazer(game: Game) : Campaign(game) {
         ButtonCancel.click(game.imageUtils)
         ButtonClose.click(game.imageUtils)
         game.wait(1.0)
+        if (bTrainingBlockedThisTurn) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Training already failed this turn; race fallback unavailable. Resting to advance instead of looping.",
+            )
+            recoverEnergy(game.imageUtils.getSourceBitmap())
+            return false
+        }
+        if (!checkMainScreen() && !checkTrainingScreen()) {
+            ButtonBack.click(game.imageUtils)
+            ButtonCancel.click(game.imageUtils)
+            ButtonClose.click(game.imageUtils)
+            game.wait(1.0)
+        }
+        if (checkTrainingScreen()) {
+            MessageLog.i(TAG, "[TRACKBLAZER] Race fallback: resuming on Training screen (no re-entry click).")
+            handleTrackblazerTraining()
+            return false
+        }
+        if (!checkMainScreen()) {
+            MessageLog.w(TAG, "[WARN] handleRaceEventFallback:: Not on Main or Training screen; skipping training re-entry.")
+            return false
+        }
         handleTrackblazerTraining()
         return false
     }
@@ -2787,6 +2811,7 @@ class Trackblazer(game: Game) : Campaign(game) {
                 game.tap(suitableRaceLocation.x, suitableRaceLocation.y, "race_list_prediction_double_star", ignoreWaiting = true)
                 game.wait(0.5)
             } else {
+                bHasCheckedForMaidenRaceToday = true
                 MessageLog.i(TAG, "[TRACKBLAZER] No suitable races found. Backing out and training.")
                 ButtonBack.click(game.imageUtils)
                 game.wait(0.5)
@@ -2907,6 +2932,18 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         if (bTrainingBlockedThisTurn) {
             val fallback = super.decideNextAction()
+            if (fallback == MainScreenAction.RACE && date.day == 13) {
+                val sourceBitmap = game.imageUtils.getSourceBitmap()
+                val bIsScheduledRaceDay = LabelScheduledRace.check(game.imageUtils, sourceBitmap = sourceBitmap)
+                val bIsMandatoryRaceDay = IconRaceDayRibbon.check(game.imageUtils, sourceBitmap = sourceBitmap)
+                if (!bIsMandatoryRaceDay && !bIsScheduledRaceDay) {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] Training already failed this turn and Turn 13 has no extra races. Resting to advance instead of looping.",
+                    )
+                    return MainScreenAction.REST
+                }
+            }
             if (fallback != MainScreenAction.TRAIN) {
                 MessageLog.i(
                     TAG,
@@ -3131,7 +3168,7 @@ class Trackblazer(game: Game) : Campaign(game) {
                         MessageLog.i(TAG, "[TRACKBLAZER] Decision made to train.")
                         handleTrackblazerTraining()
                         bHasCheckedDateThisTurn = false
-                        true
+                        bCompletedTrainingThisTurn
                     }
                 }
 
@@ -3724,15 +3761,28 @@ class Trackblazer(game: Game) : Campaign(game) {
             return
         }
 
-        // Enter the Training screen.
-        if (!ButtonTraining.click(game.imageUtils)) {
-            MessageLog.e(TAG, "[ERROR] handleTrackblazerTraining:: Failed to enter Training screen.")
-            DelayCalibration.logFailureFromPattern("training.enter", game.trainingWaitDelay)
-            return
+        // Enter the Training screen (or continue if already there from a prior failed back-out).
+        if (checkTrainingScreen()) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Already on Training screen (game may have restored the last active stat tab). Skipping main-screen Training button.",
+            )
+            game.wait(game.trainingWaitDelay)
+        } else if (!ButtonTraining.click(game.imageUtils)) {
+            if (checkTrainingScreen()) {
+                MessageLog.i(TAG, "[TRACKBLAZER] Training button template missed but Training screen detected. Continuing.")
+                game.wait(game.trainingWaitDelay)
+            } else {
+                MessageLog.e(TAG, "[ERROR] handleTrackblazerTraining:: Failed to enter Training screen.")
+                DelayCalibration.logFailureFromPattern("training.enter", game.trainingWaitDelay)
+                bTrainingBlockedThisTurn = true
+                return
+            }
+        } else {
+            DelayCalibration.markDetected("training.enter")
+            game.wait(game.trainingWaitDelay)
+            DelayCalibration.logExecution("training.enter", game.trainingWaitDelay, success = true)
         }
-        DelayCalibration.markDetected("training.enter")
-        game.wait(game.trainingWaitDelay)
-        DelayCalibration.logExecution("training.enter", game.trainingWaitDelay, success = true)
 
         trainee.updateEnergy(game.imageUtils)
 
@@ -3749,6 +3799,12 @@ class Trackblazer(game: Game) : Campaign(game) {
         val analysisArgs = buildTrainingAnalysisArgs()
         val climaxCharmTraining = analysisArgs["climaxForceCharmTraining"] as Boolean
         training.analyzeTrainings(analysisArgs)
+        if (training.trainingMap.isEmpty() && training.skippedTrainingMap.isEmpty()) {
+            MessageLog.w(TAG, "[WARN] handleTrackblazerTraining:: Full stat scan did not complete. Backing out instead of committing training.")
+            backOutFromTrainingForRecovery("Training analysis incomplete (stat tabs were not fully scanned).")
+            bIsIrregularTraining = false
+            return
+        }
         var trainingSelected: StatName? =
             if (climaxCharmTraining) {
                 training.selectHighestNonMaxedStatForClimax()

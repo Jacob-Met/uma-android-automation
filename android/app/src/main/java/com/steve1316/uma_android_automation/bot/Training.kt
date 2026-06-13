@@ -1478,6 +1478,214 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
      *             - "irregularTrainingMinStatGain" (Int): Minimum stat gain for irregular training evaluation (default 30).
      *             - "forceFullStatNavigation" (Boolean): When true, click through all stat tabs even if cached results exist (e.g. after Reset Whistle).
      */
+    private val trainingStatButtons: Map<StatName, ComponentInterface> =
+        mapOf(
+            StatName.SPEED to ButtonTrainingSpeed,
+            StatName.STAMINA to ButtonTrainingStamina,
+            StatName.POWER to ButtonTrainingPower,
+            StatName.GUTS to ButtonTrainingGuts,
+            StatName.WIT to ButtonTrainingWit,
+        )
+
+    private val trainingStatHeaders: Map<StatName, ComponentInterface> =
+        mapOf(
+            StatName.SPEED to IconTrainingHeaderSpeed,
+            StatName.STAMINA to IconTrainingHeaderStamina,
+            StatName.POWER to IconTrainingHeaderPower,
+            StatName.GUTS to IconTrainingHeaderGuts,
+            StatName.WIT to IconTrainingHeaderWit,
+        )
+
+    /** Tab-switch wait with a floor when validation is on — over-tuned delay calibration can break header OCR. */
+    private fun trainingTabSwitchDelay(): Double {
+        val configured = ActionDelays.get("training.tabSwitch", 0.5)
+        return if (enableTrainingAnalysisValidation) {
+            maxOf(configured, minOf(game.trainingWaitDelay, 0.35))
+        } else {
+            configured
+        }
+    }
+
+    /** Detects the highlighted training stat tab (Speed first when multiple headers match). */
+    private fun detectActiveTrainingStat(timeoutMs: Int = 5000): StatName? {
+        val startTime = System.currentTimeMillis()
+        while (System.currentTimeMillis() - startTime < timeoutMs) {
+            val bitmap: Bitmap = game.imageUtils.getSourceBitmap()
+            val waitLatch = CountDownLatch(5)
+            val matchFound = AtomicBoolean(false)
+            val matchMap = ConcurrentHashMap<StatName, Boolean>()
+            for ((statName, header) in trainingStatHeaders) {
+                Thread {
+                    try {
+                        if (!BotService.isRunning || matchFound.get()) {
+                            return@Thread
+                        }
+                        val bIsFound = header.check(game.imageUtils, sourceBitmap = bitmap)
+                        matchMap[statName] = bIsFound
+                        if (bIsFound) {
+                            matchFound.set(true)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[ERROR] detectActiveTrainingStat:: Error detecting stat header $statName: ${e.stackTraceToString()}")
+                        matchMap[statName] = false
+                    } finally {
+                        waitLatch.countDown()
+                    }
+                }.apply { isDaemon = true }.start()
+            }
+            try {
+                waitLatch.await(5, TimeUnit.SECONDS)
+            } catch (_: InterruptedException) {
+                MessageLog.e(TAG, "[ERROR] detectActiveTrainingStat:: Stat header detection threads timed out.")
+            }
+            val match = StatName.entries.firstOrNull { stat -> matchMap[stat] == true }
+            if (match != null) {
+                return match
+            }
+        }
+        MessageLog.w(TAG, "[WARN] detectActiveTrainingStat:: Timed out while trying to detect the active stat.")
+        return null
+    }
+
+    /** Switches training tabs using header template matching only (no active-stat OCR). */
+    private fun navigateToTrainingStatHeaderOnly(statName: StatName, tabSwitchDelay: Double): Boolean {
+        val header = trainingStatHeaders[statName]!!
+        val button = trainingStatButtons[statName]!!
+        for (i in 0..2) {
+            button.click(game.imageUtils, taps = 1)
+            DelayCalibration.markDetected("training.tabSwitch")
+            game.wait(tabSwitchDelay, skipWaitingForLoading = true)
+            if (header.check(game.imageUtils)) {
+                DelayCalibration.logExecution("training.tabSwitch", tabSwitchDelay, success = true)
+                return true
+            }
+        }
+        MessageLog.w(TAG, "[WARN] navigateToTrainingStatHeaderOnly:: Failed to go to $statName on training screen after 3 attempts.")
+        return false
+    }
+
+    /**
+     * Navigates to the specified training stat tab before OCR or execution.
+     * Uses a single tap per switch attempt so we do not accidentally confirm training.
+     */
+    fun navigateToTrainingStat(statName: StatName, timeoutMs: Int = 5000): Boolean {
+        val tabSwitchDelay = trainingTabSwitchDelay()
+        val header = trainingStatHeaders[statName]!!
+        val button = trainingStatButtons[statName]!!
+
+        if (header.check(game.imageUtils)) {
+            return true
+        }
+
+        if (!enableTrainingAnalysisValidation) {
+            val ok = navigateToTrainingStatHeaderOnly(statName, tabSwitchDelay)
+            if (!ok) {
+                DelayCalibration.logFailureFromPattern("training.tabSwitch", tabSwitchDelay)
+            }
+            return ok
+        }
+
+        val postClickBudgetMs = 3000
+        val activeStatBudgetMs = (timeoutMs - postClickBudgetMs).coerceAtLeast(1000)
+        val activeStat = detectActiveTrainingStat(activeStatBudgetMs)
+        if (activeStat == null) {
+            MessageLog.w(
+                TAG,
+                "[WARN] navigateToTrainingStat:: Active stat detection failed; falling back to header-only navigation for $statName.",
+            )
+            val ok = navigateToTrainingStatHeaderOnly(statName, tabSwitchDelay)
+            if (!ok) {
+                DelayCalibration.logFailureFromPattern("training.tabSwitch", tabSwitchDelay)
+            }
+            return ok
+        }
+
+        if (activeStat == statName) {
+            return true
+        }
+
+        val postClickDeadline = System.currentTimeMillis() + postClickBudgetMs
+        for (attempt in 0..2) {
+            if (System.currentTimeMillis() >= postClickDeadline) {
+                break
+            }
+            button.click(game.imageUtils, taps = 1)
+            DelayCalibration.markDetected("training.tabSwitch")
+            game.wait(tabSwitchDelay, skipWaitingForLoading = true)
+
+            val attemptDeadline = (System.currentTimeMillis() + 1200).coerceAtMost(postClickDeadline)
+            do {
+                if (header.check(game.imageUtils)) {
+                    DelayCalibration.logExecution("training.tabSwitch", tabSwitchDelay, success = true)
+                    return true
+                }
+            } while (System.currentTimeMillis() < attemptDeadline)
+        }
+
+        MessageLog.w(TAG, "[WARN] navigateToTrainingStat:: Timed out while waiting for $statName training header.")
+        DelayCalibration.logFailureFromPattern("training.tabSwitch", tabSwitchDelay)
+        return false
+    }
+
+    /**
+     * The game restores the last viewed stat tab whenever Training is closed and reopened.
+     * Full scans and rechecks must start from Speed unless Speed is already active.
+     */
+    fun ensureTrainingBaselineAtSpeed(context: String = "scan"): Boolean {
+        if (trainingStatHeaders[StatName.SPEED]!!.check(game.imageUtils)) {
+            MessageLog.v(TAG, "[TRAINING] Speed tab already active before $context.")
+            return true
+        }
+
+        val activeStat = detectActiveTrainingStat(timeoutMs = 1500)
+        when (activeStat) {
+            StatName.SPEED -> return true
+            null ->
+                MessageLog.i(
+                    TAG,
+                    "[TRAINING] Could not detect active training tab; switching to Speed before $context.",
+                )
+            else ->
+                MessageLog.i(
+                    TAG,
+                    "[TRAINING] Training reopened on $activeStat tab; switching to Speed before $context.",
+                )
+        }
+        return navigateToTrainingStat(StatName.SPEED)
+    }
+
+    /** Back out to Main, re-enter Training, and retry failure-chance OCR once. */
+    private fun recoverAndRetryFailureChance(): Int {
+        ButtonBack.click(game.imageUtils)
+        game.wait(game.trainingWaitDelay, skipWaitingForLoading = true)
+        if (!campaign.checkMainScreen()) {
+            MessageLog.w(TAG, "[WARN] recoverAndRetryFailureChance:: Could not confirm Main screen after backing out. Aborting recovery.")
+            return -1
+        }
+
+        if (!ButtonTraining.click(game.imageUtils)) {
+            if (!campaign.checkTrainingScreen()) {
+                MessageLog.w(TAG, "[WARN] recoverAndRetryFailureChance:: Could not click Training button to re-enter Training screen.")
+                return -1
+            }
+        } else {
+            game.wait(game.trainingWaitDelay)
+        }
+
+        if (!ensureTrainingBaselineAtSpeed("recovery retry")) {
+            MessageLog.w(TAG, "[WARN] recoverAndRetryFailureChance:: ensureTrainingBaselineAtSpeed failed after re-entering Training screen.")
+            return -1
+        }
+
+        val retried = game.imageUtils.findTrainingFailureChance(tries = 3)
+        if (retried == -1) {
+            MessageLog.w(TAG, "[WARN] recoverAndRetryFailureChance:: Retry of findTrainingFailureChance still returned -1.")
+        } else {
+            MessageLog.i(TAG, "[TRAINING] Recovery succeeded. Failure chance detected on retry: $retried%.")
+        }
+        return retried
+    }
+
     fun analyzeTrainings(args: Map<String, Any?> = emptyMap()) {
         needsEnergyRecovery = false
         skippedFullScanDueToHighFirstTabFailure = false
@@ -1527,221 +1735,30 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         } else if (!forceFullStatNavigation && cachedAnalysisResults != null && cachedAnalysisTurnDay == campaign.date.day) {
             val postTrainingItemsRecheck = args["postTrainingItemsRecheck"] as? Boolean ?: false
             if (postTrainingItemsRecheck) {
-                MessageLog.i(TAG, "[TRAINING] Re-processing cached training analysis after item pass (no stat tab navigation).")
+                MessageLog.i(
+                    TAG,
+                    "[TRAINING] Post-item recheck: returning to Speed and rescanning all stat tabs (game may have left a non-Speed tab active).",
+                )
             } else {
                 MessageLog.i(TAG, "[TRAINING] Using cached training analysis results for this turn.")
+                processAnalysisResults(cachedAnalysisResults!!, ignoreFailureChance, test, args)
+                return
             }
-            processAnalysisResults(cachedAnalysisResults!!, ignoreFailureChance, test, args)
-            return
         } else {
             MessageLog.v(TAG, "\n[TRAINING] Now starting process to analyze all 5 Trainings.")
         }
 
-        val trainingButtons: Map<StatName, ComponentInterface> =
-            mapOf(
-                StatName.SPEED to ButtonTrainingSpeed,
-                StatName.STAMINA to ButtonTrainingStamina,
-                StatName.POWER to ButtonTrainingPower,
-                StatName.GUTS to ButtonTrainingGuts,
-                StatName.WIT to ButtonTrainingWit,
+        // Training reopens on whichever stat tab was last viewed; always baseline on Speed before OCR.
+        if (!singleTraining && !ensureTrainingBaselineAtSpeed("full analysis")) {
+            MessageLog.w(
+                TAG,
+                "[WARN] analyzeTrainings:: Could not confirm Training screen. Attempting recovery by backing out and re-entering.",
             )
-
-        val iconTrainingHeaders: Map<StatName, ComponentInterface> =
-            mapOf(
-                StatName.SPEED to IconTrainingHeaderSpeed,
-                StatName.STAMINA to IconTrainingHeaderStamina,
-                StatName.POWER to IconTrainingHeaderPower,
-                StatName.GUTS to IconTrainingHeaderGuts,
-                StatName.WIT to IconTrainingHeaderWit,
-            )
-
-        /**
-         * Detects the current active (selected) stat in the training screen.
-         *
-         * @param timeoutMs The max time (in milliseconds) for the operation to run before it times out.
-         * @return On success, the [StatName] of the active stat. On error or timeout, null is returned.
-         */
-        fun getActiveStat(timeoutMs: Int = 5000): StatName? {
-            val startTime = System.currentTimeMillis()
-            while (System.currentTimeMillis() - startTime < timeoutMs) {
-                val bitmap: Bitmap = game.imageUtils.getSourceBitmap()
-
-                // Using threads here is slower only if the active tab is Speed.
-                // Stamina was about even, then each stat after that using threads gained an additional 100ms improvement.
-                val waitLatch = CountDownLatch(5)
-                val matchFound = AtomicBoolean(false)
-                val matchMap = ConcurrentHashMap<StatName, Boolean>()
-                for ((statName, header) in iconTrainingHeaders) {
-                    Thread {
-                        try {
-                            if (!BotService.isRunning) {
-                                return@Thread
-                            }
-
-                            // Exit thread early if we already found a match.
-                            if (matchFound.get()) {
-                                return@Thread
-                            }
-                            // Return immediately if we get a match.
-                            val bIsFound = header.check(game.imageUtils, sourceBitmap = bitmap)
-                            matchMap[statName] = bIsFound
-                            if (bIsFound) {
-                                matchFound.set(true)
-                                return@Thread
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "[ERROR] getActiveStat:: Error detecting stat header $statName: ${e.stackTraceToString()}")
-                            matchMap[statName] = false
-                        } finally {
-                            waitLatch.countDown()
-                        }
-                    }.apply { isDaemon = true }.start()
-                }
-
-                // Collect our threads.
-                try {
-                    waitLatch.await(5, TimeUnit.SECONDS)
-                } catch (_: InterruptedException) {
-                    MessageLog.e(TAG, "[ERROR] getActiveStat:: Stat header detection threads timed out.")
-                }
-
-                // If we got a match, then return it. Otherwise, continue the loop.
-                val match = matchMap.entries.firstOrNull { it.value }
-                if (match != null) {
-                    return match.key
-                }
+            val retriedFailureChance = recoverAndRetryFailureChance()
+            if (retriedFailureChance == -1 && !ensureTrainingBaselineAtSpeed("full analysis retry")) {
+                MessageLog.w(TAG, "[WARN] analyzeTrainings:: Skipping training due to not being able to confirm whether the bot is at the training screen.")
+                return
             }
-
-            MessageLog.w(TAG, "[WARN] getActiveStat:: Timed out while trying to detect the active stat.")
-            return null
-        }
-
-        /**
-         * Navigates to the specified training stat page in the training screen.
-         *
-         * @param statName The stat to switch to.
-         * @param timeoutMs The max time (in milliseconds) for the operation to run before it times out.
-         * @return Whether we successfully navigated to the specified training page.
-         */
-        fun goToStat(statName: StatName, timeoutMs: Int = 5000): Boolean {
-            val tabSwitchDelay = ActionDelays.get("training.tabSwitch", 0.5)
-            val startTime = System.currentTimeMillis()
-
-            // KeyError indicates programmer error.
-            val header: ComponentInterface = iconTrainingHeaders[statName]!!
-            val button: ComponentInterface = trainingButtons[statName]!!
-
-            // Fast early check if we're already at the stat.
-            // Helps to do this before calling getActiveStat so we can save time.
-            if (header.check(game.imageUtils)) {
-                return true
-            }
-
-            // If this option isn't enabled, then we just do a fast lazy validation.
-            if (!enableTrainingAnalysisValidation) {
-                for (i in 0..2) {
-                    button.click(game.imageUtils)
-
-                    // Wait for screen to finish updating before proceeding.
-                    DelayCalibration.markDetected("training.tabSwitch")
-                    game.wait(tabSwitchDelay, skipWaitingForLoading = true)
-                    if (header.check(game.imageUtils)) {
-                        DelayCalibration.logExecution("training.tabSwitch", tabSwitchDelay, success = true)
-                        return true
-                    }
-                }
-
-                MessageLog.w(TAG, "[WARN] goToStat:: Failed to go to $statName on training screen after 3 attempts.")
-                DelayCalibration.logFailureFromPattern("training.tabSwitch", tabSwitchDelay)
-                return false
-            }
-
-            // Perform full validation.
-
-            // Give getActiveStat a dedicated sub-budget so it cannot consume the entire
-            // timeout before the click and header poll have a chance to run.
-            // Reserve at least POST_CLICK_BUDGET_MS for the header detection loop after clicking.
-            val postClickBudgetMs = 3000
-            val activeStatBudgetMs = (timeoutMs - postClickBudgetMs).coerceAtLeast(1000)
-
-            val activeStat: StatName? = getActiveStat(activeStatBudgetMs)
-            if (activeStat == null) {
-                MessageLog.w(TAG, "[WARN] goToStat:: getActiveStat returned null.")
-                DelayCalibration.logFailureFromPattern("training.tabSwitch", tabSwitchDelay)
-                return false
-            }
-
-            // If we're already at the stat, return early.
-            // Otherwise, we may accidentally click the button to train the stat.
-            if (activeStat == statName) {
-                return true
-            }
-
-            // Click and poll with retries — a single missed tap (common on GUTS/WIT after fast tab cycling)
-            // used to burn the full post-click budget and abort the entire analysis pass.
-            val postClickDeadline = System.currentTimeMillis() + postClickBudgetMs
-            for (attempt in 0..2) {
-                if (System.currentTimeMillis() >= postClickDeadline) {
-                    break
-                }
-                button.click(game.imageUtils)
-                DelayCalibration.markDetected("training.tabSwitch")
-                game.wait(tabSwitchDelay, skipWaitingForLoading = true)
-
-                val attemptDeadline = (System.currentTimeMillis() + 1200).coerceAtMost(postClickDeadline)
-                do {
-                    if (header.check(game.imageUtils)) {
-                        DelayCalibration.logExecution("training.tabSwitch", tabSwitchDelay, success = true)
-                        return true
-                    }
-                } while (System.currentTimeMillis() < attemptDeadline)
-            }
-
-            MessageLog.w(TAG, "[WARN] goToStat:: Timed out while waiting for $statName training header.")
-            DelayCalibration.logFailureFromPattern("training.tabSwitch", tabSwitchDelay)
-            return false
-        }
-
-        /**
-         * Recover from a failed first failure-chance detection by backing out to the Main screen and re-entering the Training screen, then retry once.
-         *
-         * @return The retried failure chance, or -1 if recovery or retry failed.
-         */
-        fun recoverAndRetryFailureChance(): Int {
-            // Back out to the Main screen.
-            ButtonBack.click(game.imageUtils)
-            game.wait(game.trainingWaitDelay, skipWaitingForLoading = true)
-            if (!campaign.checkMainScreen()) {
-                MessageLog.w(TAG, "[WARN] recoverAndRetryFailureChance:: Could not confirm Main screen after backing out. Aborting recovery.")
-                return -1
-            }
-
-            // Re-enter the Training screen.
-            if (!ButtonTraining.click(game.imageUtils)) {
-                MessageLog.w(TAG, "[WARN] recoverAndRetryFailureChance:: Could not click Training button to re-enter Training screen.")
-                return -1
-            }
-            game.wait(game.trainingWaitDelay)
-
-            // Re-establish SPEED as the active stat.
-            if (!goToStat(StatName.SPEED)) {
-                MessageLog.w(TAG, "[WARN] recoverAndRetryFailureChance:: goToStat(SPEED) failed after re-entering Training screen.")
-                return -1
-            }
-
-            val retried = game.imageUtils.findTrainingFailureChance(tries = 3)
-            if (retried == -1) {
-                MessageLog.w(TAG, "[WARN] recoverAndRetryFailureChance:: Retry of findTrainingFailureChance still returned -1.")
-            } else {
-                MessageLog.i(TAG, "[TRAINING] Recovery succeeded. Failure chance detected on retry: $retried%.")
-            }
-            return retried
-        }
-
-        // If not doing single training and speed training isn't active, make it active.
-        if (!singleTraining && !goToStat(StatName.SPEED)) {
-            MessageLog.w(TAG, "[WARN] analyzeTrainings:: Skipping training due to not being able to confirm whether the bot is at the training screen.")
-            return
         }
 
         // List to store all training analysis results for parallel processing.
@@ -1854,7 +1871,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
 
                 // Keep iterating until the current training is found.
                 if (singleTraining) {
-                    val iconTrainingHeader = iconTrainingHeaders[statName]!!
+                    val iconTrainingHeader = trainingStatHeaders[statName]!!
                     if (!iconTrainingHeader.check(game.imageUtils)) {
                         continue
                     }
@@ -1862,13 +1879,13 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 }
 
                 // Only go to a different stat if we aren't doing single training.
-                if (!singleTraining && !goToStat(statName)) {
+                if (!singleTraining && !navigateToTrainingStat(statName)) {
                     MessageLog.w(
                         TAG,
                         "[WARN] analyzeTrainings:: Failed to navigate to $statName training tab. Retrying once after screen settle...",
                     )
                     game.wait(0.5)
-                    if (!goToStat(statName)) {
+                    if (!navigateToTrainingStat(statName)) {
                         MessageLog.w(
                             TAG,
                             "[WARN] analyzeTrainings:: Skipping $statName after navigation retries. Continuing with partial analysis.",
@@ -3944,6 +3961,14 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         }
 
         if (trainingSelected != null) {
+            if (!navigateToTrainingStat(trainingSelected)) {
+                MessageLog.w(
+                    TAG,
+                    "[WARN] executeTraining:: Could not navigate to $trainingSelected tab before confirming training.",
+                )
+                return false
+            }
+
             MessageLog.v(TAG, "[TRAINING] Executing the $trainingSelected Training.\n")
             val trainingOption = trainingMap[trainingSelected] ?: skippedTrainingMap[trainingSelected]
             RunSummaryTracker.recordTrainingExecution(
@@ -3969,18 +3994,8 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 }
             }
 
-            val trainingButtons: Map<StatName, ComponentInterface> =
-                mapOf(
-                    StatName.SPEED to ButtonTrainingSpeed,
-                    StatName.STAMINA to ButtonTrainingStamina,
-                    StatName.POWER to ButtonTrainingPower,
-                    StatName.GUTS to ButtonTrainingGuts,
-                    StatName.WIT to ButtonTrainingWit,
-                )
-
-            // These values are hardcoded and exhaustive. A KeyError would be a programmer error.
-            val trainingButton: ComponentInterface = trainingButtons[trainingSelected]!!
-            trainingButton.click(game.imageUtils, taps = 3)
+            val trainingButton: ComponentInterface = trainingStatButtons[trainingSelected]!!
+            trainingButton.click(game.imageUtils, taps = 1)
             game.wait(game.dialogWaitDelay)
 
             // Dismiss any popup warning about a scheduled race.
