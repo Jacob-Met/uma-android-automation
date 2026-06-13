@@ -574,6 +574,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (!hasTrainingMitigationItemsAvailable()) {
             return null
         }
+        val preItemFailure = training.capturePreItemFailureSnapshot()
         val stats =
             training.cachedAnalysisResults?.map { it.name }
                 ?: (training.trainingMap.keys + training.skippedTrainingMap.keys).distinct()
@@ -583,10 +584,16 @@ class Trackblazer(game: Game) : Campaign(game) {
         return stats
             .filter { it !in training.blacklist }
             .filter { stat ->
-                wouldGoodLuckCharmMitigateTraining(stat, trainee) ||
+                val option = training.trainingMap[stat] ?: training.skippedTrainingMap[stat] ?: return@filter false
+                val mainGain = option.statGains[stat] ?: 0
+                val preFail = preItemFailure[stat] ?: option.failureChance
+                training.exceedsFailureThreshold(preFail, mainGain) &&
                     (
-                        enableEnergyItemForHighFailureTraining &&
-                            resolveFailureMitigationChoice(stat, trainee, currentInventory) != FailureMitigationChoice.NONE
+                        wouldGoodLuckCharmMitigateTraining(stat, trainee) ||
+                            (
+                                enableEnergyItemForHighFailureTraining &&
+                                    resolveFailureMitigationChoice(stat, trainee, currentInventory) != FailureMitigationChoice.NONE
+                            )
                     )
             }
             .maxByOrNull { selectedTrainingMainGain(it) }
@@ -3013,20 +3020,46 @@ class Trackblazer(game: Game) : Campaign(game) {
         return selected
     }
 
-    /** Backs out of the Training screen and attempts mood or energy recovery on the main screen. */
+    /** Backs out of the Training screen and attempts mood or energy recovery only when needed. */
     private fun backOutFromTrainingForRecovery(reason: String) {
         MessageLog.i(TAG, "[TRACKBLAZER] $reason Backing out for recovery.")
         training.firstTrainingCheck = false
+        training.clearAnalysisCache()
+        bHasCheckedDateThisTurn = false
         ButtonBack.click(game.imageUtils)
         game.wait(1.0)
 
-        if (checkMainScreen()) {
-            if (trainee.mood == Mood.AWFUL || (trainee.mood <= Mood.NORMAL && trainee.energy >= 20)) {
+        if (!checkMainScreen()) {
+            return
+        }
+
+        when {
+            trainee.mood == Mood.AWFUL || trainee.mood <= Mood.BAD -> {
                 MessageLog.i(TAG, "[TRACKBLAZER] Mood is ${trainee.mood}. Attempting to recover mood.")
                 recoverMood()
-            } else {
-                MessageLog.i(TAG, "[TRACKBLAZER] Energy is ${trainee.energy}%. Attempting to recover energy.")
+            }
+
+            trainee.mood <= Mood.NORMAL && trainee.energy >= 70 -> {
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Mood is ${trainee.mood} and energy is ${trainee.energy}% (>= 70%). Attempting to recover mood via rest/recreation (saving items).",
+                )
+                recoverMood()
+            }
+
+            trainee.energy < energyThresholdToUseEnergyItems -> {
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Energy is ${trainee.energy}% (< $energyThresholdToUseEnergyItems%). Attempting to recover energy.",
+                )
                 recoverEnergy()
+            }
+
+            else -> {
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Mood is ${trainee.mood} and energy is ${trainee.energy}%. No rest needed after failed training selection.",
+                )
             }
         }
     }
@@ -3070,6 +3103,14 @@ class Trackblazer(game: Game) : Campaign(game) {
 
         val option = training.trainingMap[selected] ?: training.skippedTrainingMap[selected] ?: return false
         val mainGain = option.statGains[selected] ?: 0
+        val preItemFailure = training.capturePreItemFailureSnapshot()[selected]
+        if (preItemFailure != null && !training.exceedsFailureThreshold(preItemFailure, mainGain)) {
+            MessageLog.i(
+                TAG,
+                "[TRACKBLAZER] Allowing $selected despite on-screen failure (${option.failureChance}%): pre-item failure was $preItemFailure% (under threshold).",
+            )
+            return false
+        }
         if (!training.exceedsFailureThreshold(option.failureChance, mainGain)) {
             return false
         }
@@ -3125,6 +3166,8 @@ class Trackblazer(game: Game) : Campaign(game) {
         DelayCalibration.markDetected("training.enter")
         game.wait(game.trainingWaitDelay)
         DelayCalibration.logExecution("training.enter", game.trainingWaitDelay, success = true)
+
+        trainee.updateEnergy(game.imageUtils)
 
         if (shouldTryEnergyRecoveryItems()) {
             MessageLog.i(
@@ -3186,14 +3229,25 @@ class Trackblazer(game: Game) : Campaign(game) {
                 backOutFromTrainingForRecovery("No viable Climax training after charm mitigation.")
             }
         } else if (trainingSelected == null) {
-            val mitigationPick = bestMitigationBackedTrainingPick()
-            if (mitigationPick != null) {
+            val preItemSafePick = training.findBestSafeFallbackTraining()
+            if (preItemSafePick != null) {
                 MessageLog.i(
                     TAG,
-                    "[TRACKBLAZER] All trainings exceed failure thresholds, but $mitigationPick can use Good-Luck Charm or energy mitigation. Retrying.",
+                    "[TRACKBLAZER] Retrying with pre-item threshold-safe training: $preItemSafePick (failure was acceptable before charm/energy items).",
                 )
-                trainingSelected = resolveExecutableTrainingSelection(mitigationPick, climaxCharmTraining)
+                trainingSelected = resolveExecutableTrainingSelection(preItemSafePick, climaxCharmTraining)
                 trainingSelected = trainingSelected?.let { executeTrainingWithItems(it, climaxCharmTraining) }
+            }
+            if (trainingSelected == null) {
+                val mitigationPick = bestMitigationBackedTrainingPick()
+                if (mitigationPick != null) {
+                    MessageLog.i(
+                        TAG,
+                        "[TRACKBLAZER] All trainings exceed failure thresholds, but $mitigationPick can use Good-Luck Charm or energy mitigation. Retrying.",
+                    )
+                    trainingSelected = resolveExecutableTrainingSelection(mitigationPick, climaxCharmTraining)
+                    trainingSelected = trainingSelected?.let { executeTrainingWithItems(it, climaxCharmTraining) }
+                }
             }
             if (trainingSelected == null) {
                 backOutFromTrainingForRecovery("No suitable training found after analysis and item pass.")

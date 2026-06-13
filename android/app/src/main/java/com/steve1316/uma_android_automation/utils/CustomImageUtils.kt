@@ -1905,9 +1905,27 @@ class CustomImageUtils(context: Context, private val game: Game) : ImageUtils(co
     /**
      * Calculates the filled percentage of the energy bar.
      *
+     * @param tries Number of detection attempts before giving up.
      * @return The filled percentage (0-100), or null if the bar is not detected.
      */
-    fun analyzeEnergyBar(): Int? {
+    fun analyzeEnergyBar(tries: Int = 1): Int? {
+        val attempts = tries.coerceAtLeast(1)
+        for (attempt in 1..attempts) {
+            val result = analyzeEnergyBarOnce()
+            if (result != null) {
+                if (attempt > 1) {
+                    MessageLog.i(TAG, "[INFO] analyzeEnergyBar:: Succeeded on attempt $attempt: $result%.")
+                }
+                return result
+            }
+            if (attempt < attempts) {
+                game.wait(0.3, skipWaitingForLoading = true)
+            }
+        }
+        return null
+    }
+
+    private fun analyzeEnergyBarOnce(): Int? {
         val templateBitmap: Bitmap = LabelEnergy.template.getBitmap(this)!!
         val (energyTextLocation, sourceBitmap) = LabelEnergy.find(this)
         if (energyTextLocation == null) {

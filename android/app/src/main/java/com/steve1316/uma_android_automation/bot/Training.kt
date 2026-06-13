@@ -91,6 +91,9 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     var cachedAnalysisResults: List<TrainingAnalysisResult>? = null
         private set
 
+    /** Turn day ([GameDate.day]) when [cachedAnalysisResults] was captured; cache is invalid on any other turn. */
+    private var cachedAnalysisTurnDay: Int? = null
+
     /** The current training scenario name. */
     private val scenario = game.scenario
 
@@ -900,6 +903,26 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
         }
 
         /**
+         * Infers trainee energy from a main-stat training failure % (inverse of [estimateFailureChanceFromEnergy]).
+         * Speed is used as the primary signal because failure rises across tabs at the same energy.
+         */
+        fun inferEnergyFromMainStatFailure(failureChance: Int): Int? {
+            if (failureChance < 0) {
+                return null
+            }
+            if (failureChance == 0) {
+                return 50
+            }
+            return (50 - failureChance / 2).coerceIn(0, 49)
+        }
+
+        /** Infers energy from the Speed tab failure reading when available. */
+        fun inferEnergyFromFailureChances(failureChances: Map<StatName, Int>): Int? {
+            val speedFailure = failureChances[StatName.SPEED] ?: return null
+            return inferEnergyFromMainStatFailure(speedFailure)
+        }
+
+        /**
          * Cross-validate failure chances and return corrected values.
          *
          * Failure chances are monotonically non-decreasing in training order:
@@ -1485,11 +1508,23 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             )
         }
 
+        if (
+            !forceFullStatNavigation &&
+                cachedAnalysisResults != null &&
+                cachedAnalysisTurnDay != campaign.date.day
+        ) {
+            MessageLog.i(
+                TAG,
+                "[TRAINING] Discarding stale training analysis cache (cached turn $cachedAnalysisTurnDay, current turn ${campaign.date.day}).",
+            )
+            clearAnalysisCache()
+        }
+
         if (test) {
             MessageLog.v(TAG, "\n[TRAINING] Now starting process to analyze all 5 Trainings for Testing.")
         } else if (singleTraining) {
             MessageLog.v(TAG, "\n[TRAINING] Now starting process to analyze the training on screen.")
-        } else if (!forceFullStatNavigation && cachedAnalysisResults != null) {
+        } else if (!forceFullStatNavigation && cachedAnalysisResults != null && cachedAnalysisTurnDay == campaign.date.day) {
             val postTrainingItemsRecheck = args["postTrainingItemsRecheck"] as? Boolean ?: false
             if (postTrainingItemsRecheck) {
                 MessageLog.i(TAG, "[TRAINING] Re-processing cached training analysis after item pass (no stat tab navigation).")
@@ -1726,6 +1761,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
             MessageLog.w(TAG, "[WARN] analyzeTrainings:: Skipping training due to not being able to confirm whether or not the bot is at the Training screen.")
             return
         }
+        reconcileEnergyFromFailureReadings(mapOf(StatName.SPEED to failureChance))
         val isWithinRegularThreshold = failureChance <= maximumFailureChance
         val isWithinRiskyThreshold = enableRiskyTraining && failureChance <= riskyTrainingMaxFailureChance
         val isFinals = campaign.checkFinals()
@@ -2103,6 +2139,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 }
 
                 // Cross-validate failure chances across trainings to correct OCR misreads.
+                reconcileEnergyFromFailureReadings(analysisResults.associate { it.name to it.failureChance })
                 normalizeFailureChances(analysisResults)
 
                 // Process results and populate training maps.
@@ -2111,6 +2148,7 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
                 // Store analysis results in cache for reuse during the same turn.
                 if (!test && !singleTraining) {
                     cachedAnalysisResults = analysisResults.toList()
+                    cachedAnalysisTurnDay = campaign.date.day
                 }
             }
 
@@ -2325,9 +2363,42 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     fun clearAnalysisCache() {
         Log.d(TAG, "[DEBUG] clearAnalysisCache:: Clearing the training analysis cache.")
         cachedAnalysisResults = null
+        cachedAnalysisTurnDay = null
         trainingMap.clear()
         skippedTrainingMap.clear()
         restrictedTrainingNames.clear()
+    }
+
+    /**
+     * When stored energy disagrees with training failure readings, re-read the energy bar or infer energy from Speed failure.
+     * Uniform failure % across tabs reflects real in-game state; a stuck 100% default usually means energy OCR failed.
+     */
+    private fun reconcileEnergyFromFailureReadings(failureChances: Map<StatName, Int>, tolerance: Int = 10) {
+        val inferred = Companion.inferEnergyFromFailureChances(failureChances) ?: return
+        val stored = campaign.trainee.energy
+        if (stored - inferred <= tolerance) {
+            return
+        }
+        val speedFailure = failureChances[StatName.SPEED]
+        MessageLog.w(
+            TAG,
+            "[TRAINING] Stored energy ($stored%) is inconsistent with training failure readings" +
+                (speedFailure?.let { " (Speed ${it}% implies ~$inferred% energy)" } ?: "") +
+                ". Re-reading energy bar.",
+        )
+        val rereadOk = campaign.trainee.updateEnergy(game.imageUtils, tries = 3)
+        val afterReread = campaign.trainee.energy
+        if (rereadOk && stored - afterReread > tolerance && afterReread - inferred <= tolerance) {
+            MessageLog.i(TAG, "[TRAINING] Energy bar re-read corrected stored energy to $afterReread%.")
+            return
+        }
+        if (afterReread - inferred > tolerance) {
+            MessageLog.w(
+                TAG,
+                "[TRAINING] Energy bar OCR still reports $afterReread% while Speed failure implies ~$inferred%. Updating stored energy to $inferred%.",
+            )
+            campaign.trainee.energy = inferred
+        }
     }
 
     /**
@@ -2781,20 +2852,26 @@ open class Training(protected val game: Game, protected val campaign: Campaign) 
     /**
      * Best training that is within failure thresholds and may execute without Good-Luck Charm or energy mitigation.
      * Includes options skipped only for charm-related reasons (e.g. low gain with charm at 0% failure).
+     * Uses [capturePreItemFailureSnapshot] for threshold checks so a main stat safe before charm/energy items
+     * still trains instead of backing out to rest. Low-priority Wit remains excluded per skip/rest settings.
      */
     fun findBestSafeFallbackTraining(): StatName? {
+        val preItemFailure = capturePreItemFailureSnapshot()
         val skipLowPriorityWit = shouldSkipLowPriorityWit()
         val blockEmptyWit = shouldBlockEmptyWitTraining()
-        fun isSelectable(stat: StatName): Boolean = stat !in blacklist && (!skipLowPriorityWit && !blockEmptyWit || stat != StatName.WIT)
+        fun isSelectable(stat: StatName): Boolean =
+            stat !in blacklist && (!skipLowPriorityWit && !blockEmptyWit || stat != StatName.WIT)
+
+        fun preFailFor(option: TrainingOption): Int = preItemFailure[option.name] ?: option.failureChance
 
         val safeOptions =
             trainingMap.values.filter { option ->
                 isSelectable(option.name) &&
-                    !exceedsFailureThreshold(option.failureChance, option.statGains[option.name] ?: 0)
+                    !exceedsFailureThreshold(preFailFor(option), option.statGains[option.name] ?: 0)
             } +
                 skippedTrainingMap.values.filter { option ->
                     isSelectable(option.name) &&
-                        !exceedsFailureThreshold(option.failureChance, option.statGains[option.name] ?: 0)
+                        !exceedsFailureThreshold(preFailFor(option), option.statGains[option.name] ?: 0)
                 }
         if (safeOptions.isEmpty()) {
             return null

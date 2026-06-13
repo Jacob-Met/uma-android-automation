@@ -17,10 +17,14 @@ import { usePerformanceLogging } from "../../hooks/usePerformanceLogging"
 import { DELAY_CALIBRATION_ACTIONS, getCurrentDelayForAction } from "../../lib/delayCalibration/registry"
 import { applyDelayAdjustment } from "../../lib/delayCalibration/applyDelayAdjustment"
 import { applyAllSuggestedDelays, applySuggestedDelayForAction } from "../../lib/delayCalibration/applyAllSuggestedDelays"
+import { resetDelayCalibrationActionStats } from "../../lib/delayCalibration/resetDelayCalibrationActionStats"
 import { DelayCalibrationActionStats } from "../../lib/delayCalibration/types"
 
 const formatStatsSummary = (stats: DelayCalibrationActionStats | undefined): string => {
     if (!stats || stats.totalExecutions === 0) {
+        if (stats?.suggestedDelaySec != null) {
+            return "0 / 0 failed"
+        }
         return "No data from last session"
     }
     const parts: string[] = [`${stats.failureCount} / ${stats.totalExecutions} failed`]
@@ -92,11 +96,18 @@ const AdvancedSettings = () => {
             const delta = sign * advanced.delayCalibrationIncrement
             setSettings((prev) => {
                 const patch = applyDelayAdjustment(prev, action, delta)
-                return {
+                const merged: Settings = {
                     ...prev,
                     ...(patch.general ? { general: { ...prev.general, ...patch.general } } : {}),
                     ...(patch.racing ? { racing: { ...prev.racing, ...patch.racing } } : {}),
                     ...(patch.advanced ? { advanced: { ...prev.advanced, ...patch.advanced } } : {}),
+                }
+                return {
+                    ...merged,
+                    advanced: {
+                        ...merged.advanced,
+                        delayCalibrationStats: resetDelayCalibrationActionStats(merged.advanced.delayCalibrationStats, actionId),
+                    },
                 }
             })
         },

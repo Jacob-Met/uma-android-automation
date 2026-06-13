@@ -96,7 +96,7 @@ class StartModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     @ReactMethod
     fun start() {
         if (readyCheck()) {
-            com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.onHomeStartRequested()
+            com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.onHomeStartRequested(context)
             // Initialize SQLite settings.
             Log.d(TAG, "Starting SQLite settings initialization...")
 
@@ -173,7 +173,7 @@ class StartModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     /** This is called when the Stop button is pressed and will begin stopping the MediaProjection service. */
     @ReactMethod
     fun stop() {
-        com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.onHomeStopRequested()
+        com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.onHomeStopRequested(context)
         stopProjection()
     }
 

@@ -944,13 +944,28 @@ class Trainee {
     /**
      * Updates the trainee's approximate [energy] level from the current screen.
      *
-     * @param imageUtils Reference to a [CustomImageUtils] instance.
+     * @return True when the energy bar was read successfully.
      */
-    fun updateEnergy(imageUtils: CustomImageUtils) {
-        val res = imageUtils.analyzeEnergyBar()
-        if (res != null) {
-            energy = res
+    fun updateEnergy(imageUtils: CustomImageUtils, tries: Int = 3): Boolean {
+        val previous = energy
+        for (attempt in 1..tries.coerceAtLeast(1)) {
+            val res = imageUtils.analyzeEnergyBar(tries = 1)
+            if (res != null) {
+                energy = res
+                if (attempt > 1) {
+                    MessageLog.i(TAG, "[TRAINEE] Energy bar OCR succeeded on attempt $attempt: $res%.")
+                }
+                return true
+            }
+            if (attempt < tries) {
+                Thread.sleep(300)
+            }
         }
+        MessageLog.w(
+            TAG,
+            "[WARN] updateEnergy:: Energy bar OCR failed after $tries attempt(s). Keeping stored energy: $previous%.",
+        )
+        return false
     }
 
     /**

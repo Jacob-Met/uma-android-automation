@@ -1,33 +1,24 @@
 <AppUpdater>
   <update>
-    <latestVersion>1.0.2</latestVersion>
+    <latestVersion>1.0.3</latestVersion>
     <url>https://github.com/Jacob-Met/uma-android-automation/releases</url>
     <releaseNotes>
-v1.0.2 - Changelog
+v1.0.3 - Changelog
 
 > [!NOTE]
 > Jacob-Met custom fork (Trackblazer). Based on upstream v5.6.1.
 
-Advanced settings &amp; overlay resume
+Training &amp; energy reliability
 ---
-- New **Advanced Settings** page — per-action delay tuning and delay calibration from Home-button sessions.
-- **Overlay pause/resume controls** — optional recheck of skills, agenda reload, and shop when restarting from the floating overlay button (all off by default).
-- Conditional overlay options — recheck shop when turn changes; recheck skills when over skill-point threshold.
-- Mid-flow resume — if paused inside skill list, shop, or agenda UI, bot continues that flow on restart.
-- **Live settings reload** — SQLite changes apply to a running bot without Home restart.
+- **Energy OCR reconciliation** — when Speed failure % implies much lower energy than stored (e.g. 32% failure ≈ 34% energy vs stale 100%), re-read the energy bar or infer energy from failure readings; training failure % is trusted when all tabs agree.
+- **No rest at full energy after failed training pick** — back out without mood/energy recovery when mood is good and energy is already high.
+- **Pre-item failure snapshot** — safe fallback and execute blocking use failure % before charm/energy items; low-priority Wit stays excluded.
+- **Stale training analysis cache** — cache tied to turn day; cleared on turn advance and when backing out of training.
 
-First-run &amp; data
+Overlay resume &amp; delay calibration
 ---
-- **First-run wizard** — storage folder picker, legacy log/recording migration, permission checks on first launch.
-- **Taiki Shuttle / Sweep Tosho** training event data (Camping 2026-06-10).
-- Automation library bumped to 2.5.7 for storage bridge support.
-
-Other
----
-- Unique race strategy overrides UI.
-- Runtime settings notifier wired after every settings save.
-- Maiden race detection — any completed non-maiden race marks the debut step done (fixes stale fan-tier OCR re-checking maiden every turn).
-- Advanced Settings crash fix — corrected CustomSlider min/max props and SQLite JSON override parsing on page open.
+- **Overlay resume fixes** — persisted session flags restored; home-start guard no longer blocks resume; prefs cleared correctly on stop.
+- **Delay calibration counter reset** — applying suggested delays (+/− or Approve all) resets fail counters to 0/0 while keeping suggestions.
 
     </releaseNotes>
   </update>

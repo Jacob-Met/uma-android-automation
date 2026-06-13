@@ -1,6 +1,7 @@
 import { Settings } from "../../context/BotStateContext"
 import { applyDelayAdjustment } from "./applyDelayAdjustment"
 import { DELAY_CALIBRATION_ACTIONS, getCurrentDelayForAction } from "./registry"
+import { resetDelayCalibrationActionStats } from "./resetDelayCalibrationActionStats"
 import { DelayCalibrationActionStats } from "./types"
 
 const mergeSettingsPatch = (settings: Settings, patch: Partial<Settings>): Settings => ({
@@ -8,6 +9,14 @@ const mergeSettingsPatch = (settings: Settings, patch: Partial<Settings>): Setti
     ...(patch.general ? { general: { ...settings.general, ...patch.general } } : {}),
     ...(patch.racing ? { racing: { ...settings.racing, ...patch.racing } } : {}),
     ...(patch.advanced ? { advanced: { ...settings.advanced, ...patch.advanced } } : {}),
+})
+
+const withResetStats = (settings: Settings, actionId: string): Settings => ({
+    ...settings,
+    advanced: {
+        ...settings.advanced,
+        delayCalibrationStats: resetDelayCalibrationActionStats(settings.advanced.delayCalibrationStats, actionId),
+    },
 })
 
 /** Applies suggested delay values from calibration stats to the matching settings keys. */
@@ -20,6 +29,7 @@ export const applyAllSuggestedDelays = (settings: Settings, stats: Record<string
         const delta = suggested - current
         if (Math.abs(delta) < 0.001) continue
         next = mergeSettingsPatch(next, applyDelayAdjustment(next, action, delta))
+        next = withResetStats(next, action.id)
     }
     return next
 }
@@ -32,5 +42,6 @@ export const applySuggestedDelayForAction = (settings: Settings, actionId: strin
     const current = getCurrentDelayForAction(action, settings)
     const delta = suggested - current
     if (Math.abs(delta) < 0.001) return settings
-    return mergeSettingsPatch(settings, applyDelayAdjustment(settings, action, delta))
+    const patched = mergeSettingsPatch(settings, applyDelayAdjustment(settings, action, delta))
+    return withResetStats(patched, actionId)
 }

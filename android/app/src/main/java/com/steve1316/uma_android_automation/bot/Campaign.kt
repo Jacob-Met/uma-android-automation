@@ -1701,8 +1701,9 @@ abstract class Campaign(game: Game) : Task(game) {
         onBeforeMainScreenUpdate()
 
         // Read the current turn before overlay-resume skips and agenda load need it.
+        var dateChangedThisVisit = false
         if (!bHasCheckedDateThisTurn) {
-            updateDate()
+            dateChangedThisVisit = updateDate()
         }
 
         com.steve1316.uma_android_automation.utils.OverlayResumeCoordinator.applySessionStartSkipsOnce(this)
@@ -1715,7 +1716,7 @@ abstract class Campaign(game: Game) : Task(game) {
         // Operations to be done every time the date changes.
         // Skip if we've already checked the date this turn and no game-advancing action was taken.
         if (!bHasCheckedDateThisTurn) {
-            val dateChanged = updateDate()
+            val dateChanged = updateDate() || dateChangedThisVisit
             // Once-per-run: log the Smart Race Solver Preview schedule and seed mid-run history
             // recovery now that the date is known, so it appears in logs before shop/items.
             SmartRaceSolverIntegration.runStartupHooks(game = game, currentTurn = date.day, scenario = game.scenario)

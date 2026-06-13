@@ -533,6 +533,30 @@ class TrainingScoringTest {
     }
 
     @Test
+    @DisplayName("Speed failure % infers trainee energy when energy bar OCR is stale")
+    fun testInferEnergyFromTrainingFailure() {
+        assertEquals(0, Training.estimateFailureChanceFromEnergy(100, StatName.SPEED))
+        assertEquals(34, Training.inferEnergyFromMainStatFailure(32))
+        assertEquals(50, Training.inferEnergyFromMainStatFailure(0))
+        assertEquals(34, Training.inferEnergyFromFailureChances(mapOf(StatName.SPEED to 32)))
+
+        val drifted =
+            listOf(
+                StatName.SPEED to 32,
+                StatName.STAMINA to 39,
+                StatName.POWER to 41,
+                StatName.GUTS to 43,
+                StatName.WIT to 6,
+            )
+        val corrected = Training.crossValidateFailureChances(drifted, currentEnergy = 34)
+        assertEquals(32, corrected[StatName.SPEED])
+        assertEquals(39, corrected[StatName.STAMINA])
+        assertEquals(41, corrected[StatName.POWER])
+        assertEquals(43, corrected[StatName.GUTS])
+        assertEquals(6, corrected[StatName.WIT])
+    }
+
+    @Test
     @DisplayName("Top-3 friendship bar picker prefers highest-priority trainable stat with qualifying bars")
     fun testFindTop3PriorityStatWithFriendshipBars() {
         val akikawaBlock = StatBlock("trainer_support", Point(0.0, 0.0), "Yayoi Akikawa")

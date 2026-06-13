@@ -71,14 +71,14 @@ object OverlayResumeCoordinator {
     private fun overlayRecheckSkillsWhenOverThreshold(): Boolean =
         SettingsHelper.getBooleanSetting("advanced", "overlayRecheckSkillsWhenOverThreshold", false)
 
-    fun onHomeStartRequested() {
+    fun onHomeStartRequested(context: Context) {
         homeStartRequested = true
-        clearPersistedSession(null)
+        clearPersistedSession(context)
     }
 
-    fun onHomeStopRequested() {
+    fun onHomeStopRequested(context: Context) {
         homeStopRequested = true
-        clearPersistedSession(null)
+        clearPersistedSession(context)
     }
 
     /** Called once per bot session on the first [Campaign.process] tick. */
@@ -88,17 +88,23 @@ object OverlayResumeCoordinator {
         }
         sessionInitialized = true
 
-        val overlayResume = !homeStartRequested && hasPersistedSession(campaign.game.myContext)
-        homeStartRequested = false
+        if (homeStartRequested) {
+            homeStartRequested = false
+            clearPersistedSession(campaign.game.myContext)
+            isOverlayResumeSession = false
+            MessageLog.i(TAG, "[OVERLAY RESUME] Fresh bot session (Home start).")
+            return
+        }
 
-        if (!overlayResume) {
+        // A saved snapshot only exists after overlay pause (Home start clears prefs above).
+        if (!hasPersistedSession(campaign.game.myContext)) {
             isOverlayResumeSession = false
             MessageLog.i(TAG, "[OVERLAY RESUME] Fresh bot session (Home start or no saved overlay pause).")
             return
         }
 
         isOverlayResumeSession = true
-        loadPersistedSession(campaign.game.myContext)
+        loadPersistedSession(campaign.game.myContext, campaign)
         MessageLog.i(
             TAG,
             "[OVERLAY RESUME] Resuming after overlay pause (turn $pausedAtTurn). " +
@@ -147,7 +153,13 @@ object OverlayResumeCoordinator {
         if (!isOverlayResumeSession || overlayResumeReloadAgenda()) {
             return false
         }
+        if (campaign.isAgendaLoadedForOverlayResume()) {
+            return true
+        }
         if (deferredAgendaOnSameTurn && campaign.date.day == pausedAtTurn) {
+            return false
+        }
+        if (pausedAtTurn <= 0) {
             return false
         }
         return true
@@ -225,28 +237,44 @@ object OverlayResumeCoordinator {
     }
 
     private fun applySessionStartSkips(campaign: Campaign) {
+        val context = campaign.game.myContext
+
         if (!overlayResumeRecheckSkills()) {
-            if (!overlayRecheckSkillsWhenOverThreshold() || campaign.trainee.skillPoints < campaign.skillPointsRequiredForOverlayResume()) {
+            val skillWasHandled = readPersistedBoolean(context, KEY_SKILL_CHECK_HANDLED, false)
+            if (skillWasHandled) {
+                campaign.markSkillPointCheckHandledForOverlayResume()
+            } else if (
+                !overlayRecheckSkillsWhenOverThreshold() ||
+                campaign.trainee.skillPoints < campaign.skillPointsRequiredForOverlayResume()
+            ) {
                 campaign.markSkillPointCheckHandledForOverlayResume()
             }
         }
 
         if (!overlayResumeReloadAgenda()) {
-            val agendaWasLoaded = readPersistedBoolean(campaign.game.myContext, KEY_AGENDA_LOADED, false)
-            val currentTurn = campaign.date.day
-            val sameTurnAsPause = currentTurn > 0 && currentTurn == pausedAtTurn
-            if (!agendaWasLoaded && sameTurnAsPause && campaign.isUserAgendaEnabledForOverlayResume()) {
-                deferredAgendaOnSameTurn = true
-                MessageLog.i(TAG, "[OVERLAY RESUME] Agenda was not loaded before pause; will retry on this turn.")
-            } else {
+            val agendaWasLoaded = readPersistedBoolean(context, KEY_AGENDA_LOADED, false)
+            if (agendaWasLoaded) {
                 campaign.markAgendaLoadedForOverlayResume()
+            } else {
+                val currentTurn = campaign.date.day
+                val sameTurnAsPause = pausedAtTurn > 0 && currentTurn > 0 && currentTurn == pausedAtTurn
+                if (sameTurnAsPause && campaign.isUserAgendaEnabledForOverlayResume()) {
+                    deferredAgendaOnSameTurn = true
+                    MessageLog.i(TAG, "[OVERLAY RESUME] Agenda was not loaded before pause; will retry on this turn.")
+                } else if (pausedAtTurn > 0) {
+                    campaign.markAgendaLoadedForOverlayResume()
+                }
             }
         }
 
         if (!overlayResumeRecheckShop()) {
-            (campaign as? Trackblazer)?.markInitialShopCheckPerformedForOverlayResume()
-            if (overlayRecheckShopOnTurnChange()) {
+            val shopWasPerformed = readPersistedBoolean(context, KEY_SHOP_CHECK_PERFORMED, false)
+            if (shopWasPerformed) {
+                (campaign as? Trackblazer)?.markInitialShopCheckPerformedForOverlayResume()
+            } else if (overlayRecheckShopOnTurnChange()) {
                 turnChangeShopRecheckPending = true
+            } else if (pausedAtTurn > 0) {
+                (campaign as? Trackblazer)?.markInitialShopCheckPerformedForOverlayResume()
             }
         }
     }
@@ -270,7 +298,7 @@ object OverlayResumeCoordinator {
             .putBoolean(KEY_PAUSED_IN_SKILL, inSkill)
             .putBoolean(KEY_PAUSED_IN_SHOP, inShop)
             .putBoolean(KEY_PAUSED_IN_AGENDA, inAgenda && !campaign.isAgendaLoadedForOverlayResume())
-            .apply()
+            .commit()
 
         MessageLog.i(
             TAG,
@@ -279,12 +307,30 @@ object OverlayResumeCoordinator {
         )
     }
 
-    private fun loadPersistedSession(context: Context) {
+    private fun loadPersistedSession(context: Context, campaign: Campaign) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         pausedAtTurn = prefs.getInt(KEY_PAUSED_AT_TURN, -1)
         pausedInSkillScreen = prefs.getBoolean(KEY_PAUSED_IN_SKILL, false)
         pausedInShopScreen = prefs.getBoolean(KEY_PAUSED_IN_SHOP, false)
         pausedInAgendaFlow = prefs.getBoolean(KEY_PAUSED_IN_AGENDA, false)
+
+        if (prefs.getBoolean(KEY_SKILL_CHECK_HANDLED, false)) {
+            campaign.markSkillPointCheckHandledForOverlayResume()
+        }
+        if (prefs.getBoolean(KEY_AGENDA_LOADED, false)) {
+            campaign.markAgendaLoadedForOverlayResume()
+        }
+        if (prefs.getBoolean(KEY_SHOP_CHECK_PERFORMED, false)) {
+            (campaign as? Trackblazer)?.markInitialShopCheckPerformedForOverlayResume()
+        }
+
+        MessageLog.i(
+            TAG,
+            "[OVERLAY RESUME] Restored pause snapshot flags — " +
+                "skill=${prefs.getBoolean(KEY_SKILL_CHECK_HANDLED, false)}, " +
+                "agenda=${prefs.getBoolean(KEY_AGENDA_LOADED, false)}, " +
+                "shop=${prefs.getBoolean(KEY_SHOP_CHECK_PERFORMED, false)}.",
+        )
     }
 
     private fun hasPersistedSession(context: Context): Boolean =
@@ -294,7 +340,7 @@ object OverlayResumeCoordinator {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(key, default)
 
     private fun clearPersistedSession(context: Context?) {
-        context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)?.edit()?.clear()?.apply()
+        context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)?.edit()?.clear()?.commit()
         pausedAtTurn = -1
         pausedInSkillScreen = false
         pausedInShopScreen = false
