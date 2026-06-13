@@ -27,8 +27,8 @@ interface Props {
 }
 
 /**
- * Manual editor and autofill controls for agenda-linked irregular training schedules.
- * Schedules are keyed by the selected agenda slot (Agenda 1–8), not the in-game custom title.
+ * Manual editor and autofill controls for the agenda race calendar (turn → race map per agenda slot).
+ * Used by irregular training, megaphone race-forecast, and G1 hammer conservation.
  */
 export default function AgendaIrregularScheduleEditor({ updateOverrideSetting }: Props) {
     const { colors } = useTheme()

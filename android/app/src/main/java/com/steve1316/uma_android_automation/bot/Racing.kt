@@ -1536,9 +1536,6 @@ class Racing(private val game: Game, private val campaign: Campaign) {
         if (!enableUserInGameRaceAgenda) {
             return
         }
-        if (!SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableIrregularTrainingWithAgenda", false)) {
-            return
-        }
         if (!AgendaIrregularSchedule.isAutofillEnabled()) {
             return
         }

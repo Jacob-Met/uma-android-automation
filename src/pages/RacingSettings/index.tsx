@@ -19,6 +19,7 @@ import {
     getAgendaScheduleKey,
     parseUserAgendaCustomTitles,
 } from "../../lib/agendaIrregularSchedule"
+import AgendaIrregularScheduleEditor from "../ScenarioOverridesSettings/components/AgendaIrregularScheduleEditor"
 
 /** Available race strategy values for blanket and per-distance pickers. */
 const RACE_STRATEGY_OPTIONS = [
@@ -525,6 +526,12 @@ const RacingSettings = () => {
                                 autoCorrect={false}
                             />
                         </SearchableItem>
+
+                        {enableUserInGameRaceAgenda && (
+                            <AgendaIrregularScheduleEditor
+                                updateOverrideSetting={(key, value) => updateScenarioOverrides({ [key]: value } as Partial<typeof scenarioOverrides>)}
+                            />
+                        )}
 
                         <CustomCheckbox
                             searchId="limit-races-to-in-game-agenda"

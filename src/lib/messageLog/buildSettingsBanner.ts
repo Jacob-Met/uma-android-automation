@@ -258,6 +258,10 @@ ${longTargetsString}
 📋 Agenda Irregular Pre-Debut: ${settings.scenarioOverrides?.trackblazerEnableIrregularTrainingAgendaPreDebut ? "✅" : "❌"}
 📋 Agenda Irregular Pre-Op/OP: ${settings.scenarioOverrides?.trackblazerEnableIrregularTrainingAgendaPreOp ? "✅ (G3 thresholds)" : "❌"}
 📋 Agenda Irregular Autofill: ${settings.scenarioOverrides?.trackblazerAgendaIrregularAutofill ? "✅" : "❌ (manual schedule)"}
+📣 Megaphone Race Forecast: ${settings.scenarioOverrides?.trackblazerCoachingMegaphoneForecastEnabled || settings.scenarioOverrides?.trackblazerMotivatingMegaphoneForecastEnabled || settings.scenarioOverrides?.trackblazerEmpoweringMegaphoneForecastEnabled ? "✅" : "❌"}
+🔋 Irregular Energy (exec/forecast): ${settings.scenarioOverrides?.trackblazerEnableIrregularTrainingEnergyItems ? "exec ✅" : "exec ❌"} / ${settings.scenarioOverrides?.trackblazerEnableIrregularForecastEnergyItems ? "forecast ✅" : "forecast ❌"}
+🔁 Revalidate After Items: ${settings.scenarioOverrides?.trackblazerRevalidateTrainingAfterItems ? "✅" : "❌"}
+🔨 G1 Hammer Conservation: ${settings.scenarioOverrides?.trackblazerG1HammerConservationEnabled ? `✅ (${settings.scenarioOverrides?.trackblazerG1HammerConservationLookahead} turns)` : "❌"}
 🏇 Trackblazer Preferred Distances: ${settings.scenarioOverrides?.trackblazerPreferredDistances?.length === 0 ? "None" : settings.scenarioOverrides?.trackblazerPreferredDistances?.join(", ")}
 🏇 Trackblazer Preferred Surfaces: ${settings.scenarioOverrides?.trackblazerPreferredSurfaces?.length === 0 ? "None" : settings.scenarioOverrides?.trackblazerPreferredSurfaces?.join(", ")}
 

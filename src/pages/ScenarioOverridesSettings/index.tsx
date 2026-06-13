@@ -488,6 +488,77 @@ const ScenarioOverridesSettings = () => {
                                                 </View>
 
                                                 <View style={styles.section}>
+                                                    <Text style={{ fontSize: 16, fontWeight: "600", color: colors.foreground, marginBottom: 8 }}>Race-Forecast Megaphones</Text>
+                                                    <Text style={{ fontSize: 13, color: colors.mutedForeground, marginBottom: 12 }}>
+                                                        Force megaphone use when upcoming turns in the buff window have few effective race days. Ignores min-gain floors. Requires agenda race calendar (Racing Settings).
+                                                    </Text>
+                                                    {([
+                                                        ["Coaching", "trackblazer-coaching-megaphone-forecast", "trackblazerCoachingMegaphoneForecastEnabled", "trackblazerCoachingMegaphoneForecastMaxRaces", 4] as const,
+                                                        ["Motivating", "trackblazer-motivating-megaphone-forecast", "trackblazerMotivatingMegaphoneForecastEnabled", "trackblazerMotivatingMegaphoneForecastMaxRaces", 3] as const,
+                                                        ["Empowering", "trackblazer-empowering-megaphone-forecast", "trackblazerEmpoweringMegaphoneForecastEnabled", "trackblazerEmpoweringMegaphoneForecastMaxRaces", 2] as const,
+                                                    ]).map(([label, searchId, enableKey, maxKey, duration]) => (
+                                                        <View key={enableKey} style={{ marginBottom: 12 }}>
+                                                            <CustomCheckbox
+                                                                searchId={searchId}
+                                                                checked={scenarioOverrides[enableKey as keyof typeof scenarioOverrides] as boolean}
+                                                                onCheckedChange={(checked) => updateOverrideSetting(enableKey, checked)}
+                                                                label={`${label} Forecast (${duration}-turn window)`}
+                                                            />
+                                                            <CustomSlider
+                                                                searchId={`${searchId}-max-races`}
+                                                                value={scenarioOverrides[maxKey as keyof typeof scenarioOverrides] as number}
+                                                                onValueChange={(value) => updateOverrideSetting(maxKey, value)}
+                                                                onSlidingComplete={(value) => updateOverrideSetting(maxKey, value)}
+                                                                min={0}
+                                                                max={4}
+                                                                step={1}
+                                                                label={`${label}: force when effective races in window ≤`}
+                                                                showValue={true}
+                                                                showLabels={true}
+                                                            />
+                                                        </View>
+                                                    ))}
+                                                    <CustomCheckbox
+                                                        searchId="trackblazer-megaphone-forecast-irregular-aware"
+                                                        checked={scenarioOverrides.trackblazerMegaphoneForecastIrregularAware}
+                                                        onCheckedChange={(checked) => updateOverrideSetting("trackblazerMegaphoneForecastIrregularAware", checked)}
+                                                        label="Factor Irregular Training Into Forecast"
+                                                        description="Count agenda race days as train days when irregular is viable (item-aware, full window). Charm today → next turn counts as race."
+                                                    />
+                                                    <CustomSlider
+                                                        searchId="trackblazer-megaphone-forecast-today-failure-block"
+                                                        value={scenarioOverrides.trackblazerMegaphoneForecastTodayFailureBlock}
+                                                        onValueChange={(value) => updateOverrideSetting("trackblazerMegaphoneForecastTodayFailureBlock", value)}
+                                                        onSlidingComplete={(value) => updateOverrideSetting("trackblazerMegaphoneForecastTodayFailureBlock", value)}
+                                                        min={0}
+                                                        max={50}
+                                                        step={5}
+                                                        label="Today Failure % Blocking Tomorrow Irregular"
+                                                        showValue={true}
+                                                        showLabels={true}
+                                                    />
+                                                    <CustomCheckbox
+                                                        searchId="trackblazer-megaphone-tier-overwrite"
+                                                        checked={scenarioOverrides.trackblazerMegaphoneTierOverwriteEnabled}
+                                                        onCheckedChange={(checked) => updateOverrideSetting("trackblazerMegaphoneTierOverwriteEnabled", checked)}
+                                                        label="Allow Tier Overwrite on Base Gain"
+                                                        description="Upgrade active megaphone tier when raw gain meets threshold. Does not bypass 60% over 40% outside summer."
+                                                    />
+                                                    <CustomSlider
+                                                        searchId="trackblazer-megaphone-tier-overwrite-min-gain"
+                                                        value={scenarioOverrides.trackblazerMegaphoneTierOverwriteMinBaseGain}
+                                                        onValueChange={(value) => updateOverrideSetting("trackblazerMegaphoneTierOverwriteMinBaseGain", value)}
+                                                        onSlidingComplete={(value) => updateOverrideSetting("trackblazerMegaphoneTierOverwriteMinBaseGain", value)}
+                                                        min={0}
+                                                        max={100}
+                                                        step={5}
+                                                        label="Tier Overwrite Min Base Gain"
+                                                        showValue={true}
+                                                        showLabels={true}
+                                                    />
+                                                </View>
+
+                                                <View style={styles.section}>
                                                     <CustomSlider
                                                         searchId="trackblazer-speed-ankle-weight-min-stat-gain"
                                                         value={scenarioOverrides.trackblazerSpeedAnkleWeightMinStatGain}
@@ -699,6 +770,27 @@ const ScenarioOverridesSettings = () => {
                                                         description="Minimum Artisan Cleat Hammer inventory before the bot spends one on a G2 race. G1 is always allowed."
                                                     />
                                                 </View>
+                                                <View style={styles.section}>
+                                                    <CustomCheckbox
+                                                        searchId="trackblazer-g1-hammer-conservation"
+                                                        checked={scenarioOverrides.trackblazerG1HammerConservationEnabled}
+                                                        onCheckedChange={(checked) => updateOverrideSetting("trackblazerG1HammerConservationEnabled", checked)}
+                                                        label="Conserve Last Hammer for Upcoming G1"
+                                                        description="Do not spend last spare Artisan/Master hammer on G2/G3/below when a G1 is on the agenda calendar within the lookahead window."
+                                                    />
+                                                    <CustomSlider
+                                                        searchId="trackblazer-g1-hammer-conservation-lookahead"
+                                                        value={scenarioOverrides.trackblazerG1HammerConservationLookahead}
+                                                        onValueChange={(value) => updateOverrideSetting("trackblazerG1HammerConservationLookahead", value)}
+                                                        onSlidingComplete={(value) => updateOverrideSetting("trackblazerG1HammerConservationLookahead", value)}
+                                                        min={1}
+                                                        max={15}
+                                                        step={1}
+                                                        label="G1 Lookahead Turns"
+                                                        showValue={true}
+                                                        showLabels={true}
+                                                    />
+                                                </View>
 
                                                 <View style={styles.section}>
                                                     <CustomSlider
@@ -809,6 +901,33 @@ const ScenarioOverridesSettings = () => {
                                                     </View>
                                                     <View style={styles.section}>
                                                         <CustomCheckbox
+                                                            searchId="trackblazer-enable-irregular-training-energy-items"
+                                                            checked={scenarioOverrides.trackblazerEnableIrregularTrainingEnergyItems}
+                                                            onCheckedChange={(checked) => updateOverrideSetting("trackblazerEnableIrregularTrainingEnergyItems", checked)}
+                                                            label="Enable Energy Items in Irregular Training"
+                                                            description="Allow Vita/Kale energy mitigation when evaluating and executing irregular training."
+                                                        />
+                                                    </View>
+                                                    <View style={styles.section}>
+                                                        <CustomCheckbox
+                                                            searchId="trackblazer-enable-irregular-forecast-energy-items"
+                                                            checked={scenarioOverrides.trackblazerEnableIrregularForecastEnergyItems}
+                                                            onCheckedChange={(checked) => updateOverrideSetting("trackblazerEnableIrregularForecastEnergyItems", checked)}
+                                                            label="Enable Energy Items in Irregular Forecast"
+                                                            description="Allow megaphone race-forecast window simulation to assume energy mitigation on future irregular days."
+                                                        />
+                                                    </View>
+                                                    <View style={styles.section}>
+                                                        <CustomCheckbox
+                                                            searchId="trackblazer-revalidate-training-after-items"
+                                                            checked={scenarioOverrides.trackblazerRevalidateTrainingAfterItems}
+                                                            onCheckedChange={(checked) => updateOverrideSetting("trackblazerRevalidateTrainingAfterItems", checked)}
+                                                            label="Revalidate Training After Item Usage"
+                                                            description="When enabled, always re-analyze training after the item pass. Reset Whistle always forces recheck regardless."
+                                                        />
+                                                    </View>
+                                                    <View style={styles.section}>
+                                                        <CustomCheckbox
                                                             searchId="trackblazer-enable-irregular-training-with-agenda"
                                                             checked={scenarioOverrides.trackblazerEnableIrregularTrainingWithAgenda}
                                                             onCheckedChange={(checked) => updateOverrideSetting("trackblazerEnableIrregularTrainingWithAgenda", checked)}
@@ -863,7 +982,9 @@ const ScenarioOverridesSettings = () => {
                                                                 ))}
                                                             </View>
                                                         </View>
-                                                        <AgendaIrregularScheduleEditor updateOverrideSetting={updateOverrideSetting} />
+                                                        <Text style={{ fontSize: 13, color: colors.mutedForeground, marginBottom: 12 }}>
+                                                            Agenda race calendar (autofill / manual schedule) is configured under Racing Settings when user agenda is enabled.
+                                                        </Text>
                                                         </>
                                                     )}
                                                     </>

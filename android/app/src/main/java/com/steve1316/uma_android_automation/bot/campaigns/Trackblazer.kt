@@ -13,6 +13,7 @@ import com.steve1316.uma_android_automation.bot.SelectionSource
 import com.steve1316.uma_android_automation.bot.Training as TrainingBot
 import com.steve1316.uma_android_automation.bot.solver.SmartRaceSolverIntegration
 import com.steve1316.uma_android_automation.utils.AgendaIrregularSchedule
+import com.steve1316.uma_android_automation.utils.MegaphoneForecast
 import com.steve1316.uma_android_automation.components.ButtonBack
 import com.steve1316.uma_android_automation.components.ButtonCancel
 import com.steve1316.uma_android_automation.components.ButtonClose
@@ -249,6 +250,9 @@ class Trackblazer(game: Game) : Campaign(game) {
     /** True when this turn has a mapped agenda race in the irregular schedule (ready state). */
     private var bAgendaIrregularRaceTurnThisTurn: Boolean = false
 
+    /** When set, race-forecast logic forces this megaphone type (bypasses min-gain floors). */
+    private var forecastForcedMegaphone: String? = null
+
     /** When set, the next decision should race instead of training after agenda irregular did not qualify. */
     private var bForceRaceAfterAgendaIrregularSkip: Boolean = false
 
@@ -399,6 +403,54 @@ class Trackblazer(game: Game) : Campaign(game) {
      */
     private val irregularTrainingIncludeActiveMegaphoneBonus: Boolean =
         SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerIrregularTrainingIncludeActiveMegaphoneBonus", false)
+
+    /** When enabled, irregular execution/evaluation may use energy items for high-failure mitigation. */
+    private val enableIrregularTrainingEnergyItems: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableIrregularTrainingEnergyItems", false)
+
+    /** When enabled, megaphone forecast window simulation may assume energy mitigation on future irregular days. */
+    private val enableIrregularForecastEnergyItems: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEnableIrregularForecastEnergyItems", true)
+
+    /** When enabled, always re-analyze training after the item pass (Reset Whistle always rechecks regardless). */
+    private val revalidateTrainingAfterItems: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerRevalidateTrainingAfterItems", false)
+
+    private val coachingMegaphoneForecastEnabled: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerCoachingMegaphoneForecastEnabled", false)
+
+    private val coachingMegaphoneForecastMaxRaces: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerCoachingMegaphoneForecastMaxRaces", 0)
+
+    private val motivatingMegaphoneForecastEnabled: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerMotivatingMegaphoneForecastEnabled", false)
+
+    private val motivatingMegaphoneForecastMaxRaces: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerMotivatingMegaphoneForecastMaxRaces", 1)
+
+    private val empoweringMegaphoneForecastEnabled: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerEmpoweringMegaphoneForecastEnabled", false)
+
+    private val empoweringMegaphoneForecastMaxRaces: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerEmpoweringMegaphoneForecastMaxRaces", 0)
+
+    private val megaphoneForecastIrregularAware: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerMegaphoneForecastIrregularAware", true)
+
+    private val megaphoneForecastTodayFailureBlock: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerMegaphoneForecastTodayFailureBlock", 10)
+
+    private val megaphoneTierOverwriteEnabled: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerMegaphoneTierOverwriteEnabled", false)
+
+    private val megaphoneTierOverwriteMinBaseGain: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerMegaphoneTierOverwriteMinBaseGain", 30)
+
+    private val g1HammerConservationEnabled: Boolean =
+        SettingsHelper.getBooleanSetting("scenarioOverrides", "trackblazerG1HammerConservationEnabled", false)
+
+    private val g1HammerConservationLookahead: Int =
+        SettingsHelper.getIntSetting("scenarioOverrides", "trackblazerG1HammerConservationLookahead", 5)
 
     /**
      * When enabled, conserve a pooled stock of Good-Luck Charm + Vita 65 + Royal Kale Juice during Senior pre-Finale (65–72)
@@ -630,7 +682,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         mainGain: Int,
         ignorePoolReserve: Boolean,
     ): Boolean {
-        if (!enableEnergyItemForHighFailureTraining || bUsedCharmToday || !isFailureMitigationEnergyItem(itemName)) {
+        if (!enableIrregularTrainingEnergyItems || bUsedCharmToday || !isFailureMitigationEnergyItem(itemName)) {
             return false
         }
         if (itemName == "Royal Kale Juice" && !kaleJuiceMoodGateMet(currentInventory)) {
@@ -680,7 +732,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         mainGain: Int,
         ignorePoolReserve: Boolean,
     ): FailureMitigationEnergyTier? {
-        if (!enableEnergyItemForHighFailureTraining || bUsedCharmToday) return null
+        if (!enableIrregularTrainingEnergyItems || bUsedCharmToday) return null
         if (qualifiesForIrregularHighFailureEnergyItem("Royal Kale Juice", failureChance, mainGain, ignorePoolReserve)) {
             return FailureMitigationEnergyTier.KALE_100
         }
@@ -1522,15 +1574,26 @@ class Trackblazer(game: Game) : Campaign(game) {
         trainee: Trainee,
         inventory: Map<String, Int>,
     ): FailureMitigationChoice {
-        if (!enableEnergyItemForHighFailureTraining || date.day < 13 || bUsedCharmToday) {
+        if (date.day < 13 || bUsedCharmToday) {
             return FailureMitigationChoice.NONE
+        }
+        val energyMitigationEnabled =
+            if (bIsIrregularTraining) {
+                enableIrregularTrainingEnergyItems
+            } else {
+                enableEnergyItemForHighFailureTraining
+            }
+
+        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        val charmMitigationQualifies = charmEligibleForFailureMitigation(trainingSelected, trainee, failureChance, inventory)
+
+        if (!energyMitigationEnabled) {
+            return if (charmMitigationQualifies) FailureMitigationChoice.CHARM else FailureMitigationChoice.NONE
         }
 
         val highTierQualifies = highTierFailureMitigationEnergyQualifies(trainingSelected, inventory)
         val lowTierQualifies = lowTierFailureMitigationEnergyQualifies(trainingSelected, inventory)
         val energyQualifies = highTierQualifies || lowTierQualifies
-        val failureChance = training.trainingMap[trainingSelected]?.failureChance ?: 0
-        val charmMitigationQualifies = charmEligibleForFailureMitigation(trainingSelected, trainee, failureChance, inventory)
 
         if (!energyQualifies && !charmMitigationQualifies) {
             return FailureMitigationChoice.NONE
@@ -2200,7 +2263,7 @@ class Trackblazer(game: Game) : Campaign(game) {
             }
 
             "career_complete" -> {
-                if (enableIrregularTrainingWithAgenda && racing.enableUserInGameRaceAgenda && AgendaIrregularSchedule.isAutofillEnabled()) {
+                if (racing.enableUserInGameRaceAgenda && AgendaIrregularSchedule.isAutofillEnabled()) {
                     AgendaIrregularSchedule.markScheduleReady(game.myContext, racing.getAgendaScheduleKey())
                 }
                 result.dialog.close(game.imageUtils)
@@ -2777,6 +2840,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         bHasCheckedIrregularTrainingThisTurn = false
         bAgendaIrregularRaceTurnThisTurn = false
         bForceRaceAfterAgendaIrregularSkip = false
+        forecastForcedMegaphone = null
         megaphoneDecrementedThisTurn = false
         bCompletedTrainingThisTurn = false
         bTrainingBlockedThisTurn = false
@@ -3482,7 +3546,9 @@ class Trackblazer(game: Game) : Campaign(game) {
             val preItemMainGain = preItemMainGainFor(selected)
             useItems(trainee, selected)
             val needsRecheckAfterItems =
-                bUsedCharmToday ||
+                revalidateTrainingAfterItems ||
+                    bUsedWhistleToday ||
+                    bUsedCharmToday ||
                     bUsedEnergyItemThisPass ||
                     (
                         selected != null &&
@@ -3813,11 +3879,12 @@ class Trackblazer(game: Game) : Campaign(game) {
                 masterHammerCount = masterHammerCount,
                 grade = grade,
                 finaleReserve = masterHammerFinaleReserve,
-            )
+            ) && !shouldConserveHammerForUpcomingG1(grade, "Master Cleat Hammer")
 
         // Artisan Hammer Logic. Per-grade stock floors apply only from Turn `raceItemConservationStartDay` onward.
         val canUseArtisanHammer =
             artisanHammerCount > 0 &&
+                !shouldConserveHammerForUpcomingG1(grade, "Artisan Cleat Hammer") &&
                 when (grade) {
                     RaceGrade.G1 -> true
                     RaceGrade.G2 -> !conservationActive || artisanHammerCount >= maxOf(1, artisanMinStockForG2)
@@ -3906,6 +3973,7 @@ class Trackblazer(game: Game) : Campaign(game) {
             if (!bStatSpecificItemsOnlyPass) {
                 failureMitigationChoiceForPass = resolveFailureMitigationChoice(trainingSelected, trainee, currentInventory)
                 preReconcileCharmMitigationIfBlocked(trainingSelected, trainee)
+                resolveForecastForcedMegaphone(trainingSelected)
             }
         }
         val initialEnergy = trainee?.energy ?: 0
@@ -4833,10 +4901,15 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (isMegaphoneSurplusBurnMode(inventory) && itemName == "Empowering Megaphone") {
             return false
         }
+        val tierOverwrite =
+            megaphoneTierOverwriteEnabled &&
+                trainingSelected != null &&
+                tierOverwriteAllowsMegaphone(itemName, trainingSelected, trainee)
         return when (itemName) {
             "Empowering Megaphone" ->
                 when {
                     trainee.megaphoneTurnCounter == 0 -> true
+                    tierOverwrite && trainee.activeMegaphoneType != "Empowering Megaphone" -> true
                     trainee.activeMegaphoneType == "Empowering Megaphone" -> false
                     date.isSummer() -> true
                     else -> trainee.activeMegaphoneType != "Motivating Megaphone"
@@ -4844,6 +4917,7 @@ class Trackblazer(game: Game) : Campaign(game) {
             "Motivating Megaphone" ->
                 when {
                     trainee.megaphoneTurnCounter == 0 -> true
+                    tierOverwrite && trainee.activeMegaphoneType == "Coaching Megaphone" -> true
                     isMegaphoneSurplusBurnMode(inventory) &&
                         trainee.activeMegaphoneType == "Coaching Megaphone" &&
                         trainingSelected != null -> {
@@ -4856,7 +4930,269 @@ class Trackblazer(game: Game) : Campaign(game) {
                     }
                     else -> false
                 }
-            else -> trainee.megaphoneTurnCounter == 0
+            else -> trainee.megaphoneTurnCounter == 0 || tierOverwrite
+        }
+    }
+
+    /** Whether tier-overwrite allows queuing [itemName] over an active lower-tier megaphone (base gain gate). */
+    private fun tierOverwriteAllowsMegaphone(itemName: String, trainingSelected: StatName, trainee: Trainee): Boolean {
+        if (megaphoneTierOverwriteMinBaseGain <= 0) return false
+        if (
+            itemName == "Empowering Megaphone" &&
+                trainee.megaphoneTurnCounter > 0 &&
+                trainee.activeMegaphoneType == "Motivating Megaphone" &&
+                !date.isSummer()
+        ) {
+            return false
+        }
+        val baseGain = irregularBaseMainGainFor(trainingSelected)
+        if (baseGain < megaphoneTierOverwriteMinBaseGain) {
+            return false
+        }
+        return when (itemName) {
+            "Empowering Megaphone" ->
+                trainee.activeMegaphoneType == "Motivating Megaphone" || trainee.activeMegaphoneType == "Coaching Megaphone"
+            "Motivating Megaphone" -> trainee.activeMegaphoneType == "Coaching Megaphone"
+            "Coaching Megaphone" -> false
+            else -> false
+        }
+    }
+
+    private data class MegaphoneForecastTypeConfig(val enabled: Boolean, val maxRaces: Int)
+
+    private fun megaphoneForecastConfigFor(itemName: String): MegaphoneForecastTypeConfig? =
+        when (itemName) {
+            "Coaching Megaphone" ->
+                MegaphoneForecastTypeConfig(coachingMegaphoneForecastEnabled, coachingMegaphoneForecastMaxRaces)
+            "Motivating Megaphone" ->
+                MegaphoneForecastTypeConfig(motivatingMegaphoneForecastEnabled, motivatingMegaphoneForecastMaxRaces)
+            "Empowering Megaphone" ->
+                MegaphoneForecastTypeConfig(empoweringMegaphoneForecastEnabled, empoweringMegaphoneForecastMaxRaces)
+            else -> null
+        }
+
+    /** Evaluates race-forecast megaphone rules and may set [forecastForcedMegaphone]. */
+    private fun resolveForecastForcedMegaphone(trainingSelected: StatName) {
+        forecastForcedMegaphone = null
+        if (date.day < 13) return
+        val agendaName = racing.getAgendaScheduleKey()
+        if (!AgendaIrregularSchedule.isScheduleReady(agendaName)) {
+            return
+        }
+        if (!forecastTrainingViableToday(trainingSelected)) {
+            return
+        }
+
+        val schedule = AgendaIrregularSchedule.loadSchedule(agendaName)?.turns ?: return
+        val candidates =
+            listOf("Empowering Megaphone", "Motivating Megaphone", "Coaching Megaphone")
+                .mapNotNull { name ->
+                    val cfg = megaphoneForecastConfigFor(name) ?: return@mapNotNull null
+                    if (!cfg.enabled) return@mapNotNull null
+                    name to cfg
+                }
+
+        for ((itemName, cfg) in candidates) {
+            val duration = MegaphoneForecast.megaphoneDuration(itemName)
+            if (duration <= 0) continue
+            val turnContexts = buildForecastTurnContexts(trainingSelected, duration, schedule)
+            val config = buildMegaphoneForecastConfig(trainingSelected)
+            val simInventory = buildForecastSimulatedInventory()
+            val raceCount =
+                MegaphoneForecast.effectiveRaceCountInWindow(
+                    currentTurn = date.day,
+                    duration = duration,
+                    turnContexts = turnContexts,
+                    config = config,
+                    inventory = simInventory,
+                    maxTrainingFailureThreshold = training.getMaximumFailureChance(),
+                )
+            if (raceCount <= cfg.maxRaces &&
+                isMegaphoneEligibleForUse(itemName, trainingSelected, currentInventory, trainee) &&
+                canQueueMegaphone(itemName, trainee, trainingSelected, currentInventory)
+            ) {
+                forecastForcedMegaphone = itemName
+                MessageLog.i(
+                    TAG,
+                    "[TRACKBLAZER] Race-forecast forcing $itemName: $raceCount effective race(s) in ${duration}-turn window (threshold <= ${cfg.maxRaces}).",
+                )
+                return
+            }
+        }
+    }
+
+    private fun forecastTrainingViableToday(trainingSelected: StatName): Boolean {
+        if (bIsIrregularTraining) {
+            return true
+        }
+        val failure = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        val mainGain = selectedTrainingMainGain(trainingSelected, trainee)
+        if (failureMitigationChoiceForPass == FailureMitigationChoice.CHARM ||
+            (bUsedCharmToday && !bUsedEnergyItemThisPass)
+        ) {
+            return false
+        }
+        if (!training.exceedsFailureThreshold(failure, mainGain)) {
+            return true
+        }
+        if (failureMitigationChoiceForPass == FailureMitigationChoice.ENERGY || bUsedEnergyItemThisPass) {
+            return true
+        }
+        if (bIsIrregularTraining && enableIrregularTrainingEnergyItems) {
+            return energyMitigationAvailableForIrregular(trainingSelected, failure, mainGain)
+        }
+        return false
+    }
+
+    private fun buildMegaphoneForecastConfig(trainingSelected: StatName): MegaphoneForecast.Config {
+        val failure = training.trainingMap[trainingSelected]?.failureChance ?: 0
+        val energyQueued =
+            failureMitigationChoiceForPass == FailureMitigationChoice.ENERGY ||
+                bUsedEnergyItemThisPass ||
+                failureMitigationEnergyQueuedCounts.isNotEmpty()
+        return MegaphoneForecast.Config(
+            irregularAware = megaphoneForecastIrregularAware,
+            enableIrregularForecastEnergy = enableIrregularForecastEnergyItems,
+            enableWitIrregularTraining = enableWitIrregularTraining,
+            todayFailureBlockThreshold = megaphoneForecastTodayFailureBlock,
+            summerCharmOverrideMinStatGain = summerCharmOverrideMinStatGain,
+            charmUsedOnToday = bUsedCharmToday || failureMitigationChoiceForPass == FailureMitigationChoice.CHARM,
+            energyUsedOnToday = energyQueued,
+            todayFailurePercent = failure,
+            todayTrainingIsWit = trainingSelected == StatName.WIT,
+            classicPlus = date.year > DateYear.JUNIOR,
+            irregularEnabled = enableIrregularTraining,
+            irregularAgendaReady = AgendaIrregularSchedule.isScheduleReady(racing.getAgendaScheduleKey()),
+        )
+    }
+
+    private fun buildForecastSimulatedInventory(): MegaphoneForecast.SimulatedInventory {
+        val inventory = currentInventory
+        val charmTotal = inventory["Good-Luck Charm"] ?: 0
+        val poolAtReserve =
+            isFailureMitigationPoolReservationPeriod() &&
+                failureMitigationPoolTotal(inventory) <= failureMitigationPoolReserve
+        val charmAbove =
+            if (poolAtReserve) {
+                0
+            } else {
+                charmTotal
+            }
+        val charmAtReserve = if (poolAtReserve) charmTotal else 0
+        return MegaphoneForecast.SimulatedInventory(
+            charmAboveReserve = charmAbove,
+            kaleAboveReserve = usableForecastEnergyUnits("Royal Kale Juice"),
+            vita65AboveReserve = usableForecastEnergyUnits("Vita 65"),
+            vita40AboveReserve = usableForecastEnergyUnits("Vita 40"),
+            vita20AboveReserve = usableForecastEnergyUnits("Vita 20"),
+            charmAtReserveOnly = charmAtReserve,
+            charmTotal = charmTotal,
+        )
+    }
+
+    /** Energy units available for forecast simulation (above reserve floors, not committed this turn). */
+    private fun usableForecastEnergyUnits(itemName: String): Int {
+        var count = (currentInventory[itemName] ?: 0) - reservedEnergyUnitsFor(itemName, currentInventory)
+        if (
+            isHighTierFailureMitigationEnergyItem(itemName) &&
+                isFailureMitigationPoolReservationPeriod() &&
+                failureMitigationPoolTotal(currentInventory) <= failureMitigationPoolReserve
+        ) {
+            count = 0
+        }
+        failureMitigationEnergyQueuedCounts[itemName]?.let { count -= it }
+        return count.coerceAtLeast(0)
+    }
+
+    private fun buildForecastTurnContexts(
+        trainingSelected: StatName,
+        duration: Int,
+        schedule: Map<Int, String>,
+    ): Map<Int, MegaphoneForecast.TurnContext> {
+        val cached = training.cachedAnalysisResults
+        return MegaphoneForecast.buildTurnContextsFromSchedule(
+            currentTurn = date.day,
+            duration = duration,
+            scheduledTurns = schedule,
+            gradeForTurn = { turn, raceKey ->
+                AgendaIrregularSchedule.lookupGradeForRaceKey(game.myContext, turn, raceKey)
+            },
+            minGainForTurn = { turn -> resolveIrregularMinGainForAgendaTurn(turn) },
+            failureForTurn = { turn ->
+                cached?.firstOrNull { it.name == trainingSelected && turn == date.day + 1 }?.failureChance
+                    ?: if (turn == date.day + 1) {
+                        training.trainingMap[trainingSelected]?.failureChance ?: 35
+                    } else {
+                        35
+                    }
+            },
+            mainGainForTurn = { turn ->
+                cached?.firstOrNull { it.name == trainingSelected && turn == date.day + 1 }?.statGains?.get(trainingSelected)
+                    ?: if (turn == date.day + 1) {
+                        irregularBaseMainGainFor(trainingSelected)
+                    } else {
+                        resolveIrregularMinGainForAgendaTurn(turn)
+                    }
+            },
+            witForTurn = { turn -> enableWitIrregularTraining && turn == date.day + 1 },
+        )
+    }
+
+    private fun resolveIrregularMinGainForAgendaTurn(turn: Int): Int {
+        racing.resolveUniqueRaceIrregularMinStatGainForTurn(turn)?.let { return it }
+        val agendaName = racing.getAgendaScheduleKey()
+        val raceKey = AgendaIrregularSchedule.getRaceKeyForTurn(agendaName, turn)
+        val gradeName =
+            raceKey?.let { AgendaIrregularSchedule.lookupGradeForRaceKey(game.myContext, turn, it)?.name }
+                ?: racing.getPrimaryRaceGradeAtTurn(turn)?.name
+        gradeName?.let { irregularMinGainByGrade[resolveIrregularMinGainGradeKey(it)] }?.let { return it }
+        return minIrregularGain
+    }
+
+    private fun hasUpcomingG1OnAgenda(withinTurns: Int): Boolean {
+        val agendaName = racing.getAgendaScheduleKey()
+        if (!AgendaIrregularSchedule.isScheduleReady(agendaName)) {
+            return false
+        }
+        val schedule = AgendaIrregularSchedule.loadSchedule(agendaName)?.turns ?: return false
+        for (offset in 1..withinTurns) {
+            val turn = date.day + offset
+            val raceKey = schedule[turn] ?: continue
+            val grade = AgendaIrregularSchedule.lookupGradeForRaceKey(game.myContext, turn, raceKey)
+            if (grade == RaceGrade.G1) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun shouldConserveHammerForUpcomingG1(grade: RaceGrade, hammerName: String): Boolean {
+        if (!g1HammerConservationEnabled || g1HammerConservationLookahead <= 0) {
+            return false
+        }
+        if (grade == RaceGrade.G1) {
+            return false
+        }
+        if (!hasUpcomingG1OnAgenda(g1HammerConservationLookahead)) {
+            return false
+        }
+        return when (hammerName) {
+            "Artisan Cleat Hammer" -> {
+                val count = currentInventory["Artisan Cleat Hammer"] ?: 0
+                val conservationActive = date.day >= raceItemConservationStartDay
+                when (grade) {
+                    RaceGrade.G2 ->
+                        conservationActive && count <= maxOf(1, artisanMinStockForG2)
+                    RaceGrade.G3 ->
+                        conservationActive && count <= maxOf(1, artisanMinStockForG3)
+                    else -> count <= 1
+                }
+            }
+            "Master Cleat Hammer" -> {
+                val count = currentInventory["Master Cleat Hammer"] ?: 0
+                Companion.spareMasterCleatHammers(count, masterHammerFinaleReserve) <= 1
+            }
+            else -> false
         }
     }
 
@@ -4897,6 +5233,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         trainee: Trainee? = null,
     ): Boolean {
         if (trainingSelected == null) return true
+        if (forecastForcedMegaphone == itemName) return false
         if (shouldSkipIrregularStatItemForBaseGainGate(trainingSelected)) {
             MessageLog.i(
                 TAG,
@@ -4991,6 +5328,7 @@ class Trackblazer(game: Game) : Campaign(game) {
         if (trainingSelected != null) {
             failureMitigationChoiceForPass = resolveFailureMitigationChoice(trainingSelected, trainee, currentInventory)
             preReconcileCharmMitigationIfBlocked(trainingSelected, trainee)
+            resolveForecastForcedMegaphone(trainingSelected)
         } else {
             failureMitigationChoiceForPass = FailureMitigationChoice.NONE
         }

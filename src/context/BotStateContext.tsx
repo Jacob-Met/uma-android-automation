@@ -270,7 +270,22 @@ export interface Settings {
         trackblazerIrregularTrainingMinStatGain: number
         trackblazerEnableWitIrregularTraining: boolean
         trackblazerIrregularTrainingIncludeActiveMegaphoneBonus: boolean
+        trackblazerEnableIrregularTrainingEnergyItems: boolean
+        trackblazerEnableIrregularForecastEnergyItems: boolean
+        trackblazerRevalidateTrainingAfterItems: boolean
         trackblazerIrregularTrainingMinStatGainByGrade: string
+        trackblazerCoachingMegaphoneForecastEnabled: boolean
+        trackblazerCoachingMegaphoneForecastMaxRaces: number
+        trackblazerMotivatingMegaphoneForecastEnabled: boolean
+        trackblazerMotivatingMegaphoneForecastMaxRaces: number
+        trackblazerEmpoweringMegaphoneForecastEnabled: boolean
+        trackblazerEmpoweringMegaphoneForecastMaxRaces: number
+        trackblazerMegaphoneForecastIrregularAware: boolean
+        trackblazerMegaphoneForecastTodayFailureBlock: number
+        trackblazerMegaphoneTierOverwriteEnabled: boolean
+        trackblazerMegaphoneTierOverwriteMinBaseGain: number
+        trackblazerG1HammerConservationEnabled: boolean
+        trackblazerG1HammerConservationLookahead: number
         trackblazerEnableIrregularTrainingWithAgenda: boolean
         trackblazerEnableIrregularTrainingAgendaPreDebut: boolean
         trackblazerEnableIrregularTrainingAgendaPreOp: boolean
@@ -601,7 +616,22 @@ export const defaultSettings: Settings = {
         trackblazerIrregularTrainingMinStatGain: 30,
         trackblazerEnableWitIrregularTraining: false,
         trackblazerIrregularTrainingIncludeActiveMegaphoneBonus: false,
+        trackblazerEnableIrregularTrainingEnergyItems: false,
+        trackblazerEnableIrregularForecastEnergyItems: true,
+        trackblazerRevalidateTrainingAfterItems: false,
         trackblazerIrregularTrainingMinStatGainByGrade: '{"G1":30,"G2":30,"G3":30}',
+        trackblazerCoachingMegaphoneForecastEnabled: false,
+        trackblazerCoachingMegaphoneForecastMaxRaces: 0,
+        trackblazerMotivatingMegaphoneForecastEnabled: false,
+        trackblazerMotivatingMegaphoneForecastMaxRaces: 1,
+        trackblazerEmpoweringMegaphoneForecastEnabled: false,
+        trackblazerEmpoweringMegaphoneForecastMaxRaces: 0,
+        trackblazerMegaphoneForecastIrregularAware: true,
+        trackblazerMegaphoneForecastTodayFailureBlock: 10,
+        trackblazerMegaphoneTierOverwriteEnabled: false,
+        trackblazerMegaphoneTierOverwriteMinBaseGain: 30,
+        trackblazerG1HammerConservationEnabled: false,
+        trackblazerG1HammerConservationLookahead: 5,
         trackblazerEnableIrregularTrainingWithAgenda: false,
         trackblazerEnableIrregularTrainingAgendaPreDebut: false,
         trackblazerEnableIrregularTrainingAgendaPreOp: false,

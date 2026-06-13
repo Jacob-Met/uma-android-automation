@@ -64,7 +64,13 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 - **Ankle weight gates** — per-stat min gain (Speed/Stamina/Power/Guts), summer reserve count
 - **Low mood item floor** — refuses whistle/charm/megaphone when BAD/AWFUL mood caps returns
 - **High-failure energy train path** — Vita tier thresholds above max fail %, energy-item dialog gating when mitigation is NONE
-- **Irregular training** — optional pre-screen on race-prep days with min-gain filter
+- **Irregular training** — optional pre-screen on race-prep days with min-gain filter; agenda-linked schedules; Wit sweep; megaphone-aware irregular gain
+- **Agenda race calendar** — per-agenda turn→race map (Racing Settings); autofill decoupled from irregular; powers forecast + hammer conservation
+- **Race-forecast megaphones** — force megaphone when effective race count in buff window ≤ threshold; full-window item-aware irregular simulation; ignores min-gain
+- **Irregular energy toggles** — separate execution vs forecast simulation; combo energy over reserves (3×+20, +40+20 = +65)
+- **Tier overwrite** — upgrade megaphone tier on base gain (respects 60%/40% outside summer)
+- **G1 hammer conservation** — spare last Artisan/Master when G1 upcoming on agenda
+- **Revalidate after items** — optional always recheck after item pass (whistle always rechecks)
 - **Finals failure-filter bypass** — trains during Finale even above normal fail thresholds when selected
 - **GUTS min-gain parity** — charm low-gain rules apply consistently across all stats including Guts
 
@@ -103,6 +109,15 @@ If you need upstream 5.7.3 features, use the official app. If you want this fork
 - **Custom app label** — “ウマ娘 Android Automation (Custom)” in launcher
 
 ---
+
+## Recent changes (custom branch — post 1.0.3)
+
+- **Agenda race calendar** moved to Racing Settings; autofill records whenever user agenda is enabled
+- **Race-forecast megaphones** with per-type thresholds and irregular-aware full-window simulation
+- **Irregular energy** split into execution vs forecast toggles
+- **G1 hammer conservation** for last spare Artisan/Master before upcoming G1 races
+- **Revalidate training after items** (default off; Reset Whistle always rechecks)
+- **Megaphone tier overwrite** on base gain (does not bypass summer 60/40 rule)
 
 ## Recent changes (1.0.3)
 
